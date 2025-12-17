@@ -7,7 +7,7 @@
 ## What is it?
 This is a small project in which I created rendering and full interaction with sdf primitives. Using `Python, GLSL, Imgui, glfw, pyopengl`.
 
-I had more than just AI, cursor, copilot, and chat gpt help me make it. I admit, it wasn't as colorful as I imagined. See the "About" section below.
+The cursor, co-pilot, and gpt chat helped me bring the idea to life. I admit, it wasn't as colorful as I imagined. See the "About" section below.
 
 Despite all the difficulties, **I am happy with the result**.
 
