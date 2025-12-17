@@ -62,7 +62,7 @@ Goal: Create an MVP! But to achieve this, functionality is key. Look at the plan
 It's all because of this [article](https://iquilezles.org/articles/smin/)! I was inspired by creating a character using SDF, which makes creating a stylized character much easier. No sculpting! Just 10-20 primitives – and the model is ready.
 
 ## How I did it?
-I decided to create an editor. But I only knew Python and Glsl. So I decided to build an MVP using AI. I used chat gpt, copilot and cursor, but it's not that simple. I was able to create the most difficult thing for me - the user interface and rendering on sdf.
+I decided to create an editor. But I only knew Python and Glsl. So I decided to build an MVP using AI. I used chat gpt, copilot and cursor, but it's not that simple. I was able to create the most difficult thing for me - the user interface and SDF rendering.
 
 But soon, I ran out of free space (a common occurrence). I realized the app was quite simple, but there was a lot of code! I spent several weeks studying and refactoring it. Then I learned about cursor. I submitted a request to him to create a more advanced editor. And he changed everything...
 
@@ -71,6 +71,8 @@ I reached my limits. I spent another month refining the code (or rather, studyin
 **I learned my lesson that AI isn't the best assistant** (or maybe I'm just a bad developer).
 
 **But it was cool**. Studying and fixing code three times (there were a lot of errors!!!), which does roughly the same thing, was fascinating.
+
+It took me 2 months to create the project
 
 ---
 
