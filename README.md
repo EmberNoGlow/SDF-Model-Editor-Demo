@@ -30,7 +30,7 @@ If you find a bug or want to suggest an improvement, open a new issue or even Pu
 
 ---
 
-### Founded bugs:
+### Bugs found:
 1. Cone and Plane don't work.
 2. When changing the rendering scale, the screen shifts.
 3. And more, more small bugs...
