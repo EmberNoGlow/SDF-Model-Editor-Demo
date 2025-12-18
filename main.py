@@ -1114,6 +1114,7 @@ def main():
                         # Position
                         changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
                         if changed:
+                            success, new_uniforms = recompile_shader() # Fixed: UnboundLocalError
                             if success:
                                 uniform_locs = new_uniforms
                         
