@@ -137,46 +137,78 @@ class SDFOperation:
         self.ui_name = ui_name or operation_type
 
     def generate_code(self, op_id):
-        if self.operation_type == "sunion":
-            d_a, d_b, k = self.args
-            col_a = f"col{d_a}"
-            col_b = f"col{d_b}"
-            return f"float {op_id} = SmoothUnion({d_a}, {d_b}, {k});\n    vec3 col{op_id} = mixColorSmooth({col_a}, {col_b}, {d_a}, {d_b}, {k});"
-        elif self.operation_type == "ssub":
-            d_a, d_b, k = self.args
-            col_a = f"col{d_a}"
-            col_b = f"col{d_b}"
-            return f"float {op_id} = SmoothSubtraction({d_a}, {d_b}, {k});\n    vec3 col{op_id} = mixColorSmooth({col_a}, {col_b}, {d_a}, {d_b}, {k});"
-        elif self.operation_type == "sinter":
-            d_a, d_b, k = self.args
-            col_a = f"col{d_a}"
-            col_b = f"col{d_b}"
-            return f"float {op_id} = SmoothIntersection({d_a}, {d_b}, {k});\n    vec3 col{op_id} = mixColorSmooth({col_a}, {col_b}, {d_a}, {d_b}, {k});"
-        elif self.operation_type == "invert":
-            d_a = self.args[0]
-            col_a = f"col{d_a}"
-            return f"float {op_id} = invert({d_a});\n    vec3 col{op_id} = {col_a};"
-        elif self.operation_type == "sub":
-            d_a, d_b = self.args
-            col_a = f"col{d_a}"
-            return f"float {op_id} = Subtraction({d_a}, {d_b});\n    vec3 col{op_id} = {col_a};"
-        elif self.operation_type == "union":
-            d_a, d_b = self.args
-            col_a = f"col{d_a}"
-            col_b = f"col{d_b}"
-            return f"float {op_id} = Union({d_a}, {d_b});\n    vec3 col{op_id} = ({d_a} < {d_b}) ? {col_a} : {col_b};"    
-        elif self.operation_type == "inter":
-            d_a, d_b = self.args
-            col_a = f"col{d_a}"
-            col_b = f"col{d_b}"
-            return f"float {op_id} = Intersection({d_a}, {d_b});\n    vec3 col{op_id} = ({d_a} > {d_b}) ? {col_a} : {col_b};"  
-        elif self.operation_type == "xor":
-            d_a, d_b = self.args
-            col_a = f"col{d_a}"
-            col_b = f"col{d_b}"
-            return f"float {op_id} = Xor({d_a}, {d_b});\n    vec3 col{op_id} = (abs({d_a}) < abs({d_b})) ? {col_a} : {col_b};"  
-        else:
+        OPERATION_TEMPLATES = {
+            "sunion": {
+                "dist_template": "float {op_id} = SmoothUnion({d_a}, {d_b}, {k});",
+                "color_template": "vec3 col{op_id} = mixColorSmooth({col_a_name}, {col_b_name}, {d_a}, {d_b}, {k});",
+                "unpack": lambda args: (args[0], args[1], args[2]),
+            },
+            "ssub": {
+                "dist_template": "float {op_id} = SmoothSubtraction({d_a}, {d_b}, {k});",
+                "color_template": "vec3 col{op_id} = mixColorSmooth({col_a_name}, {col_b_name}, {d_a}, {d_b}, {k});",
+                "unpack": lambda args: (args[0], args[1], args[2]),
+            },
+            "sinter": {
+                "dist_template": "float {op_id} = SmoothIntersection({d_a}, {d_b}, {k});",
+                "color_template": "vec3 col{op_id} = mixColorSmooth({col_a_name}, {col_b_name}, {d_a}, {d_b}, {k});",
+                "unpack": lambda args: (args[0], args[1], args[2]),
+            },
+            "invert": {
+                "dist_template": "float {op_id} = invert({d_a});",
+                "color_template": "vec3 col{op_id} = {col_a_name};",
+                "unpack": lambda args: (args[0],),
+            },
+            "sub": {
+                "dist_template": "float {op_id} = Subtraction({d_a}, {d_b});",
+                "color_template": "vec3 col{op_id} = {col_a_name};",
+                "unpack": lambda args: (args[0], args[1]),
+            },
+            "union": {
+                "dist_template": "float {op_id} = Union({d_a}, {d_b});",
+                "color_template": "vec3 col{op_id} = ({d_a} < {d_b}) ? {col_a_name} : {col_b_name};",
+                "unpack": lambda args: (args[0], args[1]),
+            },
+            "inter": {
+                "dist_template": "float {op_id} = Intersection({d_a}, {d_b});",
+                "color_template": "vec3 col{op_id} = ({d_a} > {d_b}) ? {col_a_name} : {col_b_name};",
+                "unpack": lambda args: (args[0], args[1]),
+            },
+            "xor": {
+                "dist_template": "float {op_id} = Xor({d_a}, {d_b});",
+                "color_template": "vec3 col{op_id} = (abs({d_a}) < abs({d_b})) ? {col_a_name} : {col_b_name};",
+                "unpack": lambda args: (args[0], args[1]),
+            }
+        }
+
+        if self.operation_type not in OPERATION_TEMPLATES:
             raise ValueError(f"Unknown operation type: {self.operation_type}")
+
+        template_info = OPERATION_TEMPLATES[self.operation_type]
+    
+        try:
+            unpacked_args = template_info['unpack'](self.args)
+        except IndexError:
+            raise ValueError(f"Not enough arguments for operation {self.operation_type}.")
+
+        context = {'op_id': op_id}
+    
+        num_args = len(unpacked_args)
+    
+        if num_args >= 1:
+            context['d_a'] = unpacked_args[0]
+            context['col_a_name'] = f'col{unpacked_args[0]}'
+        if num_args >= 2:
+            context['d_b'] = unpacked_args[1]
+            context['col_b_name'] = f'col{unpacked_args[1]}'
+        if num_args >= 3:
+            context['k'] = unpacked_args[2]
+        
+        dist_code = template_info['dist_template'].format(**context)
+        color_code = template_info['color_template'].format(**context)
+    
+        return f"    {dist_code}\n    {color_code}"
+
+
 
 class SDFSceneBuilder:
     def __init__(self):
@@ -1109,12 +1141,9 @@ def main():
                             changed1, primitive.size_or_radius[0] = imgui.input_float("Radius A", primitive.size_or_radius[0])
                             changed2, primitive.size_or_radius[1] = imgui.input_float("Radius B", primitive.size_or_radius[1])
                             changed = changed1 or changed2
-                        elif primitive.primitive_type == "plane":
-                            pass # TODO
-                        else:
-                            # BUG
-                            changed, primitive.size_or_radius = imgui.input_float3("Size##size", *primitive.size_or_radius)
-                        
+                        else: # TODO: Fix duplicate parameters
+                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder"]:
+                                changed, primitive.size_or_radius = imgui.input_float3("Size##size", *primitive.size_or_radius)
                         if changed:
                             success, new_uniforms = recompile_shader()
                             if success:
