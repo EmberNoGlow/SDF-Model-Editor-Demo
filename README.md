@@ -31,7 +31,7 @@ If you find a bug or want to suggest an improvement, open a new issue or even Pu
 ---
 
 ### Bugs found:
-1. Cone and Plane don't work.
+1. Cone and Plane have duplicate parameters.
 2. When changing the rendering scale, the screen shifts.
 3. And more, more small bugs...
 
