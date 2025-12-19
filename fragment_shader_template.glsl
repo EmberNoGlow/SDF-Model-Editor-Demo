@@ -28,32 +28,41 @@ vec4 getSceneDist(vec3 p)
     {SCENE_CODE} // Your python code injects the object logic here
 }
 
-// --- MAIN MAP FUNCTION ---
-// Combines your scene with the new floor
-vec4 map(vec3 p)
-{
-    // 1. Get distance and color from your injected scene
-    vec4 sceneRes = getSceneDist(p);
-    float dScene = sceneRes.w;
-    vec3 colScene = sceneRes.xyz;
 
-    // 2. Define the Floor (Plane at y = -1.0)
-    float floorHeight = -1.0;
-    float dFloor = abs(p.y - floorHeight);
-
-    // 3. Floor Color (Line pattern)
-    float lineWidth = 0.9; // Adjust this value to change the thickness of the lines
-    float lineX = step(1.0, mod(p.x, 1.0) / lineWidth); // Vertical lines
-    float lineZ = step(1.0, mod(p.z, 1.0) / lineWidth); // Horizontal lines
-    float linePattern = max(lineX, lineZ); // Combine lines
-    vec3 colFloor = vec3(0.3) + 0.1 * linePattern; // Alternates between 0.3 and 0.4 gray
-
-    // 4. Union (Return the closer object)
-    if (dFloor < dScene) {
-        return vec4(colFloor, dFloor);
-    } else {
-        return sceneRes;
+bool intersectPlane(vec3 ro, vec3 rd, out float t) {
+    if (abs(rd.y) < 1e-6) {
+        return false;
     }
+    // PLANE HEIGHT
+    t = (-1.5-ro.y) / rd.y;
+    return t > 0.0;
+}
+
+
+// --- MAIN MAP FUNCTION ---
+vec4 map(vec3 p) {
+    vec4 sceneRes = getSceneDist(p);
+    
+    //float floorHeight = -1.0;
+    //float thickness = 0.02; // Thickness of the grid wires
+    
+    // 1. Distance to the plane
+    //float dPlane = abs(p.y - floorHeight);
+    
+    // 2. Distance to the grid lines (using absolute distance)
+    // This creates a "rounded" distance field for the lines
+    //float gx = abs(fract(p.x + 0.5) - 0.5);
+    //float gz = abs(fract(p.z + 0.5) - 0.5);
+    //float dGrid = min(gx, gz);
+    
+    // 3. Combine: The floor only "exists" where dPlane and dGrid are both small
+    // We use max(dPlane, dGrid) to create a "box" shape for the wire
+    //float finalGridDist = max(dPlane, dGrid - thickness);
+
+    //if (finalGridDist < sceneRes.w) {
+    //    return vec4(vec3(1.0), finalGridDist);
+    //}
+    return sceneRes;
 }
 
 float FOV_ANGLE = {FOV_ANGLE_VAL}; 
@@ -98,6 +107,17 @@ vec3 calcNormal(vec3 p) {
                      k.yyx * map(p + k.yyx * h).w +
                      k.xxx * map(p + k.xxx * h).w);
 }
+
+float gridFloor(vec3 p){
+    // Line pattern
+    float lineWidth = 0.9; // Adjust this value to change the thickness of the lines
+    float lineX = step(1.0, mod(p.x, 1.0) / lineWidth); // Vertical lines
+    float lineZ = step(1.0, mod(p.z, 1.0) / lineWidth); // Horizontal lines
+    float linePattern = max(lineX, lineZ); // Combine lines
+    return linePattern;
+}
+
+
 
 // Main image function
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
@@ -155,6 +175,17 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         float t = 0.5 * (rd.y + 1.0);
         col = mix(vec3(0.1, 0.15, 0.25), vec3(0.05, 0.05, 0.1), t);
     }
+
+    float depth = 0.0;
+    bool inter = intersectPlane(ro, rd, depth);
+    float grid_alpha = 0.0;
+    if(inter == true && d>depth){
+        grid_alpha = gridFloor(ro + rd * depth);
+    }
+    if(grid_alpha > 0.5){
+        col = vec3(1.0);
+    }
+
 
     fragColor = vec4(col, 1.0);
 }
