@@ -3,8 +3,8 @@
 
 [![Python 3.8](https://img.shields.io/badge/python-3.8-blue.svg)](https://www.python.org/downloads/release/python-380/)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![GitHub Issues](https://img.shields.io/github/issues/yourusername/sdf-model-editor)](https://github.com/yourusername/sdf-model-editor/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/yourusername/sdf-model-editor?style=social)](https://github.com/yourusername/sdf-model-editor/stargazers)
+[![GitHub Issues](https://img.shields.io/github/issues/yourusername/sdf-model-editor)](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/yourusername/sdf-model-editor?style=social)](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/stargazers)
 
 ---
 
