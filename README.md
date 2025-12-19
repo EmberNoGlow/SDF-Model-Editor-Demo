@@ -38,8 +38,11 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 
 ## **🚀 Features**
 ✅ **Real-time SDF rendering** (GLSL shaders)
+
 ✅ **Smooth logic operations** (substract, intersect, union, etc.)
+
 ✅ **Multi-primitive composition** (spheres, boxes, cones, etc.)
+
 ✅ **ImGui-based UI** for intuitive controls
 
 ---
@@ -81,7 +84,9 @@ It all started with [this article](https://iquilezles.org/articles/smin/) on SDF
 
 ### **Lessons Learned**
 ✔ **AI accelerates prototyping** but requires deep debugging.
+
 ✔ **Refactoring is part of the process**—embrace it!
+
 ✔ **Small steps lead to big results**—this is just the beginning.
 
 ---
