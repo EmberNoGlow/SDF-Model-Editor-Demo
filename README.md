@@ -64,7 +64,7 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **💞 Contributing**
 Contributions are **highly encouraged**! Here’s how you can help:
 1. **Report bugs** → Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues).
-2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions/1).
+2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions/).
 3. **Submit code** → Fork the repo and create a [Pull Request](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
 
 > **Note:** This project is a learning experience—expect refactoring and experimentation!
