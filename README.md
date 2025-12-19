@@ -1,89 +1,122 @@
-# SDF Model Editor (Demo)
+# **SDF Model Editor (Demo)**
+*A lightweight editor for creating and manipulating Signed Distance Field (SDF) primitives using Python, GLSL, and OpenGL.*
 
-![Python 3.8](https://img.shields.io/badge/python-3.8-blue.svg)
-![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)
-
-
-## What is it?
-This is a small project in which I created rendering and full interaction with sdf primitives. Using `Python, GLSL, Imgui, glfw, pyopengl`.
-
-The cursor, co-pilot, and gpt chat helped me bring the idea to life. I admit, it wasn't as colorful as I imagined. See the "About" section below.
-
-Despite all the difficulties, **I am happy with the result**.
+[![Python 3.8](https://img.shields.io/badge/python-3.8-blue.svg)](https://www.python.org/downloads/release/python-380/)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![GitHub Issues](https://img.shields.io/github/issues/yourusername/sdf-model-editor)](https://github.com/yourusername/sdf-model-editor/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/yourusername/sdf-model-editor?style=social)](https://github.com/yourusername/sdf-model-editor/stargazers)
 
 ---
 
-## **Warning!**
-This **work is in progress**, and this tool currently has limited functionality. See the **roadmap** below for plans. **Please support** the project's development!
+## **🌟 Overview**
+This project is a **work-in-progress** editor for designing 3D models using **Signed Distance Fields (SDFs)**. Built with `Python`, `GLSL`, `ImGui`, `GLFW`, and `PyOpenGL`, it allows real-time rendering and interaction with SDF primitives.
+
+While the current version is a **demo with limited functionality**, it serves as a foundation for a more powerful tool. The goal? To simplify 3D modeling by combining primitives into stylized characters or objects—**no sculpting required!**
+
+> *I’m happy with the result, but there’s so much more to build!*
 
 ---
 
-|  |  |
-| :---: | :---: |
-| ![](Screenshots/Screenshot_1.png) | ![](Screenshots/Screenshot_2.png) |
-| ![](Screenshots/Screenshot_3.png) | ![](Screenshots/Screenshot_4.png) |
+## **⚠️ Current Status**
+This is an **early-stage prototype** with known bugs and missing features. Check the **[Roadmap](#-roadmap)** for planned improvements.
+
+### **Known Issues**
+- Cone and Plane have duplicate parameters.
+- Screen shifts when adjusting rendering scale.
+- Minor UI/UX inconsistencies.
+
+> **Your feedback and contributions are welcome!** Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues) or submit a [PR](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
 
 ---
 
-## Contributing
-If you find a bug or want to suggest an improvement, open a new issue or even Pull Request.
+## **🍢 Screenshots**
+| ![Screenshot 1](Screenshots/Screenshot_1.png) | ![Screenshot 2](Screenshots/Screenshot_2.png) |
+|:--------------------------------------------:|:--------------------------------------------:|
+| ![Screenshot 3](Screenshots/Screenshot_3.png) | ![Screenshot 4](Screenshots/Screenshot_4.png) |
 
 ---
 
-### Bugs found:
-1. Cone and Plane have duplicate parameters.
-2. When changing the rendering scale, the screen shifts.
-3. And more, more small bugs...
+## **🚀 Features**
+✅ **Real-time SDF rendering** (GLSL shaders)
+✅ **Smooth logic operations** (substract, intersect, union, etc.)
+✅ **Multi-primitive composition** (spheres, boxes, cones, etc.)
+✅ **ImGui-based UI** for intuitive controls
 
 ---
 
-## Roadmap
+## **🎯 Roadmap**
+### **Core Functionality (MVP Goals)**
+- [ ] **Save/Load projects** (JSON or custom format)
+- [ ] **Export to 3D formats** (OBJ, GLTF) via voxelization/marching cubes
+- [ ] **Gizmo-based manipulation** (drag, rotate, scale primitives)
+- [ ] **Undo/Redo support**
 
-Goal: Create an MVP! But to achieve this, functionality is key. Look at the plans:
-
-### Functionality (the main thing)
-1. Save/Load function
-2. Add export to 3d model formats (obj, gltf, etc.), using voxelizations and marching cubes.
-3. Add the ability to drag and rotate primitives using gizmo.
-
----
-
-### User Interface (The most insignificant)
-1. Add themes.
-2. Localization
-
-...And more...
+### **User Experience (Future Improvements)**
+- [ ] **Themes & customization**
+- [ ] **Localization (i18n)**
+- [ ] **Performance optimizations**
 
 ---
 
-# About
+## **💞 Contributing**
+Contributions are **highly encouraged**! Here’s how you can help:
+1. **Report bugs** → Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues).
+2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions).
+3. **Submit code** → Fork the repo and create a [Pull Request](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
 
-## How did I come up with this?!
-It's all because of this [article](https://iquilezles.org/articles/smin/)! I was inspired by creating a character using SDF, which makes creating a stylized character much easier. No sculpting! Just 10-20 primitives – and the model is ready.
-
-## How I did it?
-I decided to create an editor. But I only knew Python and Glsl. So I decided to build an MVP using AI. I used chat gpt, copilot and cursor, but it's not that simple. I was able to create the most difficult thing for me - the user interface and SDF rendering.
-
-But soon, I ran out of free space (a common occurrence). I realized the app was quite simple, but there was a lot of code! I spent several weeks studying and refactoring it. Then I learned about cursor. I submitted a request to him to create a more advanced editor. And he changed everything...
-
-I reached my limits. I spent another month refining the code (or rather, studying it). The result was something... not perfect, not a polished product, and not very functional.
-
-**I learned my lesson that AI isn't the best assistant** (or maybe I'm just a bad developer).
-
-**But it was cool**. Studying and fixing code three times (there were a lot of errors!!!), which does roughly the same thing, was fascinating.
-
-It took me 2 months to create the project
+> **Note:** This project is a learning experience—expect refactoring and experimentation!
 
 ---
 
-## Links
-🔗 [wikipedia article](https://en.wikipedia.org/wiki/Signed_distance_function) about SDF
+## **💡 The Story Behind This Project**
+### **Inspiration**
+It all started with [this article](https://iquilezles.org/articles/smin/) on SDF-based modeling. The idea of creating stylized 3D characters with just **10-20 primitives** was too exciting to ignore!
 
+### **The Journey**
+- **Phase 1:** Built an MVP using AI tools (ChatGPT, Copilot, Cursor).
+- **Phase 2:** Hit limitations - free chat limits, code complexity, and bugs.
+- **Phase 3:** Spent **2 months** refactoring, learning, and improving.
 
-🔗 sdf [functions](https://iquilezles.org/articles/distfunctions)
+> *AI isn’t a magic solution—it’s a tool. The real work is in understanding and refining the code.*
 
+### **Lessons Learned**
+✔ **AI accelerates prototyping** but requires deep debugging.
+✔ **Refactoring is part of the process**—embrace it!
+✔ **Small steps lead to big results**—this is just the beginning.
 
-🔗 [shadertoy](https://shadertoy.com)
+---
 
+## **🔗 Resources**
+- [SDF Wikipedia](https://en.wikipedia.org/wiki/Signed_distance_function)
+- [Inigo Quilez’s SDF Functions](https://iquilezles.org/articles/distfunctions/)
+- [Shadertoy](https://www.shadertoy.com/) (for SDF inspiration)
+- [Cursor AI](https://cursor.com/) (the AI assistant that helped)
 
-🔗 [cursor ai](https://cursor.com/)
+---
+
+## **📜 License**
+This project is licensed under the **MIT License** – see [LICENSE](LICENSE) for details.
+
+---
+
+## **🙌 Acknowledgments**
+- **Inigo Quilez** for SDF research.
+- **AI tools** (ChatGPT, Copilot, Cursor) for assistance.
+- **Open-source community** for inspiration and libraries.
+
+---
+
+### **🚀 Ready to Try It?**
+```bash
+git clone https://github.com/EmberNoGlow/SDF-Model-Editor-Demo.git
+cd sdf-model-editor
+pip install -r requirements.txt
+python main.py
+```
+
+---
+
+### **Final Thoughts**
+This project is a **testament to experimentation**—imperfect, evolving, but full of potential. Whether you’re here to **learn, contribute, or build**, I’m excited to see where it goes next!
+
+**Let’s create something amazing together.** 🚀
