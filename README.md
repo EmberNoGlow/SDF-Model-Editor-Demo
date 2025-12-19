@@ -17,7 +17,7 @@ While the current version is a **demo with limited functionality**, it serves as
 
 ---
 
-## **🍢 Screenshots**
+## **📌 Screenshots**
 | ![Screenshot 1](Screenshots/Screenshot_1.png) | ![Screenshot 2](Screenshots/Screenshot_2.png) |
 |:--------------------------------------------:|:--------------------------------------------:|
 | ![Screenshot 3](Screenshots/Screenshot_3.png) | ![Screenshot 4](Screenshots/Screenshot_4.png) |
