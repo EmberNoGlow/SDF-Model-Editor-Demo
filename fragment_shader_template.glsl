@@ -28,40 +28,9 @@ vec4 getSceneDist(vec3 p)
     {SCENE_CODE} // Your python code injects the object logic here
 }
 
-
-bool intersectPlane(vec3 ro, vec3 rd, out float t) {
-    if (abs(rd.y) < 1e-6) {
-        return false;
-    }
-    // PLANE HEIGHT
-    t = (-1.5-ro.y) / rd.y;
-    return t > 0.0;
-}
-
-
 // --- MAIN MAP FUNCTION ---
 vec4 map(vec3 p) {
     vec4 sceneRes = getSceneDist(p);
-    
-    //float floorHeight = -1.0;
-    //float thickness = 0.02; // Thickness of the grid wires
-    
-    // 1. Distance to the plane
-    //float dPlane = abs(p.y - floorHeight);
-    
-    // 2. Distance to the grid lines (using absolute distance)
-    // This creates a "rounded" distance field for the lines
-    //float gx = abs(fract(p.x + 0.5) - 0.5);
-    //float gz = abs(fract(p.z + 0.5) - 0.5);
-    //float dGrid = min(gx, gz);
-    
-    // 3. Combine: The floor only "exists" where dPlane and dGrid are both small
-    // We use max(dPlane, dGrid) to create a "box" shape for the wire
-    //float finalGridDist = max(dPlane, dGrid - thickness);
-
-    //if (finalGridDist < sceneRes.w) {
-    //    return vec4(vec3(1.0), finalGridDist);
-    //}
     return sceneRes;
 }
 
@@ -108,16 +77,56 @@ vec3 calcNormal(vec3 p) {
                      k.xxx * map(p + k.xxx * h).w);
 }
 
-float gridFloor(vec3 p){
-    // Line pattern
-    float lineWidth = 0.9; // Adjust this value to change the thickness of the lines
-    float lineX = step(1.0, mod(p.x, 1.0) / lineWidth); // Vertical lines
-    float lineZ = step(1.0, mod(p.z, 1.0) / lineWidth); // Horizontal lines
-    float linePattern = max(lineX, lineZ); // Combine lines
-    return linePattern;
+
+// Grid
+bool intersectPlane(vec3 ro, vec3 rd, out float t) {
+    t = (-1.5-ro.y) / rd.y;
+    return t > 0.0;
+}
+// Improved grid floor pattern with anti-aliasing
+float gridFloor(vec3 worldPos, float cellSize, float lineThickness) {
+    // Use world XZ coordinates for grid
+    vec2 uv = worldPos.xz;
+
+    // Calculate anti-aliasing width based on screen derivatives
+    vec2 aaWidth = fwidth(uv) * 0.5;
+
+    // Create grid lines with smooth edges
+    vec2 grid = abs(fract(uv / cellSize - 0.5) - 0.5) * cellSize;
+    grid = 1.0 - smoothstep(lineThickness - aaWidth, lineThickness + aaWidth, grid);
+
+    // Combine X and Z lines
+    return max(grid.x, grid.y);
 }
 
+// Improved grid rendering with better blending and depth handling
+vec3 add_grid(vec3 color, vec3 ro, vec3 rd, float depth) {
+    // Plane intersection
+    float planeDepth = 0.0;
+    bool hitPlane = intersectPlane(ro, rd, planeDepth);
 
+    if (hitPlane && planeDepth < depth) {
+        // Get intersection point
+        vec3 hitPoint = ro + rd * planeDepth;
+
+        // Calculate grid intensity with multiple scales
+        float gridIntensity =
+            gridFloor(hitPoint, 4.0, 0.05) * 0.6 +
+            gridFloor(hitPoint, 2.0, 0.03) * 0.8 +
+            gridFloor(hitPoint, 0.5, 0.02) * 1.0;
+        gridIntensity *= 0.45;
+
+        // Apply depth-based fading
+        float depthFade = 1.0-smoothstep(3.0, 30.0, planeDepth);
+
+        // Blend grid with scene color
+        if (gridIntensity > 0.0) {
+            color = mix(color, vec3(1.0), gridIntensity*depthFade);
+        }
+    }
+
+    return color;
+}
 
 // Main image function
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
@@ -176,15 +185,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         col = mix(vec3(0.1, 0.15, 0.25), vec3(0.05, 0.05, 0.1), t);
     }
 
-    float depth = 0.0;
-    bool inter = intersectPlane(ro, rd, depth);
-    float grid_alpha = 0.0;
-    if(inter == true && d>depth){
-        grid_alpha = gridFloor(ro + rd * depth);
-    }
-    if(grid_alpha > 0.5){
-        col = vec3(1.0);
-    }
+    col = add_grid(col,ro,rd,d);
 
 
     fragColor = vec4(col, 1.0);
