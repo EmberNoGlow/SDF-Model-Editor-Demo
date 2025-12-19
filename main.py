@@ -35,7 +35,7 @@ FOV_ANGLE = math.radians(75)  # Field of View - Used for ray direction calculati
 
 # UI Constants
 PANEL_WIDTH_RATIO = 0.2  # Left and right panel width as ratio of window width
-FPS_WINDOW_OFFSET = 10  # Offset from top for FPS window
+FPS_WINDOW_OFFSET = 25  # Offset from top for FPS window
 FPS_WINDOW_WIDTH = 140
 FPS_WINDOW_HEIGHT = 30
 
