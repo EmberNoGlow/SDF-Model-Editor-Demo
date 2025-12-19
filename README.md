@@ -17,6 +17,13 @@ While the current version is a **demo with limited functionality**, it serves as
 
 ---
 
+## **🍢 Screenshots**
+| ![Screenshot 1](Screenshots/Screenshot_1.png) | ![Screenshot 2](Screenshots/Screenshot_2.png) |
+|:--------------------------------------------:|:--------------------------------------------:|
+| ![Screenshot 3](Screenshots/Screenshot_3.png) | ![Screenshot 4](Screenshots/Screenshot_4.png) |
+
+---
+
 ## **⚠️ Current Status**
 This is an **early-stage prototype** with known bugs and missing features. Check the **[Roadmap](#-roadmap)** for planned improvements.
 
@@ -26,13 +33,6 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 - Minor UI/UX inconsistencies.
 
 > **Your feedback and contributions are welcome!** Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues) or submit a [PR](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
-
----
-
-## **🍢 Screenshots**
-| ![Screenshot 1](Screenshots/Screenshot_1.png) | ![Screenshot 2](Screenshots/Screenshot_2.png) |
-|:--------------------------------------------:|:--------------------------------------------:|
-| ![Screenshot 3](Screenshots/Screenshot_3.png) | ![Screenshot 4](Screenshots/Screenshot_4.png) |
 
 ---
 
