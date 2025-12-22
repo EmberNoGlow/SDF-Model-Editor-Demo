@@ -9,6 +9,10 @@ import imgui
 import imgui.core
 from imgui.integrations.glfw import GlfwRenderer
 
+import numpy as np
+import math
+
+
 def load_shader_code(file_path):
     """
     Load shader code from a file and return it as a string.
@@ -41,6 +45,7 @@ FPS_WINDOW_HEIGHT = 30
 
 # Camera Constants
 MOUSE_SENSITIVITY = 0.005
+PAN_SENSITIVITY = 0.1
 CAMERA_LERP_FACTOR = 0.075
 ZOOM_SENSITIVITY = 0.5
 MIN_RADIUS = 1.0
@@ -68,12 +73,12 @@ class SDFPrimitive:
         self.primitive_type = primitive_type
         self.position = list(position)
         self.size_or_radius = size_or_radius if isinstance(size_or_radius, (list, tuple)) else [size_or_radius]
-        if not isinstance(self.size_or_radius, list):
+        if not isinstance(self. size_or_radius, list):
             self.size_or_radius = list(self.size_or_radius)
-        self.rotation = list(rotation) if rotation else None
-        self.scale = list(scale) if scale else None
-        # Color as RGB tuple (0.0-1.0), default to a nice color
-        self.color = list(color) if color else [0.8, 0.6, 0.4]
+        # Always initialize as 3D vectors
+        self. rotation = list(rotation) if rotation else [0.0, 0.0, 0.0]
+        self.scale = list(scale) if scale else [1.0, 1.0, 1.0]
+        self. color = list(color) if color else [0.8, 0.6, 0.4]
         self.kwargs = kwargs
         self.ui_name = ui_name or primitive_type
 
@@ -392,6 +397,17 @@ class SDFSceneBuilder:
 
         return scene_code
 
+
+def orbital_to_cartesian(_yaw, _pitch, _radius):
+    yaw_rad = _yaw
+    pitch_rad = _pitch
+
+    x = _radius * math.cos(pitch_rad) * math.cos(yaw_rad)
+    y = _radius * math.sin(pitch_rad)                    
+    z = _radius * math.cos(pitch_rad) * math.sin(yaw_rad)
+
+    return (x, y, z)
+
 def main():
     # Initialize GLFW
     if not glfw.init():
@@ -413,22 +429,31 @@ def main():
     # --- Camera State ---
     target_yaw = 0.0
     target_pitch = 0.0
+    target_pan_y = 0.0
+    target_pan_x = 0.0
     target_radius = 5.0
     cam_yaw = 0.0
     cam_pitch = 0.0
+    cam_pan_y = 0.0
+    cam_pan_x = 0.0
+    last_x, last_y = 0.0, 0.0
+    last_pan_x, last_pan_y = 0.0, 0.0  # Separate tracking for panning
     cam_radius = 5.0
+    cam_orbit = [0.0, 0.0, 0.0]
+    PAN_SENSITIVITY = 0.01  # Adjust this to control pan speed
     last_x, last_y = 0.0, 0.0
 
     is_mmb_pressed = False
+    is_shift_mmb_pressed = False
 
     # --- Scene Definition ---
     scene_builder = SDFSceneBuilder()
 
-    box = scene_builder.add_box((0.0, -0.5, 0.0), (0.5, 0.5, 0.5), ui_name="Box 1", color=[0.8, 0.2, 0.2])
-    sphere_id = scene_builder.add_sphere((0.0, -0.75, 0.0), 0.5, ui_name="Sphere 1", color=[0.2, 0.8, 0.2])
+    box = scene_builder.add_box((0.0, -0.5+2.0, 0.0), (0.5, 0.5, 0.5), ui_name="Box 1", color=[0.8, 0.2, 0.2])
+    sphere_id = scene_builder.add_sphere((0.0, -0.75+2.0, 0.0), 0.5, ui_name="Sphere 1", color=[0.2, 0.8, 0.2])
     sphere_id = scene_builder.ssub(sphere_id, box, 0.05, ui_name="Subtract 1")
-    box_id = scene_builder.add_roundbox((0.0, -2.0, 0.0), (3.0, 1.0, 3.0), 0.1, ui_name="Round Box 1", color=[0.4, 0.4, 0.8])
-    box2_id = scene_builder.add_box((0.0, -1.5, 0.0), (2.0, 1.0, 2.0), ui_name="Box 2", color=[0.8, 0.8, 0.4])
+    box_id = scene_builder.add_roundbox((0.0, -2.0+2.0, 0.0), (3.0, 1.0, 3.0), 0.1, ui_name="Round Box 1", color=[0.4, 0.4, 0.8])
+    box2_id = scene_builder.add_box((0.0, -1.5+2.0, 0.0), (2.0, 1.0, 2.0), ui_name="Box 2", color=[0.8, 0.8, 0.4])
     final_id = scene_builder.ssub(box2_id, box_id, 0.05, ui_name="Subtract 2")
     final_id = scene_builder.sunion(final_id, sphere_id, 0.05, ui_name="Union 1")
 
@@ -510,7 +535,8 @@ def main():
             'resolution': glGetUniformLocation(shader_program, "resolution"),
             'camYaw': glGetUniformLocation(shader_program, "camYaw"),
             'camPitch': glGetUniformLocation(shader_program, "camPitch"),
-            'radius': glGetUniformLocation(shader_program, "radius")
+            'radius': glGetUniformLocation(shader_program, "radius"),
+            'CamOrbit' : glGetUniformLocation(shader_program, "CamOrbit")
         }
     
     def recompile_shader():
@@ -829,13 +855,22 @@ def main():
 
         # Handle MMB press and release for camera control
         if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.PRESS:
-            if not is_mmb_pressed:
+            shift_pressed = glfw.get_key(window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS or glfw.get_key(window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS
+            
+            if not is_mmb_pressed and not shift_pressed:
                 is_mmb_pressed = True
+                last_x, last_y = glfw.get_cursor_pos(window)
+                glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+        
+            if shift_pressed:
+                is_mmb_pressed = True
+                is_shift_mmb_pressed = True
                 last_x, last_y = glfw.get_cursor_pos(window)
                 glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
         elif glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.RELEASE:
             if is_mmb_pressed:
                 is_mmb_pressed = False
+                is_shift_mmb_pressed = False
                 glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
 
         # Handle mouse wheel input for camera zoom
@@ -848,20 +883,72 @@ def main():
         # Only update target camera angles if MMB is pressed
         if is_mmb_pressed:
             current_x, current_y = glfw.get_cursor_pos(window)
-            dx = current_x - last_x
-            dy = current_y - last_y
-            last_x = current_x
-            last_y = current_y
-            target_yaw -= dx * MOUSE_SENSITIVITY
-            target_pitch += dy * MOUSE_SENSITIVITY
-            target_pitch = max(MIN_PITCH, min(MAX_PITCH, target_pitch))
+            if is_shift_mmb_pressed:
+                # Panning mode: Shift + MMB
+                dx = current_x - last_pan_x
+                dy = current_y - last_pan_y
+                last_pan_x, last_pan_y = current_x, current_y
+                target_pan_x += dx * PAN_SENSITIVITY
+                target_pan_y += dy * PAN_SENSITIVITY
+            else:
+                # Rotation mode: MMB only
+                dx = current_x - last_x
+                dy = current_y - last_y
+                last_x, last_y = current_x, current_y
+                target_yaw -= dx * MOUSE_SENSITIVITY
+                target_pitch += dy * MOUSE_SENSITIVITY
+                target_pitch = max(MIN_PITCH, min(MAX_PITCH, target_pitch))
 
         # --- Interpolate camera angles ---
         cam_yaw += (target_yaw - cam_yaw) * CAMERA_LERP_FACTOR
         cam_pitch += (target_pitch - cam_pitch) * CAMERA_LERP_FACTOR
 
+        # --- Interpolate camera Pan ---
+        cam_pan_y += (target_pan_y - cam_pan_y) * CAMERA_LERP_FACTOR
+        cam_pan_x -= (target_pan_x + cam_pan_x) * CAMERA_LERP_FACTOR
+
+        #####
+        forward_x = math.cos(target_pitch) * math.sin(target_yaw)
+        forward_y = math.sin(target_pitch)
+        forward_z = math.cos(target_pitch) * math.cos(target_yaw)
+
+
+        right_x = math.cos(target_yaw)
+        right_y = 0
+        right_z = -math.sin(target_yaw)
+
+
+        up_x = forward_y * right_z - forward_z * right_y
+        up_y = forward_z * right_x - forward_x * right_z
+        up_z = forward_x * right_y - forward_y * right_x
+        #####
+
+
+        orbit_center_offset_x = cam_pan_x * right_x + cam_pan_y * up_x
+        orbit_center_offset_y = cam_pan_x * right_y + cam_pan_y * up_y
+        orbit_center_offset_z = cam_pan_x * right_z + cam_pan_y * up_z
+
+        cam_orbit = (
+            orbit_center_offset_z,
+            orbit_center_offset_y,
+            orbit_center_offset_x
+        )
+
+
+
+        #bg_draw_list = imgui.get_background_draw_list()
+        
+        #bg_draw_list.add_circle_filled(
+        #    400, 
+        #    300, 
+        #    25, 
+        #    imgui.get_color_u32_rgba(1, 0, 0, 1)
+        #)
+
+
         # Clear the screen
         glClear(GL_COLOR_BUFFER_BIT)
+        
         
         # --- TOP MENU BAR (Render first so it's on top) ---
         if imgui.begin_main_menu_bar():
@@ -911,7 +998,8 @@ def main():
                     glUniform1f(uniform_locs['camYaw'], cam_yaw)
                     glUniform1f(uniform_locs['camPitch'], cam_pitch)
                     glUniform1f(uniform_locs['radius'], cam_radius)
-                
+                    glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
                 
@@ -944,6 +1032,8 @@ def main():
                         glUniform1f(uniform_locs['camYaw'], cam_yaw)
                         glUniform1f(uniform_locs['camPitch'], cam_pitch)
                         glUniform1f(uniform_locs['radius'], cam_radius)
+                        glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+
                     glViewport(panel_width, menu_bar_height, scaled_rendering_width, scaled_rendering_height)
                     glBindVertexArray(vao)
                     glDrawArrays(GL_QUADS, 0, 4)
@@ -959,6 +1049,8 @@ def main():
                     glUniform1f(uniform_locs['camYaw'], cam_yaw)
                     glUniform1f(uniform_locs['camPitch'], cam_pitch)
                     glUniform1f(uniform_locs['radius'], cam_radius)
+                    glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
@@ -1191,21 +1283,21 @@ def main():
                                 if success:
                                     uniform_locs = new_uniforms
                         
-                        # Rotation
-                        if primitive.rotation is not None:
-                            changed, primitive.rotation = imgui.input_float3("Rotation##rot", *primitive.rotation)
-                            if changed:
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        # Scale
-                        if primitive.scale is not None:
-                            changed, primitive.scale = imgui.input_float3("Scale##scale", *primitive.scale)
-                            if changed:
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
+                        # Show rotation as degrees
+                        current_degrees = [math.degrees(a) for a in primitive.rotation]
+                        changed, degs = imgui.input_float3("Rotation °", *current_degrees)
+                        if changed:
+                            primitive.rotation = [math.radians(a) for a in degs]
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+
+                        # Scale stays as-is
+                        changed, primitive.scale = imgui. input_float3("Scale", *primitive.scale)
+                        if changed:
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
                         
                         # Special parameters for specific primitives
                         if primitive.primitive_type == "round_box":
