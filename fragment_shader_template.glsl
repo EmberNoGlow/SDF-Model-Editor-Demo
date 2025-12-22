@@ -80,7 +80,7 @@ vec3 calcNormal(vec3 p) {
 
 // Grid
 bool intersectPlane(vec3 ro, vec3 rd, out float t) {
-    t = (-1.5-ro.y) / rd.y;
+    t = (-ro.y) / rd.y;
     return t > 0.0;
 }
 // Improved grid floor pattern with anti-aliasing
@@ -175,7 +175,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         
         // Optional: Simple distance fog to blend floor into background
         float fog = 1.0 - exp(-d * 0.02);
-        vec3 skyColor = vec3(0.1, 0.15, 0.25); // Match the background color below
+        vec3 skyColor = vec3(0.1, 0.15, 0.25);
         col = mix(col, skyColor, fog);
         
     } else {
