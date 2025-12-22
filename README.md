@@ -48,6 +48,11 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ---
 
 ## **🎯 Roadmap**
+
+### *Current Progress*
+- **📜 Camera panning** - In progress
+- **📝 Creating a gizmo** - Preparation
+
 ### **Core Functionality (MVP Goals)**
 - [ ] **Save/Load projects** (JSON or custom format)
 - [ ] **Export to 3D formats** (OBJ, GLTF) via voxelization/marching cubes
