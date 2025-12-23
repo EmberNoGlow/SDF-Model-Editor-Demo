@@ -862,10 +862,11 @@ def main():
                 last_x, last_y = glfw.get_cursor_pos(window)
                 glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
         
-            if shift_pressed:
+            elif not is_mmb_pressed and shift_pressed:
                 is_mmb_pressed = True
                 is_shift_mmb_pressed = True
                 last_x, last_y = glfw.get_cursor_pos(window)
+                last_pan_x, last_pan_y = last_x, last_y
                 glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
         elif glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.RELEASE:
             if is_mmb_pressed:
@@ -911,6 +912,11 @@ def main():
         forward_x = math.cos(target_pitch) * math.sin(target_yaw)
         forward_y = math.sin(target_pitch)
         forward_z = math.cos(target_pitch) * math.cos(target_yaw)
+
+        forward_length = math.sqrt(forward_x**2 + forward_y**2 + forward_z**2)
+        forward_x /= forward_length
+        forward_y /= forward_length
+        forward_z /= forward_length
 
 
         right_x = math.cos(target_yaw)
