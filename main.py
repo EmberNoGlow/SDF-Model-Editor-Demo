@@ -909,19 +909,14 @@ def main():
         cam_pan_x -= (target_pan_x + cam_pan_x) * CAMERA_LERP_FACTOR
 
         #####
-        forward_x = math.cos(target_pitch) * math.sin(target_yaw)
-        forward_y = math.sin(target_pitch)
-        forward_z = math.cos(target_pitch) * math.cos(target_yaw)
-
-        forward_length = math.sqrt(forward_x**2 + forward_y**2 + forward_z**2)
-        forward_x /= forward_length
-        forward_y /= forward_length
-        forward_z /= forward_length
+        forward_x = math.cos(cam_pitch) * math.sin(cam_yaw)
+        forward_y = math.sin(cam_pitch)
+        forward_z = math.cos(cam_pitch) * math.cos(cam_yaw)
 
 
-        right_x = math.cos(target_yaw)
+        right_x = math.cos(cam_yaw)
         right_y = 0
-        right_z = -math.sin(target_yaw)
+        right_z = -math.sin(cam_yaw)
 
 
         up_x = forward_y * right_z - forward_z * right_y
@@ -935,11 +930,16 @@ def main():
         orbit_center_offset_z = cam_pan_x * right_z + cam_pan_y * up_z
 
         cam_orbit = (
-            orbit_center_offset_z,
+            orbit_center_offset_z, # Yoow! (Correctly)
             orbit_center_offset_y,
             orbit_center_offset_x
         )
 
+
+
+        if io.keys_down[glfw.KEY_HOME]:
+            cam_pan_x = cam_pan_y = target_pan_x = target_pan_y = 0.0
+            cam_orbit = [0.0,0.0,0.0]
 
 
         #bg_draw_list = imgui.get_background_draw_list()
