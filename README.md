@@ -132,3 +132,11 @@ python main.py
 This project is a **testament to experimentation**—imperfect, evolving, but full of potential. Whether you’re here to **learn, contribute, or build**, I’m excited to see where it goes next!
 
 **Let’s create something amazing together.** 🚀
+
+---
+
+## Support
+
+Your support helps development! Help by leaving a review, reporting an error, suggesting an idea in Discussions, creating a Pull Request, or just **star ⭐** the repository!.
+
+Follow me: **[Bluesky](https://bsky.app/profile/embernoglow.bsky.social)** | **[dev.to](https://dev.to/embernoglow)**
