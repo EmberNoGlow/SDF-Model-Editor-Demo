@@ -33,6 +33,49 @@ def load_shader_code(file_path):
     except IOError as e:
         raise IOError(f"Error reading shader file {file_path}: {e}")
 
+
+# --- SaveLoad funcions
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
+def save_scene_dialog(scene_builder, parent_window=None):
+    """Open a save dialog and save the scene to JSON."""
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    
+    filepath = filedialog.asksaveasfilename(
+        defaultextension=".json",
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        initialfile="scene.json"
+    )
+    
+    root.destroy()
+    
+    if filepath:
+        return scene_builder.save_to_json(filepath)
+    return False, "Save cancelled"
+
+
+def load_scene_dialog(scene_builder, parent_window=None):
+    """Open a load dialog and load a scene from JSON."""
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    
+    filepath = filedialog.askopenfilename(
+        filetypes=[("JSON files", "*. json"), ("All files", "*.*")]
+    )
+    
+    root.destroy()
+    
+    if filepath:
+        return scene_builder.load_from_json(filepath)
+    return False, "Load cancelled"
+
+
+
+
+
+
 # --- Configuration ---
 SCREEN_SIZE = (800, 600)
 FOV_ANGLE = math.radians(75)  # Field of View - Used for ray direction calculation
@@ -73,12 +116,12 @@ class SDFPrimitive:
         self.primitive_type = primitive_type
         self.position = list(position)
         self.size_or_radius = size_or_radius if isinstance(size_or_radius, (list, tuple)) else [size_or_radius]
-        if not isinstance(self. size_or_radius, list):
+        if not isinstance(self.size_or_radius, list):
             self.size_or_radius = list(self.size_or_radius)
         # Always initialize as 3D vectors
-        self. rotation = list(rotation) if rotation else [0.0, 0.0, 0.0]
+        self.rotation = list(rotation) if rotation else [0.0, 0.0, 0.0]
         self.scale = list(scale) if scale else [1.0, 1.0, 1.0]
-        self. color = list(color) if color else [0.8, 0.6, 0.4]
+        self.color = list(color) if color else [0.8, 0.6, 0.4]
         self.kwargs = kwargs
         self.ui_name = ui_name or primitive_type
 
@@ -132,6 +175,23 @@ class SDFPrimitive:
             return f"float {op_id} = sdRoundedCylinder(p{op_id}, {self.size_or_radius[0]}, {self.size_or_radius[1]}, {height});\n    vec3 col{op_id} = {color_vec};"
         else:
             raise ValueError(f"Unknown primitive type: {self.primitive_type}")
+
+    def to_dict(self):
+        """Convert primitive to a dictionary for JSON serialization."""
+        return {
+            "type": "primitive",
+            "primitive_type": self.primitive_type,
+            "position": self.position,
+            "size_or_radius": self.size_or_radius,
+            "rotation": self.rotation,
+            "scale": self.scale,
+            "color": self.color,
+            "ui_name": self.ui_name,
+            "kwargs": self.kwargs
+        }
+
+
+
 
 class SDFOperation:
     def __init__(self, operation_type, *args, ui_name=None):
@@ -213,6 +273,15 @@ class SDFOperation:
     
         return f"    {dist_code}\n    {color_code}"
 
+    def to_dict(self):
+        """Convert operation to a dictionary for JSON serialization."""
+        return {
+            "type": "operation",
+            "operation_type": self.operation_type,
+            "args": self.args,
+            "smooth_k": self.smooth_k,
+            "ui_name": self.ui_name
+        }
 
 
 class SDFSceneBuilder:
@@ -398,6 +467,105 @@ class SDFSceneBuilder:
         return scene_code
 
 
+    def to_dict(self):
+        """Convert the entire scene to a dictionary for JSON serialization."""
+        scene_dict = {
+            "primitives": [],
+            "operations": []
+        }
+    
+        # Serialize primitives
+        for op_id, primitive in self.primitives:
+            prim_dict = primitive.to_dict()
+            prim_dict["op_id"] = op_id
+            scene_dict["primitives"]. append(prim_dict)
+    
+        # Serialize operations
+        for op_id, operation in self.operations:
+            op_dict = operation.to_dict()
+            op_dict["op_id"] = op_id
+            scene_dict["operations"].append(op_dict)
+    
+        return scene_dict
+
+    def from_dict(self, scene_dict):
+        """Load a scene from a dictionary (inverse of to_dict)."""
+        # Clear current scene
+        self.primitives.clear()
+        self.operations.clear()
+        self.id_to_index.clear()
+        self.next_id = 0
+    
+        # Load primitives
+        for prim_dict in scene_dict. get("primitives", []):
+            op_id = prim_dict["op_id"]
+
+            primitive = SDFPrimitive(
+                primitive_type=prim_dict["primitive_type"],
+                position=prim_dict["position"],
+                size_or_radius=prim_dict["size_or_radius"],
+                rotation=prim_dict. get("rotation", [0.0, 0.0, 0.0]),
+                scale=prim_dict.get("scale", [1.0, 1.0, 1.0]),
+                ui_name=prim_dict. get("ui_name"),
+                color=prim_dict.get("color", [0.8, 0.6, 0.4]),
+                **prim_dict.get("kwargs", {})
+            )
+        
+            self.primitives.append((op_id, primitive))
+            self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
+        
+            # Update next_id
+            prim_num = int(op_id[1:])  # Extract number from "d0", "d1", etc.
+            self.next_id = max(self.next_id, prim_num + 1)
+    
+        # Load operations
+        for op_dict in scene_dict. get("operations", []):
+            op_id = op_dict["op_id"]
+
+            operation = SDFOperation(
+                op_dict["operation_type"],     # Pass as positional first
+                *op_dict["args"],              # Then unpack the rest of the positional args
+                ui_name=op_dict.get("ui_name") # Finally, keyword arguments
+            )
+
+            # Restore smooth_k if it was set
+            if op_dict.get("smooth_k") is not None:
+                operation.smooth_k = op_dict["smooth_k"]
+
+            self.operations.append((op_id, operation))
+            self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
+
+            # Update next_id
+            op_num = int(op_id[1:])
+            self.next_id = max(self.next_id, op_num + 1)
+
+
+   
+    def save_to_json(self, filepath):
+        """Save the scene to a JSON file."""
+        import json
+        try:
+            with open(filepath, 'w') as f:
+                json.dump(self.to_dict(), f, indent=2)
+            return True, f"Scene saved to {filepath}"
+        except Exception as e:
+            return False, f"Error saving scene: {str(e)}"
+    
+    def load_from_json(self, filepath):
+        """Load a scene from a JSON file."""
+        import json
+        try:
+            with open(filepath, 'r') as f:
+                scene_dict = json.load(f)
+            self.from_dict(scene_dict)
+            return True, f"Scene loaded from {filepath}"
+        except FileNotFoundError:
+            return False, f"File not found: {filepath}"
+        except json.JSONDecodeError: 
+            return False, f"Invalid JSON file: {filepath}"
+        except Exception as e:
+            return False, f"Error loading scene: {str(e)}"
+
 def orbital_to_cartesian(_yaw, _pitch, _radius):
     yaw_rad = _yaw
     pitch_rad = _pitch
@@ -446,6 +614,14 @@ def main():
     is_mmb_pressed = False
     is_shift_mmb_pressed = False
 
+    # --- SaveLoad ---
+    save_load_message = None
+    save_load_message_time = None
+    last_key_s_pressed = False
+    last_key_o_pressed = False
+    last_key_f10_pressed = False  # Add this if not present
+
+
     # --- Scene Definition ---
     scene_builder = SDFSceneBuilder()
 
@@ -456,6 +632,7 @@ def main():
     box2_id = scene_builder.add_box((0.0, -1.5+2.0, 0.0), (2.0, 1.0, 2.0), ui_name="Box 2", color=[0.8, 0.8, 0.4])
     final_id = scene_builder.ssub(box2_id, box_id, 0.05, ui_name="Subtract 2")
     final_id = scene_builder.sunion(final_id, sphere_id, 0.05, ui_name="Union 1")
+    
 
     # --- UI State ---
     show_selection_window = False
@@ -957,12 +1134,35 @@ def main():
         
         
         # --- TOP MENU BAR (Render first so it's on top) ---
-        if imgui.begin_main_menu_bar():
+        if imgui. begin_main_menu_bar():
             if imgui.begin_menu("File", True):
+                if imgui.menu_item("Save Scene", "Ctrl+S")[0]:
+                    # Trigger save dialog
+                    success, message = save_scene_dialog(scene_builder)
+                    save_load_message = message
+                    save_load_message_time = time.time()
+                    #if success and shader is not None:
+        
+                if imgui. menu_item("Load Scene", "Ctrl+O")[0]:
+                    # Trigger load dialog
+                    success, message = load_scene_dialog(scene_builder)
+                    save_load_message = message
+                    save_load_message_time = time.time()
+                    if success: 
+                        selected_item_id = None
+                        selection_mode = None
+                        # Recompile shader after loading
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+
+                imgui.separator()
                 if imgui.menu_item("Exit", "Alt+F4")[0]:
                     glfw.set_window_should_close(window, True)
+
                 imgui.end_menu()
-            
+
             if imgui.begin_menu("Edit", True):
                 if imgui.menu_item("Add Primitive/Operation", "Ctrl+A")[0]:
                     show_selection_window = True
@@ -971,14 +1171,33 @@ def main():
                     if success:
                         uniform_locs = new_uniforms
                 imgui.end_menu()
-            
+    
             if imgui.begin_menu("View", True):
                 if imgui.menu_item("Settings", "F10")[0]:
                     show_settings_window = True
                 imgui.end_menu()
-            
+    
             imgui.end_main_menu_bar()
         
+
+        # Check Ctrl + S/O
+        if io.keys_down[glfw. KEY_O] and io.key_ctrl:
+            if not last_key_o_pressed: 
+                success, message = load_scene_dialog(scene_builder)
+                save_load_message = message
+                save_load_message_time = time.time()
+                if success:
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+                    selected_item_id = None
+                    selection_mode = None
+                last_key_o_pressed = True
+        else:
+            last_key_o_pressed = False
+
+
+
         # Check F10 for settings (with debouncing)
         if io.keys_down[glfw.KEY_F10]:
             if not last_key_f10_pressed:
@@ -1108,6 +1327,24 @@ def main():
         imgui.text_colored("FPS: " + str(fps_value), 0.0, 1.0, 0.0, 1.0)
         imgui.end()
         
+
+        # Display save/load status message
+        if save_load_message is not None:
+            # Show message for 3 seconds
+            if time.time() - save_load_message_time < 3.0:
+                imgui.set_next_window_position(width // 2 - 150, 100)
+                imgui.begin("Status", False, imgui. WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE)
+
+                # Color based on success
+                is_success = "saved" in save_load_message. lower() or "loaded" in save_load_message.lower()
+                color = (0.0, 1.0, 0.0, 1.0) if is_success else (1.0, 0.0, 0.0, 1.0)
+                imgui.text_colored(save_load_message, *color)
+
+                imgui.end()
+            else:
+                save_load_message = None
+
+
         # --- Error Display (if shader compilation failed) ---
         if shader_compile_error:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 50)
