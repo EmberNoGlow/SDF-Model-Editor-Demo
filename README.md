@@ -50,7 +50,7 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **🎯 Roadmap**
 
 ### *Current Progress*
-- **📜 Save/Load** - Starting to implement it!
+- **📜 Save/Load** - Implemented, testing!
 - **📝 Creating a gizmo** - Preparation
 
 ### **Core Functionality (MVP Goals)**
