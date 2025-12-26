@@ -28,7 +28,6 @@ While the current version is a **demo with limited functionality**, it serves as
 This is an **early-stage prototype** with known bugs and missing features. Check the **[Roadmap](#-roadmap)** for planned improvements.
 
 ### **Known Issues**
-- Cone and Plane have duplicate parameters.
 - Screen shifts when adjusting rendering scale.
 - Minor UI/UX inconsistencies.
 
