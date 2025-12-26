@@ -198,13 +198,17 @@ class SDFOperation:
         self.operation_type = operation_type
         self.args = list(args)  # Store as list for mutability
 
-        # For smooth operations, track the smoothing factor k
+        # For smooth operations and mix, track the smoothing factor k
         if operation_type in ['sunion', 'ssub', 'sinter', 'mix']:
             self.smooth_k = args[2] if len(args) > 2 else (0.5 if operation_type == 'mix' else 0.05)
+        # For single-operand operations with a float parameter (round, onion)
+        elif operation_type in ['round', 'onion']:
+            self.float_param = args[1] if len(args) > 1 else (0.1 if operation_type == 'round' else 0.05)
+            self.smooth_k = None
         else:
             self.smooth_k = None
-        
-        self.ui_name = ui_name or operation_type
+            self.float_param = None
+
         self.ui_name = ui_name or operation_type
 
     def generate_code(self, op_id):
@@ -253,7 +257,17 @@ class SDFOperation:
                 "dist_template": "float {op_id} = Xor({d_a}, {d_b});",
                 "color_template": "vec3 col{op_id} = (abs({d_a}) < abs({d_b})) ? {col_a_name} : {col_b_name};",
                 "unpack": lambda args: (args[0], args[1]),
-            }
+            },
+            "round": {
+                "dist_template": "float {op_id} = Round({d_a}, {param});",
+                "color_template": "vec3 col{op_id} = {col_a_name};",
+                "unpack": lambda args: (args[0], args[1]),
+            },
+            "onion": {
+                "dist_template": "float {op_id} = Onion({d_a}, {param});",
+                "color_template": "vec3 col{op_id} = {col_a_name};",
+                "unpack": lambda args: (args[0], args[1]),
+            },
         }
 
         if self.operation_type not in OPERATION_TEMPLATES:
@@ -276,6 +290,7 @@ class SDFOperation:
         if num_args >= 2:
             context['d_b'] = unpacked_args[1]
             context['col_b_name'] = f'col{unpacked_args[1]}'
+            context['param'] = unpacked_args[1]  # For single-operand ops, second arg is the parameter
         if num_args >= 3:
             context['k'] = unpacked_args[2]
         
@@ -374,6 +389,13 @@ class SDFSceneBuilder:
 
     def xor(self, d_a, d_b, ui_name=None):
         return self.add_operation("xor", d_a, d_b, ui_name=ui_name)
+
+    def round(self, d_a, radius, ui_name=None):
+        return self.add_operation("round", d_a, radius, ui_name=ui_name)
+
+    def onion(self, d_a, thickness, ui_name=None):
+        return self.add_operation("onion", d_a, thickness, ui_name=ui_name)
+
 
     def delete_item(self, op_id):
         """Delete a primitive or operation by its ID."""
@@ -1654,17 +1676,18 @@ def main():
                     if op_id == selected_item_id:
                         imgui.text(f"Type: {operation.operation_type}")
                         
-                        # Show operands as selectable dropdowns
-                        num_operands = 1 if operation.operation_type == "invert" else 2
-                        
                         # Get valid operands (only those declared before this operation)
                         valid_operands = scene_builder.get_valid_operands(selected_item_id)
+                        
+                        # Determine if this is a single-operand or two-operand operation
+                        is_single_operand = operation.operation_type in ['round', 'onion', 'invert']
+                        num_operands = 1 if is_single_operand else 2
                         
                         if len(valid_operands) == 0:
                             imgui.text_colored("No valid operands available!", 1.0, 0.0, 0.0, 1.0)
                         else:
                             for i in range(num_operands):
-                                operand_label = "Operand A" if i == 0 else "Operand B"
+                                operand_label = "Operand" if is_single_operand else ("Operand A" if i == 0 else "Operand B")
                                 
                                 # Create a combo box for selecting operands
                                 current_operand = operation.args[i]
@@ -1690,11 +1713,21 @@ def main():
                         
                         imgui.separator()
                         
-                        # Show smoothing factor ONLY for smooth operations
-                        if operation.smooth_k is not None:
-                            changed, operation.smooth_k = imgui.input_float("(k)", operation.smooth_k, 0.01, 0.1)
+                        # Show float parameter for single-operand operations with parameters
+                        if hasattr(operation, 'float_param') and operation.float_param is not None:
+                            changed, operation.float_param = imgui.input_float("Parameter", operation.float_param, 0.01, 0.1)
                             if changed:
-                                # Update the operation with new smooth_k (only 3 args for smooth operations)
+                                # Update the operation with new parameter
+                                if len(operation.args) >= 2:
+                                    operation. args[1] = operation.float_param
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                        
+                        # Show smoothing factor for smooth operations
+                        elif operation.smooth_k is not None:
+                            changed, operation.smooth_k = imgui.input_float("Smoothing Factor (k)", operation.smooth_k, 0.01, 0.1)
+                            if changed:
                                 if len(operation.args) >= 3:
                                     operation.args[2] = operation.smooth_k
                                 success, new_uniforms = recompile_shader()
@@ -1779,23 +1812,30 @@ def main():
                     ("Mix", "mix"),
                     ("XOR", "xor"),
                     ("Invert", "invert"),
+                    ("Round", "round"),
+                    ("Onion", "onion")
                 ]
 
                 for label, op_type in operations_list:
-                    # Invert only needs 1 operand
-                    min_operands = 1 if op_type == "invert" else 2
+                    # Single-operand operations (invert, round, onion)
+                    is_single_operand = op_type in ['invert', 'round', 'onion']
+                    min_operands = 1
                     available_operands = len(all_items)
                     
                     if available_operands >= min_operands:
                         if imgui.button(f"  {label}", -1):
-                            # Use the last operand(s)
-                            if op_type == "invert":
-                                new_id = scene_builder.invert(all_items[-1][0], ui_name=label)
+                            if is_single_operand:
+                                # For single operand operations
+                                new_id = getattr(scene_builder, f'{op_type}')(all_items[-1][0], 
+                                    (0.1 if op_type == 'round' else 0.05), 
+                                    ui_name=label)
                             elif op_type in ["sunion", "ssub", "sinter", "mix"]:
                                 if len(all_items) >= 2:
-                                    new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], 0.05, ui_name=label)
+                                    new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], 
+                                        (0.5 if op_type == 'mix' else 0.05), ui_name=label)
                                 else:
-                                    new_id = getattr(scene_builder, op_type)(all_items[-1][0], all_items[-1][0], 0.05, ui_name=label)
+                                    new_id = getattr(scene_builder, op_type)(all_items[-1][0], all_items[-1][0], 
+                                        (0.5 if op_type == 'mix' else 0.05), ui_name=label)
                             else:
                                 if len(all_items) >= 2:
                                     new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], ui_name=label)
