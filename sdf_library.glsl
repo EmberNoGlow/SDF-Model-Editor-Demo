@@ -134,6 +134,10 @@ float SmoothIntersection( float d1, float d2, float k )
     // return max(d1, d2) + h*h*0.25/k;
 }
 
+float Mix( float d1, float d2, float k )
+{
+    return mix(d1,d2,k);
+}
 
 
 // Sign operations
@@ -184,3 +188,4 @@ vec3 scale(vec3 p, vec3 s)
 {
     return p / s;
 }
+
