@@ -1529,7 +1529,7 @@ def main():
                             changed1, primitive.size_or_radius[0] = imgui.input_float("Radius A", primitive.size_or_radius[0])
                             changed2, primitive.size_or_radius[1] = imgui.input_float("Radius B", primitive.size_or_radius[1])
                             changed = changed1 or changed2
-                        else: # TODO: Fix duplicate parameters
+                        else:
                             if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder"]:
                                 changed, primitive.size_or_radius = imgui.input_float3("Size##size", *primitive.size_or_radius)
                         if changed:
@@ -1594,50 +1594,11 @@ def main():
                             if success:
                                 uniform_locs = new_uniforms
                         
+
                         # Special parameters for specific primitives
                         if primitive.primitive_type == "round_box":
                             changed, primitive.kwargs['radius'] = imgui.input_float("Corner Radius", primitive.kwargs.get('radius', 0.1))
                             if changed:
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        elif primitive.primitive_type == "cone":
-                            c_sin = primitive.kwargs.get('c_sin', 0.5)
-                            c_cos = primitive.kwargs.get('c_cos', 0.866)
-                            height = primitive.kwargs.get('height', 1.0)
-                            changed1, c_sin = imgui.input_float("Sin(Angle)", c_sin)
-                            changed2, c_cos = imgui.input_float("Cos(Angle)", c_cos)
-                            changed3, height = imgui.input_float("Height", height)
-                            if changed1 or changed2 or changed3:
-                                primitive.kwargs['c_sin'] = c_sin
-                                primitive.kwargs['c_cos'] = c_cos
-                                primitive.kwargs['height'] = height
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        elif primitive.primitive_type == "plane":
-                            normal = primitive.kwargs.get('normal', [0.0, 1.0, 0.0])
-                            h = primitive.kwargs.get('h', 0.0)
-                            changed1, normal = imgui.input_float3("Normal", *normal)
-                            changed2, h = imgui.input_float("Offset (h)", h)
-                            if changed1 or changed2:
-                                # Normalize the normal vector
-                                norm_len = math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
-                                if norm_len > 0.001:
-                                    normal = [normal[0]/norm_len, normal[1]/norm_len, normal[2]/norm_len]
-                                primitive.kwargs['normal'] = normal
-                                primitive.kwargs['h'] = h
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        elif primitive.primitive_type == "rounded_cylinder":
-                            height = primitive.kwargs.get('height', 1.0)
-                            changed, height = imgui.input_float("Height", height)
-                            if changed:
-                                primitive.kwargs['height'] = height
                                 success, new_uniforms = recompile_shader()
                                 if success:
                                     uniform_locs = new_uniforms
@@ -1824,11 +1785,14 @@ def main():
                     
                     if available_operands >= min_operands:
                         if imgui.button(f"  {label}", -1):
+                            # For single operand operations
                             if is_single_operand:
-                                # For single operand operations
-                                new_id = getattr(scene_builder, f'{op_type}')(all_items[-1][0], 
-                                    (0.1 if op_type == 'round' else 0.05), 
-                                    ui_name=label)
+                                if op_type == "invert": 
+                                    new_id = scene_builder.invert(all_items[-1][0], ui_name=label)
+                                elif op_type == "round":
+                                    new_id = scene_builder.round(all_items[-1][0], 0.1, ui_name=label)
+                                elif op_type == "onion":
+                                    new_id = scene_builder. onion(all_items[-1][0], 0.05, ui_name=label)
                             elif op_type in ["sunion", "ssub", "sinter", "mix"]:
                                 if len(all_items) >= 2:
                                     new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], 
