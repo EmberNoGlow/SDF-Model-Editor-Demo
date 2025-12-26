@@ -146,6 +146,17 @@ float invert( float a)
     return -a;
 }
 
+float Round( in float d, in float rad )
+{
+    return d - rad;
+}
+
+float Onion( in float sdf, in float thickness )
+{
+    return abs(sdf) - thickness;
+}
+
+
 
 // Rotation functions
 mat3 rotateY(float angle)
