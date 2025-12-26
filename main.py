@@ -197,8 +197,14 @@ class SDFOperation:
     def __init__(self, operation_type, *args, ui_name=None):
         self.operation_type = operation_type
         self.args = list(args)  # Store as list for mutability
+
         # For smooth operations, track the smoothing factor k
-        self.smooth_k = 0.05 if operation_type.startswith('s') else None
+        if operation_type in ['sunion', 'ssub', 'sinter', 'mix']:
+            self.smooth_k = args[2] if len(args) > 2 else (0.5 if operation_type == 'mix' else 0.05)
+        else:
+            self.smooth_k = None
+        
+        self.ui_name = ui_name or operation_type
         self.ui_name = ui_name or operation_type
 
     def generate_code(self, op_id):
@@ -215,6 +221,11 @@ class SDFOperation:
             },
             "sinter": {
                 "dist_template": "float {op_id} = SmoothIntersection({d_a}, {d_b}, {k});",
+                "color_template": "vec3 col{op_id} = mixColorSmooth({col_a_name}, {col_b_name}, {d_a}, {d_b}, {k});",
+                "unpack": lambda args: (args[0], args[1], args[2]),
+            },
+            "mix": {
+                "dist_template": "float {op_id} = Mix({d_a}, {d_b}, {k});",
                 "color_template": "vec3 col{op_id} = mixColorSmooth({col_a_name}, {col_b_name}, {d_a}, {d_b}, {k});",
                 "unpack": lambda args: (args[0], args[1], args[2]),
             },
@@ -345,6 +356,9 @@ class SDFSceneBuilder:
 
     def sinter(self, d_a, d_b, k=0.05, ui_name=None):
         return self.add_operation("sinter", d_a, d_b, k, ui_name=ui_name)
+
+    def mix(self, d_a, d_b, k=0.5, ui_name=None):
+        return self.add_operation("mix", d_a, d_b, k, ui_name=ui_name)
 
     def invert(self, d_a, ui_name=None):
         return self.add_operation("invert", d_a, ui_name=ui_name)
@@ -1196,6 +1210,22 @@ def main():
         else:
             last_key_o_pressed = False
 
+        #####
+
+        if io.keys_down[glfw. KEY_S] and io.key_ctrl:
+            if not last_key_s_pressed: 
+                success, message = save_scene_dialog(scene_builder)
+                save_load_message = message
+                save_load_message_time = time.time()
+                if success:
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+                    selected_item_id = None
+                    selection_mode = None
+                last_key_s_pressed = True
+        else:
+            last_key_s_pressed = False
 
 
         # Check F10 for settings (with debouncing)
@@ -1662,7 +1692,7 @@ def main():
                         
                         # Show smoothing factor ONLY for smooth operations
                         if operation.smooth_k is not None:
-                            changed, operation.smooth_k = imgui.input_float("Smoothing Factor (k)", operation.smooth_k, 0.01, 0.1)
+                            changed, operation.smooth_k = imgui.input_float("(k)", operation.smooth_k, 0.01, 0.1)
                             if changed:
                                 # Update the operation with new smooth_k (only 3 args for smooth operations)
                                 if len(operation.args) >= 3:
@@ -1746,6 +1776,7 @@ def main():
                     ("Smooth Union", "sunion"),
                     ("Smooth Subtraction", "ssub"),
                     ("Smooth Intersection", "sinter"),
+                    ("Mix", "mix"),
                     ("XOR", "xor"),
                     ("Invert", "invert"),
                 ]
@@ -1760,7 +1791,7 @@ def main():
                             # Use the last operand(s)
                             if op_type == "invert":
                                 new_id = scene_builder.invert(all_items[-1][0], ui_name=label)
-                            elif op_type in ["sunion", "ssub", "sinter"]:
+                            elif op_type in ["sunion", "ssub", "sinter", "mix"]:
                                 if len(all_items) >= 2:
                                     new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], 0.05, ui_name=label)
                                 else:
