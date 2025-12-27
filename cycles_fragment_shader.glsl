@@ -1,0 +1,156 @@
+#version 330 core
+out vec4 FragColor;
+
+uniform float time;
+uniform vec2 resolution;
+uniform float camYaw;
+uniform float camPitch;
+uniform float radius = 5.0;
+uniform vec3 CamOrbit = vec3(0.0);
+uniform int frameIndex; // Essential for noise decorrelation
+
+
+{SDF_LIBRARY}
+
+// --- RANDOM GENERATOR (Hash without Sine) ---
+// Essential for path tracing noise
+float hash12(vec2 p) {
+    vec3 p3  = fract(vec3(p.xyx) * .1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+vec3 hash33(vec3 p3) {
+    p3 = fract(p3 * vec3(.1031, .1030, .0973));
+    p3 += dot(p3, p3.yxz + 33.33);
+    return fract((p3.xxy + p3.yxx) * p3.zyx);
+}
+
+// Generates a random vector in a hemisphere aligned with the normal
+vec3 getCosHemisphereSample(vec3 normal, vec2 seed) {
+    float u = hash12(seed);
+    float v = hash12(seed + 0.1234);
+    float r = sqrt(u);
+    float phi = 6.28318530718 * v;
+    vec3 dir = vec3(r * cos(phi), r * sin(phi), sqrt(1.0 - u));
+    
+    vec3 up = abs(normal.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
+    vec3 tangent = normalize(cross(up, normal));
+    vec3 bitangent = cross(normal, tangent);
+    return tangent * dir.x + bitangent * dir.y + normal * dir.z;
+}
+
+vec3 mixColorSmooth(vec3 colA, vec3 colB, float dA, float dB, float k) {
+    k *= 4.0;
+    float h = max(k - abs(dA - dB), 0.0) / k;
+    float t = clamp(0.5 + 0.5 * (dB - dA) / k, 0.0, 1.0);
+    vec3 blended = mix(colA, colB, t);
+    vec3 closer = (dA < dB) ? colA : colB;
+    return mix(closer, blended, h);
+}
+
+vec4 getSceneDist(vec3 p) {
+    {SCENE_CODE}
+}
+
+vec4 map(vec3 p) {
+    return getSceneDist(p);
+}
+
+float FOV_ANGLE = {FOV_ANGLE_VAL}; 
+
+vec3 calcNormal(vec3 p) {
+    float h = 0.001;
+    vec2 k = vec2(1, -1);
+    return normalize(k.xyy * map(p + k.xyy * h).w + 
+                     k.yxy * map(p + k.yxy * h).w +
+                     k.yyx * map(p + k.yyx * h).w +
+                     k.xxx * map(p + k.xxx * h).w);
+}
+
+// --- PATH TRACING CORE ---
+vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
+    vec3 throughput = vec3(1.0);
+    vec3 totalLight = vec3(0.0);
+    
+    for(int bounce = 0; bounce < 3; bounce++) { // Multiple iterations
+        float dO = 0.0;
+        vec4 res;
+        bool hit = false;
+        
+        // Raymarch
+        for(int i = 0; i < 80; i++) {
+            vec3 p = ro + rd * dO;
+            res = map(p);
+            if(res.w < 0.001) { hit = true; break; }
+            dO += res.w;
+            if(dO > 50.0) break;
+        }
+
+        if(hit) {
+            vec3 p = ro + rd * dO;
+            vec3 n = calcNormal(p);
+            
+            // Material properties
+            vec3 albedo = res.xyz;
+            
+            // Update ray for next bounce (Diffuse reflection)
+            ro = p + n * 0.01; // Offset to prevent self-intersection
+            rd = getCosHemisphereSample(n, seed + float(bounce) + float(frameIndex));
+            
+            // Simple lighting: Sky contribution as light source
+            throughput *= albedo;
+            
+            // If we hit something, we also add a bit of "fake" ambient 
+            // or evaluate light sources here.
+        } else {
+            // Hit the sky
+            float t = 0.5 * (rd.y + 1.0);
+            vec3 skyColor = mix(vec3(0.1, 0.15, 0.25), vec3(0.7, 0.8, 1.0), t);
+            totalLight += throughput * skyColor;
+            break;
+        }
+        
+        // Russian Roulette to optimize
+        float p = max(throughput.r, max(throughput.g, throughput.b));
+        if (hash12(seed + float(bounce)) > p) break;
+        throughput /= p;
+    }
+    return totalLight;
+}
+
+void mainImage(out vec4 fragColor, in vec2 fragCoord) {
+    // Jitter UV for Anti-Aliasing (Cycles style)
+    vec2 jitter = hash33(vec3(fragCoord, frameIndex)).xy - 0.5;
+    vec2 uv = (fragCoord + jitter - 0.825 * resolution.xy) / resolution.y;
+
+    // --- Camera ---
+    vec3 ta = CamOrbit; 
+    float pitch = clamp(camPitch, -1.55, 1.55); 
+    float x = radius * cos(pitch) * cos(camYaw);
+    float y = radius * sin(pitch);
+    float z = radius * cos(pitch) * sin(camYaw);
+    vec3 ro = vec3(x, y, z) + ta; 
+
+    vec3 ww = normalize(ta - ro);     
+    vec3 uu = normalize(cross(vec3(0,1,0), ww)); 
+    vec3 vv = cross(ww, uu);          
+    float fovFactor = 1.0 / tan(FOV_ANGLE * 0.5);
+    vec3 rd = normalize(uu * uv.x * fovFactor + vv * uv.y * fovFactor + ww);
+
+    // --- Path Tracing ---
+    vec2 seed = fragCoord.xy + float(frameIndex) * 13.41;
+    vec3 col = tracePath(ro, rd, seed);
+
+    // Tonemapping & Gamma
+    col = pow(col, vec3(0.4545));
+
+    // Accumulation logic: 
+    // If your python script handles blending, output col.
+    // To see it working without a buffer, noise will be visible.
+    fragColor = vec4(col, 1.0);
+}
+
+void main() {
+    mainImage(FragColor, gl_FragCoord.xy);
+}
