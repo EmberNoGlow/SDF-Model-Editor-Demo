@@ -756,29 +756,30 @@ def main():
             'camYaw': glGetUniformLocation(shader_program, "camYaw"),
             'camPitch': glGetUniformLocation(shader_program, "camPitch"),
             'radius': glGetUniformLocation(shader_program, "radius"),
-            'CamOrbit' : glGetUniformLocation(shader_program, "CamOrbit")
-        }
-    
+            'CamOrbit': glGetUniformLocation(shader_program, "CamOrbit"),
+            'frameIndex':  glGetUniformLocation(shader_program, "frameIndex"),
+            'accumulationTexture': glGetUniformLocation(shader_program, "accumulationTexture"),
+            'useAccumulation': glGetUniformLocation(shader_program, "useAccumulation"),
+        }   
+
+
+
+
     def recompile_shader():
-        """Recompile shader and update uniform locations. Returns (success, uniforms_dict). Uses caching."""
+        """Recompile shader and update uniform locations.  Returns (success, uniforms_dict). Uses caching."""
         nonlocal shader, uniform_locs
         
-        # Check if shader needs recompilation (cache will handle this)
         new_shader, new_uniforms = compile_shader()
         if new_shader is None:
-            # Keep old shader if compilation failed
             return False, None
         
-        # Only delete old shader if it's different (not from cache)
         if shader is not None and shader != new_shader:
-            # Check if old shader is in cache (don't delete cached shaders)
             old_hash = None
             for cached_hash, (cached_shader, _) in shader_cache.items():
                 if cached_shader == shader:
                     old_hash = cached_hash
                     break
             
-            # Only delete if not in cache (shouldn't happen, but safety check)
             if old_hash is None:
                 glDeleteProgram(shader)
         
@@ -863,8 +864,19 @@ def main():
     out vec4 FragColor;
     in vec2 TexCoord;
     uniform sampler2D renderTexture;
+    uniform int isAccumulation; // 1 = accumulation (linear), 0 = already-tonemapped
     void main() {
-        FragColor = texture(renderTexture, TexCoord);
+        vec4 tex = texture(renderTexture, TexCoord);
+        vec3 color = tex.rgb;
+        if (isAccumulation == 1) {
+            // display accumulation buffer: apply tonemapping & gamma
+            // clamp to avoid negative / NaN
+            vec3 mapped = pow(clamp(color, 0.0, 10000.0), vec3(0.4545));
+            FragColor = vec4(mapped, 1.0);
+        } else {
+            // already-tonemapped render targets (pass-through)
+            FragColor = vec4(color, 1.0);
+        }
     }
     """
     
@@ -1002,6 +1014,94 @@ def main():
         print("Falling back to direct rendering (resolution scale may not work correctly)")
         display_shader = None
 
+
+    # --- Accumulation Buffer Setup ---
+    accumulation_fbo = None
+    accumulation_texture = None
+    accumulation_width = 0
+    accumulation_height = 0
+    frame_count = 0
+    accumulation_textures = [None, None]  # Double buffer
+    accumulation_fbos = [None, None]
+    current_accum_index = 0  # Which one to write to
+
+
+    def setup_accumulation_buffer(width, height):
+        """Create or update accumulation buffers (double-buffered) for temporal filtering."""
+        nonlocal accumulation_fbos, accumulation_textures, accumulation_width, accumulation_height
+
+        # If already set up for this size and both buffers exist, nothing to do.
+        if (accumulation_width == width and accumulation_height == height and
+                accumulation_fbos[0] is not None and accumulation_fbos[1] is not None and
+                accumulation_textures[0] is not None and accumulation_textures[1] is not None):
+            return True
+
+        # Delete old buffers/textures if they exist
+        for i in range(2):
+            if accumulation_fbos[i] is not None:
+                try:
+                    glDeleteFramebuffers(1, [accumulation_fbos[i]])
+                except Exception:
+                    pass
+                accumulation_fbos[i] = None
+            if accumulation_textures[i] is not None:
+                try:
+                    glDeleteTextures(1, [accumulation_textures[i]])
+                except Exception:
+                    pass
+                accumulation_textures[i] = None
+
+        # Create two FBO/texture pairs
+        for i in range(2):
+            fbo_i = glGenFramebuffers(1)
+            tex_i = glGenTextures(1)
+
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo_i)
+            glBindTexture(GL_TEXTURE_2D, tex_i)
+
+            # Allocate floating point RGBA texture for accumulation
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, None)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+
+            # Attach texture to the framebuffer
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex_i, 0)
+
+            # Check framebuffer completeness
+            if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+                print(f"Error: Accumulation framebuffer {i} is not complete!")
+                # Clean up what we created so far
+                glBindFramebuffer(GL_FRAMEBUFFER, 0)
+                for j in range(2):
+                    if accumulation_fbos[j] is not None:
+                        try:
+                            glDeleteFramebuffers(1, [accumulation_fbos[j]])
+                        except Exception:
+                            pass
+                        accumulation_fbos[j] = None
+                    if accumulation_textures[j] is not None:
+                        try:
+                            glDeleteTextures(1, [accumulation_textures[j]])
+                        except Exception:
+                            pass
+                        accumulation_textures[j] = None
+                return False
+
+            # Store handles
+            accumulation_fbos[i] = fbo_i
+            accumulation_textures[i] = tex_i
+
+        # Update size bookkeeping and unbind framebuffer
+        accumulation_width = width
+        accumulation_height = height
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        return True
+
+
+
+
     # --- Main Loop ---
     start_time = time.time()
 
@@ -1061,6 +1161,30 @@ def main():
         else:
             last_key_compile_pressed = False
 
+
+
+        # Increment frame counter only when using cycles shader
+        if shader_choice == 1:   # cycles_fragment_shader. glsl
+            frame_count += 1
+        else: 
+            frame_count = 0  # Reset accumulation when switching shaders
+        
+        # Get window and rendering dimensions
+        width, height = glfw.get_framebuffer_size(window)
+        menu_bar_height = int(imgui.get_frame_height())
+        panel_width = int(width * PANEL_WIDTH_RATIO)
+        rendering_width = width - 2 * panel_width
+        rendering_height = height - menu_bar_height
+        
+        scaled_rendering_width = int(rendering_width * resolution_scale)
+        scaled_rendering_height = int(rendering_height * resolution_scale)
+
+
+
+
+
+
+
         # Get the current window size
         width, height = glfw.get_framebuffer_size(window)
         # Get menu bar height (needed for calculations) - convert to int for glViewport
@@ -1094,6 +1218,13 @@ def main():
                 is_shift_mmb_pressed = False
                 glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
 
+
+        prev_cam_yaw = cam_yaw
+        prev_cam_pitch = cam_pitch
+        prev_cam_radius = cam_radius
+        prev_cam_orbit = cam_orbit
+
+
         # Handle mouse wheel input for camera zoom
         if io.mouse_wheel != 0:
             target_radius -= io.mouse_wheel * ZOOM_SENSITIVITY
@@ -1119,6 +1250,7 @@ def main():
                 target_yaw -= dx * MOUSE_SENSITIVITY
                 target_pitch += dy * MOUSE_SENSITIVITY
                 target_pitch = max(MIN_PITCH, min(MAX_PITCH, target_pitch))
+
 
         # --- Interpolate camera angles ---
         cam_yaw += (target_yaw - cam_yaw) * CAMERA_LERP_FACTOR
@@ -1162,6 +1294,36 @@ def main():
             cam_orbit = [0.0,0.0,0.0]
 
 
+
+        elip = 0.005
+        if (abs(cam_yaw - prev_cam_yaw) > elip or 
+            abs(cam_pitch - prev_cam_pitch) > elip or
+            abs(cam_radius - prev_cam_radius) > elip or
+            any(abs(cam_orbit[i] - prev_cam_orbit[i]) > elip for i in range(3))):
+            frame_count = 0
+            # Reset accumulation buffers so no stale data is read later
+            if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
+                # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
+                glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
+                glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
+                glClearColor(0.0, 0.0, 0.0, 0.0)
+                glClear(GL_COLOR_BUFFER_BIT)
+                glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
+                glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
+                glClearColor(0.0, 0.0, 0.0, 0.0)
+                glClear(GL_COLOR_BUFFER_BIT)
+                glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            current_accum_index = 0
+
+
+        print(frame_count)
+
+        prev_cam_yaw = cam_yaw
+        prev_cam_pitch = cam_pitch
+        prev_cam_radius = cam_radius
+        prev_cam_orbit = cam_orbit
+
+
         #bg_draw_list = imgui.get_background_draw_list()
         
         #bg_draw_list.add_circle_filled(
@@ -1176,6 +1338,87 @@ def main():
         glClear(GL_COLOR_BUFFER_BIT)
         
         
+        # --- Setup accumulation buffer if using cycles shader ---
+        use_accumulation = 0
+        if shader_choice == 1:  # cycles_fragment_shader.glsl
+            if setup_accumulation_buffer(scaled_rendering_width, scaled_rendering_height):
+                use_accumulation = 1
+
+        # --- RENDER TO ACCUMULATION BUFFER (if using cycles) ---
+        if shader is not None and shader_choice == 1 and use_accumulation == 1:
+            write_buffer = current_accum_index
+            read_buffer = 1 - current_accum_index
+
+            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[write_buffer])
+            glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
+
+            if frame_count == 0:
+                glClear(GL_COLOR_BUFFER_BIT)
+
+            glUseProgram(shader)
+            if uniform_locs is not None:
+                current_time_uniform = time. time() - start_time
+                glUniform1f(uniform_locs['time'], current_time_uniform)
+                glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
+                glUniform1f(uniform_locs['camYaw'], cam_yaw)
+                glUniform1f(uniform_locs['camPitch'], cam_pitch)
+                glUniform1f(uniform_locs['radius'], cam_radius)
+                glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                glUniform1i(uniform_locs['frameIndex'], frame_count)
+                
+                # Bind accumulation texture for reading
+                glActiveTexture(GL_TEXTURE0)
+                glBindTexture(GL_TEXTURE_2D, accumulation_textures[read_buffer])
+                glUniform1i(uniform_locs['accumulationTexture'], 0)
+                glUniform1i(uniform_locs['useAccumulation'], 1)
+
+            glBindVertexArray(vao)
+            glDrawArrays(GL_QUADS, 0, 4)
+            
+            # Switch back to default framebuffer
+            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            glViewport(0, 0, width, height)
+            
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])  # <- use the correct texture handle
+            glUniform1i(uniform_locs['accumulationTexture'], 0)
+
+            # Display accumulated result
+            glUseProgram(display_shader)
+            glActiveTexture(GL_TEXTURE0)
+            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])  # <- use the same texture for display
+            glUniform1i(glGetUniformLocation(display_shader, "renderTexture"), 0)
+            glUniform1i(glGetUniformLocation(display_shader, "isAccumulation"), 0)
+
+            glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
+            glBindVertexArray(display_vao)
+            glDrawArrays(GL_QUADS, 0, 4)
+            glBindVertexArray(0)
+            
+            glViewport(0, 0, width, height)
+            current_accum_index = 1 - current_accum_index
+        
+        # --- RENDER DIRECTLY (if NOT using cycles or accumulation disabled) ---
+        elif shader is not None: 
+            glUseProgram(shader)
+            if uniform_locs is not None:
+                current_time_uniform = time.time() - start_time
+                glUniform1f(uniform_locs['time'], current_time_uniform)
+                glUniform2f(uniform_locs['resolution'], rendering_width, rendering_height)
+                glUniform1f(uniform_locs['camYaw'], cam_yaw)
+                glUniform1f(uniform_locs['camPitch'], cam_pitch)
+                glUniform1f(uniform_locs['radius'], cam_radius)
+                glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                glUniform1i(uniform_locs['frameIndex'], 0)
+                glUniform1i(uniform_locs['useAccumulation'], 0)
+
+            glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
+            glBindVertexArray(vao)
+            glDrawArrays(GL_QUADS, 0, 4)
+            glViewport(0, 0, width, height)
+
+
+
         # --- TOP MENU BAR (Render first so it's on top) ---
         if imgui. begin_main_menu_bar():
             if imgui.begin_menu("File", True):
@@ -1374,7 +1617,7 @@ def main():
             imgui.same_line()
             imgui.text(f"{resolution_scale:.2f}x")
             
-            changed, resolution_scale = imgui.slider_float("##resolution_scale", resolution_scale, 0.25, 2.0, "%. 2f")
+            changed, resolution_scale = imgui.slider_float("##resolution_scale", resolution_scale, 0.25, 2.0, "%.2f")
             
             imgui.spacing()
             imgui.text_colored("1.0 = Normal resolution", 0.7, 0.7, 0.7, 1.0)
@@ -1850,6 +2093,20 @@ def main():
 
         # Swap front and back buffers
         glfw.swap_buffers(window)
+
+    for i in range(2):
+        if accumulation_fbos[i] is not None:
+            try:
+                glDeleteFramebuffers(1, [accumulation_fbos[i]])
+            except Exception:
+                pass
+            accumulation_fbos[i] = None
+        if accumulation_textures[i] is not None:
+            try:
+                glDeleteTextures(1, [accumulation_textures[i]])
+            except Exception:
+                pass
+            accumulation_textures[i] = None
 
     # Clean up
     # Delete all cached shaders
