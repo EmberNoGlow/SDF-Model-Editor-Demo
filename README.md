@@ -49,13 +49,13 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **🎯 Roadmap**
 
 ### *Current Progress*
-- **📜 Save/Load** - Implemented, testing!
+- I decided to do a **cycles render** that gives realistic results. *WIP*!
 - **📝 Creating a gizmo** - Preparation
 
 ### **Core Functionality (MVP Goals)**
 - [x] **Free movement of the camera in 3d space** - Done!
 - [x] **Translation operations for primitives** - rotation, scale, and position - can be changed in real time in the inspector.
-- [ ] **Save/Load projects** (JSON or custom format)
+- [x] **Save/Load projects** (JSON or custom format)
 - [ ] **Export to 3D formats** (OBJ, GLTF) via voxelization/marching cubes
 - [ ] **Gizmo-based manipulation** (drag, rotate, scale primitives)
 - [ ] **Undo/Redo support**
