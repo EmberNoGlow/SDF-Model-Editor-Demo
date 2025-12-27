@@ -8,12 +8,12 @@ uniform float camPitch;
 uniform float radius = 5.0;
 uniform vec3 CamOrbit = vec3(0.0);
 uniform int frameIndex; // Essential for noise decorrelation
-
+uniform sampler2D accumulationTexture;
+uniform int useAccumulation; // 0 = no accumulation, 1 = with accumulation
 
 {SDF_LIBRARY}
 
 // --- RANDOM GENERATOR (Hash without Sine) ---
-// Essential for path tracing noise
 float hash12(vec2 p) {
     vec3 p3  = fract(vec3(p.xyx) * .1031);
     p3 += dot(p3, p3.yzx + 33.33);
@@ -26,7 +26,6 @@ vec3 hash33(vec3 p3) {
     return fract((p3.xxy + p3.yxx) * p3.zyx);
 }
 
-// Generates a random vector in a hemisphere aligned with the normal
 vec3 getCosHemisphereSample(vec3 normal, vec2 seed) {
     float u = hash12(seed);
     float v = hash12(seed + 0.1234);
@@ -73,12 +72,11 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
     vec3 throughput = vec3(1.0);
     vec3 totalLight = vec3(0.0);
     
-    for(int bounce = 0; bounce < 3; bounce++) { // Multiple iterations
+    for(int bounce = 0; bounce < 3; bounce++) {
         float dO = 0.0;
         vec4 res;
         bool hit = false;
         
-        // Raymarch
         for(int i = 0; i < 80; i++) {
             vec3 p = ro + rd * dO;
             res = map(p);
@@ -90,28 +88,19 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
         if(hit) {
             vec3 p = ro + rd * dO;
             vec3 n = calcNormal(p);
-            
-            // Material properties
             vec3 albedo = res.xyz;
             
-            // Update ray for next bounce (Diffuse reflection)
-            ro = p + n * 0.01; // Offset to prevent self-intersection
+            ro = p + n * 0.01;
             rd = getCosHemisphereSample(n, seed + float(bounce) + float(frameIndex));
             
-            // Simple lighting: Sky contribution as light source
             throughput *= albedo;
-            
-            // If we hit something, we also add a bit of "fake" ambient 
-            // or evaluate light sources here.
         } else {
-            // Hit the sky
             float t = 0.5 * (rd.y + 1.0);
             vec3 skyColor = mix(vec3(0.1, 0.15, 0.25), vec3(0.7, 0.8, 1.0), t);
             totalLight += throughput * skyColor;
             break;
         }
         
-        // Russian Roulette to optimize
         float p = max(throughput.r, max(throughput.g, throughput.b));
         if (hash12(seed + float(bounce)) > p) break;
         throughput /= p;
@@ -120,11 +109,9 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    // Jitter UV for Anti-Aliasing (Cycles style)
     vec2 jitter = hash33(vec3(fragCoord, frameIndex)).xy - 0.5;
     vec2 uv = (fragCoord + jitter - 0.825 * resolution.xy) / resolution.y;
 
-    // --- Camera ---
     vec3 ta = CamOrbit; 
     float pitch = clamp(camPitch, -1.55, 1.55); 
     float x = radius * cos(pitch) * cos(camYaw);
@@ -138,17 +125,33 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float fovFactor = 1.0 / tan(FOV_ANGLE * 0.5);
     vec3 rd = normalize(uu * uv.x * fovFactor + vv * uv.y * fovFactor + ww);
 
-    // --- Path Tracing ---
     vec2 seed = fragCoord.xy + float(frameIndex) * 13.41;
     vec3 col = tracePath(ro, rd, seed);
 
-    // Tonemapping & Gamma
-    col = pow(col, vec3(0.4545));
-
-    // Accumulation logic: 
-    // If your python script handles blending, output col.
-    // To see it working without a buffer, noise will be visible.
-    fragColor = vec4(col, 1.0);
+    // Temporal accumulation blending
+    if (useAccumulation == 1) {
+        vec2 texCoord = fragCoord / resolution;
+        vec4 accumulated = texture(accumulationTexture, texCoord);
+        
+        // Blend:  weight new frame less heavily as we accumulate more samples
+        float sampleCount = accumulated.w;
+        float blendFactor = 1.0 / (sampleCount + 1.0);
+        
+        // IMPORTANT: accumulation texture stores LINEAR radiance (no tonemap)
+        col = mix(accumulated.rgb, col, blendFactor);
+        fragColor = vec4(col, sampleCount + 1.0);
+    } else {
+        // No accumulation -> write single-sample linear radiance; alpha=1.0
+        fragColor = vec4(col, 1.0);
+    }
+    
+    // NOTE: Do NOT apply tonemapping when we are writing into the accumulation buffer.
+    // Apply tonemapping on display instead to avoid double / repeated tonemapping.
+    if (useAccumulation == 0) {
+        // Tonemapping & Gamma only when NOT accumulating (direct output)
+        vec3 toneMapped = pow(fragColor.rgb, vec3(0.4545));
+        fragColor = vec4(toneMapped, fragColor.w);
+    }
 }
 
 void main() {
