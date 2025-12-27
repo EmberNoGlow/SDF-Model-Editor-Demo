@@ -682,6 +682,10 @@ def main():
     last_key_delete_pressed = False  # Track if Delete was pressed
     last_key_compile_pressed = False  # Track if Ctrl+B was pressed
     
+    # Shader selection
+    shader_choice = 0  # 0 = template, 1 = cycles
+    shader_names = ["fragment_shader_template.glsl", "cycles_fragment_shader.glsl"]
+
     # --- Settings ---
     resolution_scale = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
 
@@ -697,16 +701,17 @@ def main():
     def get_shader_hash():
         """Generate a hash of the current shader code for caching."""
         scene_code = scene_builder.generate_raymarch_code()
-        fragment_shader = fragment_shader_template.replace("{SDF_LIBRARY}", sdf_library)
+        selected_fragment_shader = load_shader_code(shader_names[shader_choice])
+        fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
         fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
         fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
         
-        # Create hash of the complete shader code
-        shader_code = vertex_shader + fragment_shader
+        # Create hash of the complete shader code (including shader choice)
+        shader_code = vertex_shader + fragment_shader + shader_names[shader_choice]
         return hashlib.md5(shader_code.encode()).hexdigest()
     
     def compile_shader():
-        """Compile the shader program from the current scene. Uses caching."""
+        """Compile the shader program from the current scene.  Uses caching."""
         nonlocal shader_compile_error
         
         # Check cache first
@@ -719,7 +724,9 @@ def main():
         # Not in cache, compile new shader
         try:
             scene_code = scene_builder.generate_raymarch_code()
-            fragment_shader = fragment_shader_template.replace("{SDF_LIBRARY}", sdf_library)
+            # Use selected shader
+            selected_fragment_shader = load_shader_code(shader_names[shader_choice])
+            fragment_shader = selected_fragment_shader. replace("{SDF_LIBRARY}", sdf_library)
             fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
             fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
             
@@ -738,7 +745,7 @@ def main():
             return shader_program, uniforms
         except Exception as e:
             shader_compile_error = str(e)
-            print(f"Shader compilation error: {e}")
+            print(f"Shader compilation error:  {e}")
             return None, None
     
     def get_uniform_locations(shader_program):
@@ -1336,9 +1343,8 @@ def main():
         # --- SETTINGS WINDOW ---
         if show_settings_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
-            imgui.set_next_window_size(400, 200)
-            # Prevent window from being collapsed - use WINDOW_NO_COLLAPSE flag
-            is_open, show_settings_window = imgui.begin("Settings", True, imgui.WINDOW_NO_COLLAPSE)
+            imgui.set_next_window_size(400, 300)  # Increased height
+            is_open, show_settings_window = imgui. begin("Settings", True, imgui. WINDOW_NO_COLLAPSE)
             
             if not is_open:
                 show_settings_window = False
@@ -1346,11 +1352,29 @@ def main():
             imgui.text("Rendering Settings")
             imgui.separator()
             
+            # Shader Selection
+            imgui.text("Fragment Shader:")
+            clicked, shader_choice = imgui.combo(
+                "##shader_select",
+                shader_choice,
+                shader_names
+            )
+            if clicked:
+                # Recompile with new shader
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+            
+            imgui.spacing()
+            imgui.separator()
+            imgui.spacing()
+            
+            # Resolution Scale
             imgui.text("Resolution Scale:")
             imgui.same_line()
             imgui.text(f"{resolution_scale:.2f}x")
             
-            changed, resolution_scale = imgui.slider_float("##resolution_scale", resolution_scale, 0.25, 2.0, "%.2f")
+            changed, resolution_scale = imgui.slider_float("##resolution_scale", resolution_scale, 0.25, 2.0, "%. 2f")
             
             imgui.spacing()
             imgui.text_colored("1.0 = Normal resolution", 0.7, 0.7, 0.7, 1.0)
@@ -1370,6 +1394,8 @@ def main():
                 show_settings_window = False
             
             imgui.end()
+
+            
 
         # --- FPS OVERLAY (Top Right, above right panel) ---
         fps_x = width - panel_width - FPS_WINDOW_WIDTH - FPS_WINDOW_OFFSET
