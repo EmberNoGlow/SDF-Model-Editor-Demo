@@ -1306,7 +1306,6 @@ def main():
             if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
                 # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
                 glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
-                glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
                 glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
                 glClearColor(0.0, 0.0, 0.0, 0.0)
                 glClear(GL_COLOR_BUFFER_BIT)
