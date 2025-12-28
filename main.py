@@ -753,6 +753,7 @@ def main():
         return {
             'time': glGetUniformLocation(shader_program, "time"),
             'resolution': glGetUniformLocation(shader_program, "resolution"),
+            'viewportOffset': glGetUniformLocation(shader_program, "viewportOffset"),
             'camYaw': glGetUniformLocation(shader_program, "camYaw"),
             'camPitch': glGetUniformLocation(shader_program, "camPitch"),
             'radius': glGetUniformLocation(shader_program, "radius"),
@@ -1295,7 +1296,7 @@ def main():
 
 
 
-        elip = 0.005
+        elip = 0.0005
         if (abs(cam_yaw - prev_cam_yaw) > elip or 
             abs(cam_pitch - prev_cam_pitch) > elip or
             abs(cam_radius - prev_cam_radius) > elip or
@@ -1305,6 +1306,7 @@ def main():
             if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
                 # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
                 glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
+                glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
                 glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
                 glClearColor(0.0, 0.0, 0.0, 0.0)
                 glClear(GL_COLOR_BUFFER_BIT)
@@ -1315,8 +1317,6 @@ def main():
                 glBindFramebuffer(GL_FRAMEBUFFER, 0)
             current_accum_index = 0
 
-
-        print(frame_count)
 
         prev_cam_yaw = cam_yaw
         prev_cam_pitch = cam_pitch
@@ -1360,6 +1360,7 @@ def main():
                 current_time_uniform = time. time() - start_time
                 glUniform1f(uniform_locs['time'], current_time_uniform)
                 glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
+                glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
                 glUniform1f(uniform_locs['camYaw'], cam_yaw)
                 glUniform1f(uniform_locs['camPitch'], cam_pitch)
                 glUniform1f(uniform_locs['radius'], cam_radius)
@@ -1405,6 +1406,8 @@ def main():
                 current_time_uniform = time.time() - start_time
                 glUniform1f(uniform_locs['time'], current_time_uniform)
                 glUniform2f(uniform_locs['resolution'], rendering_width, rendering_height)
+                # When rendering directly into the screen viewport we must subtract the panel/menu offset
+                glUniform2f(uniform_locs['viewportOffset'], float(panel_width), float(menu_bar_height))
                 glUniform1f(uniform_locs['camYaw'], cam_yaw)
                 glUniform1f(uniform_locs['camPitch'], cam_pitch)
                 glUniform1f(uniform_locs['radius'], cam_radius)
@@ -1522,6 +1525,7 @@ def main():
                     current_time_uniform = time.time() - start_time
                     glUniform1f(uniform_locs['time'], current_time_uniform)
                     glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
+                    glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
                     glUniform1f(uniform_locs['camYaw'], cam_yaw)
                     glUniform1f(uniform_locs['camPitch'], cam_pitch)
                     glUniform1f(uniform_locs['radius'], cam_radius)
@@ -1556,6 +1560,7 @@ def main():
                         current_time_uniform = time.time() - start_time
                         glUniform1f(uniform_locs['time'], current_time_uniform)
                         glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
+                        glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
                         glUniform1f(uniform_locs['camYaw'], cam_yaw)
                         glUniform1f(uniform_locs['camPitch'], cam_pitch)
                         glUniform1f(uniform_locs['radius'], cam_radius)
@@ -1573,6 +1578,8 @@ def main():
                     current_time_uniform = time.time() - start_time
                     glUniform1f(uniform_locs['time'], current_time_uniform)
                     glUniform2f(uniform_locs['resolution'], rendering_width, rendering_height)
+                    # Default framebuffer viewport is offset by the left panel and menu bar
+                    glUniform2f(uniform_locs['viewportOffset'], float(panel_width), float(menu_bar_height))
                     glUniform1f(uniform_locs['camYaw'], cam_yaw)
                     glUniform1f(uniform_locs['camPitch'], cam_pitch)
                     glUniform1f(uniform_locs['radius'], cam_radius)
@@ -1645,7 +1652,11 @@ def main():
         imgui.set_next_window_position(fps_x, FPS_WINDOW_OFFSET)
         imgui.set_next_window_size(FPS_WINDOW_WIDTH, FPS_WINDOW_HEIGHT)
         imgui.begin("FPS", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE | imgui.WINDOW_ALWAYS_AUTO_RESIZE | imgui.WINDOW_NO_SCROLLBAR)
-        imgui.text_colored("FPS: " + str(fps_value), 0.0, 1.0, 0.0, 1.0)
+        if shader_choice == 0:
+            imgui.text_colored("FPS: " + str(fps_value), 0.0, 1.0, 0.0, 1.0)
+        elif shader_choice == 1:
+            imgui.text_colored("Sample: " + str(frame_count), 1.0, 1.0, 0.0, 1.0)
+
         imgui.end()
         
 

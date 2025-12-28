@@ -3,6 +3,7 @@ out vec4 FragColor;
 
 uniform float time;
 uniform vec2 resolution;
+uniform vec2 viewportOffset;
 uniform float camYaw;
 uniform float camPitch;
 uniform float radius = 5.0;
@@ -109,8 +110,11 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
 }
 
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    vec2 jitter = hash33(vec3(fragCoord, frameIndex)).xy - 0.5;
-    vec2 uv = (fragCoord + jitter - 0.825 * resolution.xy) / resolution.y;
+    // Convert gl_FragCoord (window coords) into viewport-local coords
+    vec2 localFrag = fragCoord - viewportOffset;
+    // jitter / seed must use the local viewport coordinate (not the full-window coords)
+    vec2 jitter = hash33(vec3(localFrag, frameIndex)).xy - 0.5;
+    vec2 uv = (localFrag + jitter - 0.5 * resolution.xy) / resolution.y;
 
     vec3 ta = CamOrbit; 
     float pitch = clamp(camPitch, -1.55, 1.55); 
@@ -125,7 +129,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float fovFactor = 1.0 / tan(FOV_ANGLE * 0.5);
     vec3 rd = normalize(uu * uv.x * fovFactor + vv * uv.y * fovFactor + ww);
 
-    vec2 seed = fragCoord.xy + float(frameIndex) * 13.41;
+    vec2 seed = localFrag + float(frameIndex) * 13.41;
     vec3 col = tracePath(ro, rd, seed);
 
     // Temporal accumulation blending

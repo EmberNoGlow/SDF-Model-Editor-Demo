@@ -3,6 +3,7 @@ out vec4 FragColor;
 
 uniform float time;
 uniform vec2 resolution;
+uniform vec2 viewportOffset;
 uniform float camYaw;     // Horizontal rotation (around Y axis)
 uniform float camPitch;   // Vertical rotation (around X axis)
 uniform float radius = 5.0; // Camera orbit distance
@@ -130,8 +131,12 @@ vec3 add_grid(vec3 color, vec3 ro, vec3 rd, float depth) {
 
 // Main image function
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    // Calculate normalized UV coordinates
-    vec2 uv = (fragCoord - 0.825 * resolution.xy) / resolution.y;
+    // convert fragCoord to viewport-local coordinates (fragCoord is window coords)
+    vec2 localFrag = fragCoord - viewportOffset;
+
+    // use localFrag when building uv
+    vec2 uv = (localFrag - 0.5 * resolution.xy) / resolution.y;
+
 
     // --- Camera Setup ---
     vec3 ta = CamOrbit; 
