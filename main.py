@@ -1310,7 +1310,6 @@ def main():
                 glClearColor(0.0, 0.0, 0.0, 0.0)
                 glClear(GL_COLOR_BUFFER_BIT)
                 glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
-                glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
                 glClearColor(0.0, 0.0, 0.0, 0.0)
                 glClear(GL_COLOR_BUFFER_BIT)
                 glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -1377,7 +1376,9 @@ def main():
             
             # Switch back to default framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            # HERE__
             glViewport(0, 0, width, height)
+            #glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
             
             glActiveTexture(GL_TEXTURE0)
             glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])  # <- use the correct texture handle
@@ -1511,7 +1512,13 @@ def main():
             last_key_f10_pressed = False
         
         # --- RENDER TO FRAMEBUFFER AT SCALED RESOLUTION ---
-        if shader is not None and display_shader is not None and resolution_scale != 1.0:
+        # If we've already rendered & displayed the accumulation buffer above (cycles shader),
+        # skip the further framebuffer / direct rendering to avoid double-draw and viewport offset.
+        if shader is not None and shader_choice == 1 and use_accumulation == 1:
+            # accumulation rendering & display already handled above
+            pass
+
+        elif shader is not None and display_shader is not None and resolution_scale != 1.0:
             # Setup framebuffer
             if setup_framebuffer(scaled_rendering_width, scaled_rendering_height):
                 # Render to framebuffer
@@ -1571,6 +1578,7 @@ def main():
                     glViewport(0, 0, width, height)
         else:
             # Direct rendering when scale is 1.0 or display shader not available
+            # Skip if accumulation handled above (see guard at top)
             if shader is not None:
                 glUseProgram(shader)
                 if uniform_locs is not None:
@@ -1588,7 +1596,6 @@ def main():
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
                 glViewport(0, 0, width, height)
-
         # --- SETTINGS WINDOW ---
         if show_settings_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
