@@ -11,6 +11,8 @@ uniform vec3 CamOrbit = vec3(0.0);
 uniform int frameIndex; // Essential for noise decorrelation
 uniform sampler2D accumulationTexture;
 uniform int useAccumulation; // 0 = no accumulation, 1 = with accumulation
+uniform vec3 SkyColorTop;
+uniform vec3 SkyColorBottom;
 
 {SDF_LIBRARY}
 
@@ -97,7 +99,7 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
             throughput *= albedo;
         } else {
             float t = 0.5 * (rd.y + 1.0);
-            vec3 skyColor = mix(vec3(0.1, 0.15, 0.25), vec3(0.7, 0.8, 1.0), t);
+            vec3 skyColor = mix(SkyColorBottom, SkyColorTop, t);
             totalLight += throughput * skyColor;
             break;
         }

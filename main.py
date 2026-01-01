@@ -686,6 +686,11 @@ def main():
     shader_choice = 0  # 0 = template, 1 = cycles
     shader_names = ["fragment_shader_template.glsl", "cycles_fragment_shader.glsl"]
 
+    # Sky shaders uniforms (cycles)
+    sky_top_color = [0.7, 0.8, 1.0]
+    sky_bottom_color = [0.1, 0.15, 0.25]
+
+
     # --- Settings ---
     resolution_scale = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
 
@@ -761,6 +766,8 @@ def main():
             'frameIndex':  glGetUniformLocation(shader_program, "frameIndex"),
             'accumulationTexture': glGetUniformLocation(shader_program, "accumulationTexture"),
             'useAccumulation': glGetUniformLocation(shader_program, "useAccumulation"),
+            'col_sky_top' : glGetUniformLocation(shader_program, "SkyColorTop"),
+            'col_sky_bottom' : glGetUniformLocation(shader_program, "SkyColorBottom"),
         }   
 
 
@@ -1301,6 +1308,7 @@ def main():
             abs(cam_pitch - prev_cam_pitch) > elip or
             abs(cam_radius - prev_cam_radius) > elip or
             any(abs(cam_orbit[i] - prev_cam_orbit[i]) > elip for i in range(3))):
+            #TODO: merge with sky color
             frame_count = 0
             # Reset accumulation buffers so no stale data is read later
             if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
@@ -1371,12 +1379,15 @@ def main():
                 glUniform1i(uniform_locs['accumulationTexture'], 0)
                 glUniform1i(uniform_locs['useAccumulation'], 1)
 
+                glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
+                glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+
+
             glBindVertexArray(vao)
             glDrawArrays(GL_QUADS, 0, 4)
             
             # Switch back to default framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
-            # HERE__
             glViewport(0, 0, width, height)
             #glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
             
@@ -1639,6 +1650,56 @@ def main():
             
             imgui.spacing()
             imgui.separator()
+
+            if shader_choice == 1:
+                # Show Sky colors
+                imgui.text("Sky Top Color:")
+                top_color_changed, top_color_rgba = imgui.color_edit3("SkyTopColor##color", sky_top_color[0], sky_top_color[1], sky_top_color[2])
+                if top_color_changed:
+                    sky_top_color = list(top_color_rgba[:3])  # Only use RGB, ignore alpha
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+                        frame_count = 0
+                        # Reset accumulation buffers so no stale data is read later
+                        if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
+                            # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
+                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
+                            glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
+                            glClearColor(0.0, 0.0, 0.0, 0.0)
+                            glClear(GL_COLOR_BUFFER_BIT)
+                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
+                            glClearColor(0.0, 0.0, 0.0, 0.0)
+                            glClear(GL_COLOR_BUFFER_BIT)
+                            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+                        current_accum_index = 0
+
+                imgui.text("Sky Bottom Color:")
+                bottom_color_changed, bottom_color_rgba = imgui.color_edit3("SkyBottomColor##color", sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+                if bottom_color_changed:
+                    sky_bottom_color = list(bottom_color_rgba[:3])  # Only use RGB, ignore alpha
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+                        frame_count = 0
+                        # Reset accumulation buffers so no stale data is read later
+                        if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
+                            # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
+                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
+                            glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
+                            glClearColor(0.0, 0.0, 0.0, 0.0)
+                            glClear(GL_COLOR_BUFFER_BIT)
+                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
+                            glClearColor(0.0, 0.0, 0.0, 0.0)
+                            glClear(GL_COLOR_BUFFER_BIT)
+                            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+                        current_accum_index = 0
+
+
+                imgui.spacing()
+                imgui.separator()
+
+
             # Calculate scaled size for display
             scaled_w = int(rendering_width * resolution_scale)
             scaled_h = int(rendering_height * resolution_scale)
@@ -1903,7 +1964,7 @@ def main():
                         # Show color preview button
                         imgui.same_line()
                         # color_button takes: label, r, g, b, flags, size_x, size_y
-                        imgui.color_button("Preview##color_preview", primitive.color[0], primitive.color[1], primitive.color[2], 0, 20, 20)
+                        #imgui.color_button("Preview##color_preview", primitive.color[0], primitive.color[1], primitive.color[2], 0, 20, 20)
                         
                         # Alternative: RGB sliders for fine control
                         imgui.text("RGB Sliders:")
