@@ -690,6 +690,8 @@ def main():
     sky_top_color = [0.7, 0.8, 1.0]
     sky_bottom_color = [0.1, 0.15, 0.25]
 
+    # Grid (template)
+    GridEnabled = True
 
     # --- Settings ---
     resolution_scale = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
@@ -768,6 +770,7 @@ def main():
             'useAccumulation': glGetUniformLocation(shader_program, "useAccumulation"),
             'col_sky_top' : glGetUniformLocation(shader_program, "SkyColorTop"),
             'col_sky_bottom' : glGetUniformLocation(shader_program, "SkyColorBottom"),
+            'grid_enabled': glGetUniformLocation(shader_program, "GridEnabled"),
         }   
 
 
@@ -1426,6 +1429,11 @@ def main():
                 glUniform1i(uniform_locs['frameIndex'], 0)
                 glUniform1i(uniform_locs['useAccumulation'], 0)
 
+                glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
+                glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+
+                glUniform1i(uniform_locs['grid_enabled'], GridEnabled)
+
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
             glBindVertexArray(vao)
             glDrawArrays(GL_QUADS, 0, 4)
@@ -1651,15 +1659,16 @@ def main():
             imgui.spacing()
             imgui.separator()
 
-            if shader_choice == 1:
-                # Show Sky colors
-                imgui.text("Sky Top Color:")
-                top_color_changed, top_color_rgba = imgui.color_edit3("SkyTopColor##color", sky_top_color[0], sky_top_color[1], sky_top_color[2])
-                if top_color_changed:
-                    sky_top_color = list(top_color_rgba[:3])  # Only use RGB, ignore alpha
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
+
+            # Show Sky colors
+            imgui.text("Sky Top Color:")
+            top_color_changed, top_color_rgba = imgui.color_edit3("SkyTopColor##color", sky_top_color[0], sky_top_color[1], sky_top_color[2])
+            if top_color_changed:
+                sky_top_color = list(top_color_rgba[:3])  # Only use RGB, ignore alpha
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+                    if shader_choice == 1:
                         frame_count = 0
                         # Reset accumulation buffers so no stale data is read later
                         if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
@@ -1674,13 +1683,14 @@ def main():
                             glBindFramebuffer(GL_FRAMEBUFFER, 0)
                         current_accum_index = 0
 
-                imgui.text("Sky Bottom Color:")
-                bottom_color_changed, bottom_color_rgba = imgui.color_edit3("SkyBottomColor##color", sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
-                if bottom_color_changed:
-                    sky_bottom_color = list(bottom_color_rgba[:3])  # Only use RGB, ignore alpha
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
+            imgui.text("Sky Bottom Color:")
+            bottom_color_changed, bottom_color_rgba = imgui.color_edit3("SkyBottomColor##color", sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+            if bottom_color_changed:
+                sky_bottom_color = list(bottom_color_rgba[:3])  # Only use RGB, ignore alpha
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+                    if shader_choice == 1:
                         frame_count = 0
                         # Reset accumulation buffers so no stale data is read later
                         if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
@@ -1695,6 +1705,12 @@ def main():
                             glBindFramebuffer(GL_FRAMEBUFFER, 0)
                         current_accum_index = 0
 
+            if shader_choice == 0:
+                imgui.text("Grid Enabled:")
+                changed, GridEnabled = imgui.checkbox("", GridEnabled)
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
 
                 imgui.spacing()
                 imgui.separator()

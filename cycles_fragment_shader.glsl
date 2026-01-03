@@ -99,6 +99,7 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
             throughput *= albedo;
         } else {
             float t = 0.5 * (rd.y + 1.0);
+            t = smoothstep(0.35, 0.5, t);
             vec3 skyColor = mix(SkyColorBottom, SkyColorTop, t);
             totalLight += throughput * skyColor;
             break;

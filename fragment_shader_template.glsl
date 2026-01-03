@@ -8,6 +8,9 @@ uniform float camYaw;     // Horizontal rotation (around Y axis)
 uniform float camPitch;   // Vertical rotation (around X axis)
 uniform float radius = 5.0; // Camera orbit distance
 uniform vec3 CamOrbit = vec3(0.0); // Center of orbit
+uniform vec3 SkyColorTop = vec3(0.1, 0.15, 0.25);
+uniform vec3 SkyColorBottom =  vec3(0.05, 0.05, 0.1);
+uniform bool GridEnabled = true;
 
 // Assuming these are replaced by your external code
 {SDF_LIBRARY}
@@ -184,13 +187,12 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         col = mix(col, skyColor, fog);
         
     } else {
-        // Background (Sky) - Replaces the flat gray
-        // Simple vertical gradient
         float t = 0.5 * (rd.y + 1.0);
-        col = mix(vec3(0.1, 0.15, 0.25), vec3(0.05, 0.05, 0.1), t);
+        t = smoothstep(0.35, 0.5, t);
+        col = mix(SkyColorBottom, SkyColorTop, t);
     }
 
-    col = add_grid(col,ro,rd,d);
+    if(GridEnabled == true) col = add_grid(col,ro,rd,d);
 
 
     fragColor = vec4(col, 1.0);
