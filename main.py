@@ -99,13 +99,13 @@ MAX_PITCH = math.radians(90)
 # Load shader files with error handling
 try:
     # Vertex shader source code
-    vertex_shader = load_shader_code("vertex_shader.glsl")
+    vertex_shader = load_shader_code("shaders/vertex_shader.glsl")
     
     # SDF Library
-    sdf_library = load_shader_code("sdf_library.glsl")
+    sdf_library = load_shader_code("shaders/sdf_library.glsl")
     
     # Fragment shader template
-    fragment_shader_template = load_shader_code("fragment_shader_template.glsl")
+    fragment_shader_template = load_shader_code("shaders/fragment/template.glsl")
 except (FileNotFoundError, IOError) as e:
     print(f"Error loading shader files: {e}")
     print("Please ensure all shader files are present in the project directory.")
@@ -689,7 +689,7 @@ def main():
     
     # Shader selection
     shader_choice = 0  # 0 = template, 1 = cycles
-    shader_names = ["fragment_shader_template.glsl", "cycles_fragment_shader.glsl"]
+    shader_names = ["shaders/fragment/template.glsl", "shaders/fragment/cycles.glsl"]
 
     # Sky shaders uniforms (cycles)
     sky_top_color = [0.7, 0.8, 1.0]
@@ -1360,7 +1360,7 @@ def main():
         
         # --- Setup accumulation buffer if using cycles shader ---
         use_accumulation = 0
-        if shader_choice == 1:  # cycles_fragment_shader.glsl
+        if shader_choice == 1:  # cycles.glsl
             if setup_accumulation_buffer(scaled_rendering_width, scaled_rendering_height):
                 use_accumulation = 1
 
@@ -1643,7 +1643,7 @@ def main():
             clicked, shader_choice = imgui.combo(
                 "##shader_select",
                 shader_choice,
-                shader_names
+                [name.replace("shaders/fragment/", "") for name in shader_names]
             )
             if clicked:
                 # Recompile with new shader
