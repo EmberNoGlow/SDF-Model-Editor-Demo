@@ -89,7 +89,7 @@ FPS_WINDOW_HEIGHT = 30
 # Camera Constants
 MOUSE_SENSITIVITY = 0.005
 PAN_SENSITIVITY = 0.1
-CAMERA_LERP_FACTOR = 0.075
+CAMERA_LERP_FACTOR = 7.5
 ZOOM_SENSITIVITY = 0.5
 MIN_RADIUS = 1.0
 MAX_RADIUS = 100.0
@@ -612,6 +612,9 @@ def orbital_to_cartesian(_yaw, _pitch, _radius):
 
     return (x, y, z)
 
+
+
+
 def main():
     # Initialize GLFW
     if not glfw.init():
@@ -656,6 +659,8 @@ def main():
     last_key_s_pressed = False
     last_key_o_pressed = False
     last_key_f10_pressed = False  # Add this if not present
+
+    delta_time = 0.0 # Delta time
 
 
     # --- Scene Definition ---
@@ -1115,8 +1120,14 @@ def main():
 
     # --- Main Loop ---
     start_time = time.time()
+    prev_time = time.time() 
 
     while not glfw.window_should_close(window):
+        # calc Delta time 
+        current_time = time.time()
+        delta_time = current_time - prev_time
+        prev_time = current_time
+
         glfw.poll_events()
         impl.process_inputs()
         imgui.new_frame()
@@ -1241,7 +1252,7 @@ def main():
             target_radius -= io.mouse_wheel * ZOOM_SENSITIVITY
             target_radius = max(MIN_RADIUS, min(MAX_RADIUS, target_radius))
 
-        cam_radius += (target_radius - cam_radius) * CAMERA_LERP_FACTOR
+        cam_radius += (target_radius - cam_radius) * (CAMERA_LERP_FACTOR * delta_time)
 
         # Only update target camera angles if MMB is pressed
         if is_mmb_pressed:
@@ -1264,12 +1275,12 @@ def main():
 
 
         # --- Interpolate camera angles ---
-        cam_yaw += (target_yaw - cam_yaw) * CAMERA_LERP_FACTOR
-        cam_pitch += (target_pitch - cam_pitch) * CAMERA_LERP_FACTOR
+        cam_yaw += (target_yaw - cam_yaw) * (CAMERA_LERP_FACTOR*delta_time)
+        cam_pitch += (target_pitch - cam_pitch) * (CAMERA_LERP_FACTOR*delta_time)
 
         # --- Interpolate camera Pan ---
-        cam_pan_y += (target_pan_y - cam_pan_y) * CAMERA_LERP_FACTOR
-        cam_pan_x -= (target_pan_x + cam_pan_x) * CAMERA_LERP_FACTOR
+        cam_pan_y += (target_pan_y - cam_pan_y) * (CAMERA_LERP_FACTOR*delta_time)
+        cam_pan_x -= (target_pan_x + cam_pan_x) * (CAMERA_LERP_FACTOR*delta_time)
 
         #####
         forward_x = math.cos(cam_pitch) * math.sin(cam_yaw)
