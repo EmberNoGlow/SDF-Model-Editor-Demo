@@ -1,10 +1,8 @@
 # **SDF Model Editor (Demo)**
 *A lightweight editor for creating and manipulating Signed Distance Field (SDF) primitives using Python, GLSL, and OpenGL.*
 
-[![Python 3.8](https://img.shields.io/badge/python-3.8-blue.svg)](https://www.python.org/downloads/release/python-380/)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![GitHub Issues](https://img.shields.io/github/issues/EmberNoGlow/SDF-Model-Editor-Demo)](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/EmberNoGlow/SDF-Model-Editor-Demo?style=social)](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/stargazers)
+
+[![Python 3.11](https://img.shields.io/badge/python-3.11-orange.svg)](https://www.python.org/downloads/release/python-3110/) [![GLSL 330](https://img.shields.io/badge/GLSL-330-darkblue.svg)](https://www.khronos.org/registry/OpenGL/index_gl.php) [![Imgui 2.0.0](https://img.shields.io/badge/Imgui-2.0.0-red.svg)](https://github.com/pyimgui/pyimgui) [![GLFW 2.1.0](https://img.shields.io/badge/GLFW-2.1.0-yellow.svg)](https://www.glfw.org/) [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![GitHub Issues](https://img.shields.io/github/issues/EmberNoGlow/SDF-Model-Editor-Demo)](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues) [![GitHub Stars](https://img.shields.io/github/stars/EmberNoGlow/SDF-Model-Editor-Demo?style=social)](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/stargazers)
 
 ---
 
@@ -18,9 +16,9 @@ While the current version is a **demo with limited functionality**, it serves as
 ---
 
 ## **📌 Screenshots**
-| ![Screenshot 1](Screenshots/Screenshot_1.png) | ![Screenshot 2](Screenshots/Screenshot_2.png) |
-|:--------------------------------------------:|:--------------------------------------------:|
-| ![Screenshot 3](Screenshots/Screenshot_3.png) | ![Screenshot 4](Screenshots/Screenshot_4.png) |
+| ![Screenshot 1](Screenshots/Screenshot_1.jpg) | ![Screenshot 2](Screenshots/Screenshot_2.jpg) | ![Screenshot 2](Screenshots/Screenshot_3.jpg)
+|:--------------------------------------------:|:--------------------------------------------:|:--------------------------------------------:|
+| ![Screenshot 3](Screenshots/Screenshot_4.jpg) | ![Screenshot 4](Screenshots/Screenshot_5.jpg) | ![Screenshot 2](Screenshots/Screenshot_6.jpg)
 
 ---
 
@@ -28,8 +26,8 @@ While the current version is a **demo with limited functionality**, it serves as
 This is an **early-stage prototype** with known bugs and missing features. Check the **[Roadmap](#-roadmap)** for planned improvements.
 
 ### **Known Issues**
-- Screen shifts when adjusting rendering scale.
-- Minor UI/UX inconsistencies.
+- Small bugs
+
 
 > **Your feedback and contributions are welcome!** Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues) or submit a [PR](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
 
@@ -44,6 +42,8 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 
 ✅ **ImGui-based UI** for intuitive controls
 
+✅ **Save & Load** functions (using tkinter)
+
 ---
 
 ## **🎯 Roadmap**
@@ -56,9 +56,11 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 - [x] **Free movement of the camera in 3d space** - Done!
 - [x] **Translation operations for primitives** - rotation, scale, and position - can be changed in real time in the inspector.
 - [x] **Save/Load projects** (JSON or custom format)
-- [ ] **Export to 3D formats** (OBJ, GLTF) via voxelization/marching cubes
+- [ ] **Export to 3D formats** (OBJ, GLTF) via voxelization/[marching cubes](https://github.com/EmberNoGlow/Rust-Marching-Cubes-Generator)
 - [ ] **Gizmo-based manipulation** (drag, rotate, scale primitives)
+- [ ] **Add AABB** - optimization
 - [ ] **Undo/Redo support**
+- [ ] **Write Docs!**
 
 ### **User Experience (Future Improvements)**
 - [ ] **Themes & customization**
@@ -73,7 +75,7 @@ Contributions are **highly encouraged**! Here’s how you can help:
 2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions/).
 3. **Submit code** → Fork the repo and create a [Pull Request](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
 
-> **Note:** This project is a learning experience—expect refactoring and experimentation!
+> **Note:** This project is a learning experience - expect refactoring and experimentation!
 
 ---
 
@@ -120,7 +122,7 @@ This project is licensed under the **MIT License** – see [LICENSE](LICENSE) fo
 ### **🚀 Ready to Try It?**
 ```bash
 git clone https://github.com/EmberNoGlow/SDF-Model-Editor-Demo.git
-cd sdf-model-editor
+cd SDF-Model-Editor-Demo
 pip install -r requirements.txt
 python main.py
 ```
@@ -128,7 +130,7 @@ python main.py
 ---
 
 ### **Final Thoughts**
-This project is a **testament to experimentation**—imperfect, evolving, but full of potential. Whether you’re here to **learn, contribute, or build**, I’m excited to see where it goes next!
+This project is a **testament to experimentation** - imperfect, evolving, but full of potential. Whether you’re here to **learn, contribute, or build**, I’m excited to see where it goes next!
 
 **Let’s create something amazing together.** 🚀
 
@@ -138,4 +140,17 @@ This project is a **testament to experimentation**—imperfect, evolving, but fu
 
 Your support helps development! Help by leaving a review, reporting an error, suggesting an idea in Discussions, creating a Pull Request, or just **star ⭐** the repository!.
 
-Follow me: **[Bluesky](https://bsky.app/profile/embernoglow.bsky.social)** | **[dev.to](https://dev.to/embernoglow)**
+<center>
+<h2>
+Follow me
+</h2> 
+<a href="https://dev.to/embernoglow" target="_blank">
+  <img src="https://img.shields.io/badge/Dev.to-black?style=flat-square&logo=dev.to&logoColor=white" alt="Dev.to" width="17.5%" />
+</a>
+<a href="https://bsky.app/profile/embernoglow.bsky.social" target="_blank">
+  <img src="https://img.shields.io/badge/Blue_Sky-1DA1F2?style=flat-square&logo=bluesky&logoColor=white" alt="Blue Sky" width="17.5%" />
+</a>
+<a href="https://github.com/EmberNoGlow" target="_blank">
+  <img src="https://img.shields.io/badge/GitHub-black?style=flat-square&logo=github&logoColor=white" alt="GitHub" width="17.5%" />
+</a>
+</center>
