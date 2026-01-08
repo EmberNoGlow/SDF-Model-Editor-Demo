@@ -140,17 +140,7 @@ This project is a **testament to experimentation** - imperfect, evolving, but fu
 
 Your support helps development! Help by leaving a review, reporting an error, suggesting an idea in Discussions, creating a Pull Request, or just **star ⭐** the repository!.
 
-<center>
-<h2>
-Follow me
-</h2> 
-<a href="https://dev.to/embernoglow" target="_blank">
-  <img src="https://img.shields.io/badge/Dev.to-black?style=flat-square&logo=dev.to&logoColor=white" alt="Dev.to" width="17.5%" />
-</a>
-<a href="https://bsky.app/profile/embernoglow.bsky.social" target="_blank">
-  <img src="https://img.shields.io/badge/Blue_Sky-1DA1F2?style=flat-square&logo=bluesky&logoColor=white" alt="Blue Sky" width="17.5%" />
-</a>
-<a href="https://github.com/EmberNoGlow" target="_blank">
-  <img src="https://img.shields.io/badge/GitHub-black?style=flat-square&logo=github&logoColor=white" alt="GitHub" width="17.5%" />
-</a>
-</center>
+
+## Follow me
+
+<a href="https://dev.to/embernoglow" target="_blank"><img src="https://img.shields.io/badge/Dev.to-black?style=flat-square&logo=dev.to&logoColor=white" alt="Dev.to" width="15%" /></a><a href="https://bsky.app/profile/embernoglow.bsky.social" target="_blank"><img src="https://img.shields.io/badge/Blue_Sky-1DA1F2?style=flat-square&logo=bluesky&logoColor=white" alt="Blue Sky" width="15%" /></a><a href="https://github.com/EmberNoGlow" target="_blank"><img src="https://img.shields.io/badge/GitHub-black?style=flat-square&logo=github&logoColor=white" alt="GitHub" width="15%" /></a>
