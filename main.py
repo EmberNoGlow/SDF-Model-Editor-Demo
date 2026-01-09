@@ -710,6 +710,7 @@ def main():
     # --- UI State ---
     show_selection_window = False
     show_settings_window = False
+    show_about_window = False
     selected_item_id = None  # Track which item is selected in the tree
     selection_mode = None  # 'primitive' or 'operation'
     renaming_item_id = None  # Item being renamed
@@ -1530,6 +1531,13 @@ def main():
                     show_settings_window = True
                 imgui.end_menu()
     
+            if imgui.begin_menu("About", True):
+                if imgui.menu_item("Information")[0]:
+                    show_about_window = True
+                imgui.end_menu()
+
+
+
             imgui.end_main_menu_bar()
         
 
@@ -1664,7 +1672,7 @@ def main():
         if show_settings_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
             imgui.set_next_window_size(400, 300)  # Increased height
-            is_open, show_settings_window = imgui. begin("Settings", True, imgui. WINDOW_NO_COLLAPSE)
+            is_open, show_settings_window = imgui.begin("Settings", True, imgui. WINDOW_NO_COLLAPSE)
             
             if not is_open:
                 show_settings_window = False
@@ -1743,9 +1751,56 @@ def main():
             if imgui.button("Close", -1):
                 show_settings_window = False
             
+            
             imgui.end()
 
+        if show_about_window:
+            imgui.set_next_window_position(width // 2 - 250, height // 2 - 200)
+            imgui.set_next_window_size(500, 400)  # Increased height
+            is_open, show_about_window = imgui.begin("About", True, imgui. WINDOW_NO_COLLAPSE)
             
+            if not is_open:
+                show_about_window = False
+            
+            about_text = """
+MIT License
+
+Copyright (c) 2025-present EmberNoGlow
+
+------------------
+
+This is a project in which I created rendering and full interaction with sdf primitives. Using Python, GLSL, Imgui, glfw, pyopengl.
+
+------------------
+
+Thank you for using this project! If you liked the project, give it a star on github.
+
+You can also support the project by reporting an error, or by suggesting an improvement by opening a Pull Request (PR).
+            """
+            imgui.begin_child("LicenseText", width=490, height=300, border=True)
+            imgui.text_wrapped(about_text)
+            imgui.end_child()
+            
+            imgui.spacing()
+
+            # --- Github project page URL ---
+            import webbrowser
+            
+            imgui.push_style_color(imgui.COLOR_HEADER, 0, 0, 0, 0)
+            imgui.push_style_color(imgui.COLOR_HEADER_HOVERED, 0.6, 0.4, 0.1, 0.5)
+            imgui.push_style_color(imgui.COLOR_HEADER_ACTIVE, 0, 0, 0, 0)
+            imgui.push_style_color(imgui.COLOR_TEXT, 0.2, 0.5, 1.0)
+            if imgui.selectable("Visit project page in Github", False):
+                if imgui.is_item_hovered() and imgui.is_mouse_double_clicked(0):
+                    webbrowser.open("https://github.com/EmberNoGlow/SDF-Model-Editor-Demo")
+            imgui.pop_style_color()
+            imgui.pop_style_color(3)
+
+            imgui.spacing()
+            if imgui.button("Close", -1):
+                show_about_window = False
+
+            imgui.end()
 
         # --- FPS OVERLAY (Top Right, above right panel) ---
         fps_x = width - panel_width - FPS_WINDOW_WIDTH - FPS_WINDOW_OFFSET
