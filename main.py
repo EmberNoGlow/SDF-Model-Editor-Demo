@@ -310,6 +310,8 @@ class SDFOperation:
         }
 
 
+ # A variable to track what we recompiled the shader
+ # in cycles mode for later updating the fbo
 monitor = False
 
 
@@ -331,8 +333,6 @@ class SDFSceneBuilder:
 
 
 
-
-    @MonitorChanges
     def add_primitive(self, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
         op_id = f"d{self.next_id}"
         primitive = SDFPrimitive(primitive_type, position, size_or_radius, rotation, scale, ui_name, color, **kwargs)
@@ -372,7 +372,7 @@ class SDFSceneBuilder:
     def add_rounded_cylinder(self, position, radius_a, radius_b, height, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("rounded_cylinder", position, [radius_a, radius_b], rotation, scale, ui_name, color, height=height)
 
-    @MonitorChanges
+
     def add_operation(self, operation_type, *args, ui_name=None):
         op_id = f"d{self.next_id}"
         operation = SDFOperation(operation_type, *args, ui_name=ui_name)
@@ -812,7 +812,7 @@ def main():
 
 
 
-
+    @MonitorChanges
     def recompile_shader():
         """Recompile shader and update uniform locations.  Returns (success, uniforms_dict). Uses caching."""
         nonlocal shader, uniform_locs
@@ -1252,7 +1252,7 @@ def main():
         scaled_rendering_height = int(rendering_height * resolution_scale)
 
 
-        # If a primitive/operation is added or its property is changed, update the buffer
+        # If we recompiled the shader, we will update the fbo
         global monitor
         if monitor == True and shader_choice == 1:
             monitor = False
@@ -1713,11 +1713,6 @@ def main():
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
-                    if shader_choice == 1:
-                        frame_count = 0
-                        # Reset accumulation buffers so no stale data is read later
-                        clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
-                        current_accum_index = 0
 
             imgui.text("Sky Bottom Color:")
             bottom_color_changed, bottom_color_rgba = imgui.color_edit3("SkyBottomColor##color", sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
@@ -1726,11 +1721,6 @@ def main():
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
-                    if shader_choice == 1:
-                        frame_count = 0
-                        # Reset accumulation buffers so no stale data is read later
-                        clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
-                        current_accum_index = 0
 
             if shader_choice == 0:
                 imgui.text("Grid Enabled:")
