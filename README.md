@@ -36,6 +36,8 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **🚀 Features**
 ✅ **Real-time SDF rendering** (GLSL shaders)
 
+✅ **Cycles Additional rendering mode - Realistic Ray Tracing algorithm**
+
 ✅ **Smooth logic operations** (substract, intersect, union, etc.)
 
 ✅ **Multi-primitive composition** (spheres, boxes, cones, etc.)
@@ -49,7 +51,9 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **🎯 Roadmap**
 
 ### *Current Progress*
-- I decided to do a **cycles render** that gives realistic results. *WIP*!
+- **〽 Found and Fix** bugs
+- **⏱ Optimize**
+- **🧷 Integrate [marching cubes](https://github.com/EmberNoGlow/Rust-Marching-Cubes-Generator) written in Rust** for export into 3D format (example, obj)
 - **📝 Creating a gizmo** - Preparation
 
 ### **Core Functionality (MVP Goals)**
@@ -119,13 +123,61 @@ This project is licensed under the **MIT License** – see [LICENSE](LICENSE) fo
 
 ---
 
-### **🚀 Ready to Try It?**
+## **🚀 Ready to Try It?**
+### Download compiled
+Compiled executables for windows can be **found in [releases](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/releases)**
+
+
+> *NOTE*: I don't have the ability to compile a linux app yet.
+
+
+### Clone and run main.py
 ```bash
 git clone https://github.com/EmberNoGlow/SDF-Model-Editor-Demo.git
 cd SDF-Model-Editor-Demo
+python -m venv .venv
+.venv/Scripts/Activate.ps1
 pip install -r requirements.txt
 python main.py
 ```
+
+> *NOTE:* To install the imgui package you will need a c++ compiler. My advice is to use **[mingw](https://sourceforge.net/projects/mingw/)** - if you **only** need a compiler for this task. **[Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools)** will do for this task too, but it **weighs more**.
+
+
+### Compilation
+
+1. **First, install pyinstaller.**
+
+```bash
+pip install pyinstaller
+```
+
+2. **Compile into one file**
+
+```bash
+pyinstaller --onefile --name sdfeditor --windowed --add-binary ".venv\Lib\site-packages\glfw\glfw3.dll;." main.py
+```
+
+> *NOTE*: You should make sure that you have a virtual environment named **.venv created and glfw installed** (it is added to requirements). If there is none or the **path is incorrect, specify the correct path** to `the glfw3.dll` file located in the virtual environment in the `\Lib\site-packages\glfw folder`!
+
+3. **Move the compiled file to a separate folder and drag the shaders folder to this directory. You should get it like this:**
+
+```
+
+root directory
+├── shaders
+│    ├── fragment
+│    │    ├── cycles.glsl
+│    │    └── template.glsl
+│    │
+│    ├── sdf_library.glsl
+│    └── vertex_shader.glsl
+│
+├── glfw3.dll
+└── sdfeditor.exe
+
+```
+
 
 ---
 
