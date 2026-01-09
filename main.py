@@ -62,7 +62,7 @@ def load_scene_dialog(scene_builder, parent_window=None):
     root.withdraw()  # Hide the root window
     
     filepath = filedialog.askopenfilename(
-        filetypes=[("JSON files", "*. json"), ("All files", "*.*")]
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
     )
     
     root.destroy()
@@ -532,7 +532,7 @@ class SDFSceneBuilder:
         for op_id, primitive in self.primitives:
             prim_dict = primitive.to_dict()
             prim_dict["op_id"] = op_id
-            scene_dict["primitives"]. append(prim_dict)
+            scene_dict["primitives"].append(prim_dict)
     
         # Serialize operations
         for op_id, operation in self.operations:
@@ -551,16 +551,16 @@ class SDFSceneBuilder:
         self.next_id = 0
     
         # Load primitives
-        for prim_dict in scene_dict. get("primitives", []):
+        for prim_dict in scene_dict.get("primitives", []):
             op_id = prim_dict["op_id"]
 
             primitive = SDFPrimitive(
                 primitive_type=prim_dict["primitive_type"],
                 position=prim_dict["position"],
                 size_or_radius=prim_dict["size_or_radius"],
-                rotation=prim_dict. get("rotation", [0.0, 0.0, 0.0]),
+                rotation=prim_dict.get("rotation", [0.0, 0.0, 0.0]),
                 scale=prim_dict.get("scale", [1.0, 1.0, 1.0]),
-                ui_name=prim_dict. get("ui_name"),
+                ui_name=prim_dict.get("ui_name"),
                 color=prim_dict.get("color", [0.8, 0.6, 0.4]),
                 **prim_dict.get("kwargs", {})
             )
@@ -573,7 +573,7 @@ class SDFSceneBuilder:
             self.next_id = max(self.next_id, prim_num + 1)
     
         # Load operations
-        for op_dict in scene_dict. get("operations", []):
+        for op_dict in scene_dict.get("operations", []):
             op_id = op_dict["op_id"]
 
             operation = SDFOperation(
@@ -771,7 +771,7 @@ def main():
             scene_code = scene_builder.generate_raymarch_code()
             # Use selected shader
             selected_fragment_shader = load_shader_code(shader_names[shader_choice])
-            fragment_shader = selected_fragment_shader. replace("{SDF_LIBRARY}", sdf_library)
+            fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
             fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
             fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
             
@@ -1219,7 +1219,7 @@ def main():
 
 
         # Increment frame counter only when using cycles shader
-        if shader_choice == 1:   # cycles_fragment_shader. glsl
+        if shader_choice == 1:   # cycles_fragment_shader.glsl
             frame_count += 1
         else: 
             frame_count = 0  # Reset accumulation when switching shaders
@@ -1412,7 +1412,7 @@ def main():
 
             glUseProgram(shader)
             if uniform_locs is not None:
-                current_time_uniform = time. time() - start_time
+                current_time_uniform = time.time() - start_time
                 glUniform1f(uniform_locs['time'], current_time_uniform)
                 glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
                 glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
@@ -1488,7 +1488,7 @@ def main():
 
 
         # --- TOP MENU BAR (Render first so it's on top) ---
-        if imgui. begin_main_menu_bar():
+        if imgui.begin_main_menu_bar():
             if imgui.begin_menu("File", True):
                 if imgui.menu_item("Save Scene", "Ctrl+S")[0]:
                     # Trigger save dialog
@@ -1497,7 +1497,7 @@ def main():
                     save_load_message_time = time.time()
                     #if success and shader is not None:
         
-                if imgui. menu_item("Load Scene", "Ctrl+O")[0]:
+                if imgui.menu_item("Load Scene", "Ctrl+O")[0]:
                     # Trigger load dialog
                     success, message = load_scene_dialog(scene_builder)
                     save_load_message = message
@@ -1542,7 +1542,7 @@ def main():
         
 
         # Check Ctrl + S/O
-        if io.keys_down[glfw. KEY_O] and io.key_ctrl:
+        if io.keys_down[glfw.KEY_O] and io.key_ctrl:
             if not last_key_o_pressed: 
                 success, message = load_scene_dialog(scene_builder)
                 save_load_message = message
@@ -1559,7 +1559,7 @@ def main():
 
         #####
 
-        if io.keys_down[glfw. KEY_S] and io.key_ctrl:
+        if io.keys_down[glfw.KEY_S] and io.key_ctrl:
             if not last_key_s_pressed: 
                 success, message = save_scene_dialog(scene_builder)
                 save_load_message = message
@@ -1672,7 +1672,7 @@ def main():
         if show_settings_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
             imgui.set_next_window_size(400, 300)  # Increased height
-            is_open, show_settings_window = imgui.begin("Settings", True, imgui. WINDOW_NO_COLLAPSE)
+            is_open, show_settings_window = imgui.begin("Settings", True, imgui.WINDOW_NO_COLLAPSE)
             
             if not is_open:
                 show_settings_window = False
@@ -1757,7 +1757,7 @@ def main():
         if show_about_window:
             imgui.set_next_window_position(width // 2 - 250, height // 2 - 200)
             imgui.set_next_window_size(500, 400)  # Increased height
-            is_open, show_about_window = imgui.begin("About", True, imgui. WINDOW_NO_COLLAPSE)
+            is_open, show_about_window = imgui.begin("About", True, imgui.WINDOW_NO_COLLAPSE)
             
             if not is_open:
                 show_about_window = False
@@ -1820,10 +1820,10 @@ You can also support the project by reporting an error, or by suggesting an impr
             # Show message for 3 seconds
             if time.time() - save_load_message_time < 3.0:
                 imgui.set_next_window_position(width // 2 - 150, 100)
-                imgui.begin("Status", False, imgui. WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE)
+                imgui.begin("Status", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE)
 
                 # Color based on success
-                is_success = "saved" in save_load_message. lower() or "loaded" in save_load_message.lower()
+                is_success = "saved" in save_load_message.lower() or "loaded" in save_load_message.lower()
                 color = (0.0, 1.0, 0.0, 1.0) if is_success else (1.0, 0.0, 0.0, 1.0)
                 imgui.text_colored(save_load_message, *color)
 
@@ -2023,7 +2023,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 uniform_locs = new_uniforms
 
                         # Scale stays as-is
-                        changed, primitive.scale = imgui. input_float3("Scale", *primitive.scale)
+                        changed, primitive.scale = imgui.input_float3("Scale", *primitive.scale)
                         if changed:
                             success, new_uniforms = recompile_shader()
                             if success:
@@ -2115,7 +2115,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                             if changed:
                                 # Update the operation with new parameter
                                 if len(operation.args) >= 2:
-                                    operation. args[1] = operation.float_param
+                                    operation.args[1] = operation.float_param
                                 success, new_uniforms = recompile_shader()
                                 if success:
                                     uniform_locs = new_uniforms
@@ -2227,7 +2227,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 elif op_type == "round":
                                     new_id = scene_builder.round(all_items[-1][0], 0.1, ui_name=label)
                                 elif op_type == "onion":
-                                    new_id = scene_builder. onion(all_items[-1][0], 0.05, ui_name=label)
+                                    new_id = scene_builder.onion(all_items[-1][0], 0.05, ui_name=label)
                             elif op_type in ["sunion", "ssub", "sinter", "mix"]:
                                 if len(all_items) >= 2:
                                     new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], 
