@@ -310,6 +310,17 @@ class SDFOperation:
         }
 
 
+monitor = False
+
+
+def MonitorChanges(func):
+    def wrapper(*args, **kwargs):
+        global monitor; monitor = True
+        result = func(*args, **kwargs)
+        return result
+    return wrapper
+        
+
 class SDFSceneBuilder:
     def __init__(self):
         self.primitives = []
@@ -317,6 +328,11 @@ class SDFSceneBuilder:
         self.next_id = 0
         self.id_to_index = {}  # Map op_id to (type, index) for quick lookup
 
+
+
+
+
+    @MonitorChanges
     def add_primitive(self, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
         op_id = f"d{self.next_id}"
         primitive = SDFPrimitive(primitive_type, position, size_or_radius, rotation, scale, ui_name, color, **kwargs)
@@ -324,6 +340,7 @@ class SDFSceneBuilder:
         self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
         self.next_id += 1
         return op_id
+        
 
     def add_box(self, position, size, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("box", position, size, rotation, scale, ui_name, color)
@@ -355,6 +372,7 @@ class SDFSceneBuilder:
     def add_rounded_cylinder(self, position, radius_a, radius_b, height, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("rounded_cylinder", position, [radius_a, radius_b], rotation, scale, ui_name, color, height=height)
 
+    @MonitorChanges
     def add_operation(self, operation_type, *args, ui_name=None):
         op_id = f"d{self.next_id}"
         operation = SDFOperation(operation_type, *args, ui_name=ui_name)
@@ -612,6 +630,20 @@ def orbital_to_cartesian(_yaw, _pitch, _radius):
 
     return (x, y, z)
 
+
+
+def clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width,scaled_rendering_height):
+    # Reset accumulation buffers so no stale data is read later
+    if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
+        # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
+        glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
+        glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
+        glClearColor(0.0, 0.0, 0.0, 0.0)
+        glClear(GL_COLOR_BUFFER_BIT)
+        glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
+        glClearColor(0.0, 0.0, 0.0, 0.0)
+        glClear(GL_COLOR_BUFFER_BIT)
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
 
 
 
@@ -1219,6 +1251,17 @@ def main():
         scaled_rendering_width = int(rendering_width * resolution_scale)
         scaled_rendering_height = int(rendering_height * resolution_scale)
 
+
+        # If a primitive/operation is added or its property is changed, update the buffer
+        global monitor
+        if monitor == True and shader_choice == 1:
+            monitor = False
+            frame_count = 0
+            clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
+            current_accum_index = 0
+
+
+
         # Handle MMB press and release for camera control
         if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.PRESS:
             shift_pressed = glfw.get_key(window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS or glfw.get_key(window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS
@@ -1282,7 +1325,8 @@ def main():
         cam_pan_y += (target_pan_y - cam_pan_y) * (CAMERA_LERP_FACTOR*delta_time)
         cam_pan_x -= (target_pan_x + cam_pan_x) * (CAMERA_LERP_FACTOR*delta_time)
 
-        #####
+        # --- Camera vectors ---
+
         forward_x = math.cos(cam_pitch) * math.sin(cam_yaw)
         forward_y = math.sin(cam_pitch)
         forward_z = math.cos(cam_pitch) * math.cos(cam_yaw)
@@ -1296,7 +1340,6 @@ def main():
         up_x = forward_y * right_z - forward_z * right_y
         up_y = forward_z * right_x - forward_x * right_z
         up_z = forward_x * right_y - forward_y * right_x
-        #####
 
 
         orbit_center_offset_x = cam_pan_x * right_x + cam_pan_y * up_x
@@ -1309,7 +1352,7 @@ def main():
             orbit_center_offset_x
         )
 
-
+        # -----
 
         if io.keys_down[glfw.KEY_HOME]:
             cam_pan_x = cam_pan_y = target_pan_x = target_pan_y = 0.0
@@ -1322,19 +1365,10 @@ def main():
             abs(cam_pitch - prev_cam_pitch) > elip or
             abs(cam_radius - prev_cam_radius) > elip or
             any(abs(cam_orbit[i] - prev_cam_orbit[i]) > elip for i in range(3))):
-            #TODO: merge with sky color
-            frame_count = 0
+
             # Reset accumulation buffers so no stale data is read later
-            if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
-                # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
-                glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
-                glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
-                glClearColor(0.0, 0.0, 0.0, 0.0)
-                glClear(GL_COLOR_BUFFER_BIT)
-                glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
-                glClearColor(0.0, 0.0, 0.0, 0.0)
-                glClear(GL_COLOR_BUFFER_BIT)
-                glBindFramebuffer(GL_FRAMEBUFFER, 0)
+            frame_count = 0
+            clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
             current_accum_index = 0
 
 
@@ -1682,16 +1716,7 @@ def main():
                     if shader_choice == 1:
                         frame_count = 0
                         # Reset accumulation buffers so no stale data is read later
-                        if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
-                            # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
-                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
-                            glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
-                            glClearColor(0.0, 0.0, 0.0, 0.0)
-                            glClear(GL_COLOR_BUFFER_BIT)
-                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
-                            glClearColor(0.0, 0.0, 0.0, 0.0)
-                            glClear(GL_COLOR_BUFFER_BIT)
-                            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+                        clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
                         current_accum_index = 0
 
             imgui.text("Sky Bottom Color:")
@@ -1704,16 +1729,7 @@ def main():
                     if shader_choice == 1:
                         frame_count = 0
                         # Reset accumulation buffers so no stale data is read later
-                        if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
-                            # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
-                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
-                            glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
-                            glClearColor(0.0, 0.0, 0.0, 0.0)
-                            glClear(GL_COLOR_BUFFER_BIT)
-                            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
-                            glClearColor(0.0, 0.0, 0.0, 0.0)
-                            glClear(GL_COLOR_BUFFER_BIT)
-                            glBindFramebuffer(GL_FRAMEBUFFER, 0)
+                        clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
                         current_accum_index = 0
 
             if shader_choice == 0:
