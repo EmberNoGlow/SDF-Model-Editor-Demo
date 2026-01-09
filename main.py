@@ -1790,7 +1790,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.push_style_color(imgui.COLOR_HEADER_HOVERED, 0.6, 0.4, 0.1, 0.5)
             imgui.push_style_color(imgui.COLOR_HEADER_ACTIVE, 0, 0, 0, 0)
             imgui.push_style_color(imgui.COLOR_TEXT, 0.2, 0.5, 1.0)
-            if imgui.selectable("Visit project page in Github", False):
+            if imgui.selectable("Visit project page in Github (Double click)", False):
                 if imgui.is_item_hovered() and imgui.is_mouse_double_clicked(0):
                     webbrowser.open("https://github.com/EmberNoGlow/SDF-Model-Editor-Demo")
             imgui.pop_style_color()
