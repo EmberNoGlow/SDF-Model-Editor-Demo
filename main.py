@@ -117,35 +117,36 @@ class History:
     def __init__(self):
         self.undo_stack = []
         self.redo_stack = []
-    
-    def add(self, undo_func, *args):
-        """undo_func — function to call on undo"""
-        self.undo_stack.append((undo_func, args))
+
+    def add(self, undo_func, redo_func, undo_args=None, redo_args=None, undo_kwargs=None, redo_kwargs=None):
+        if undo_args is None:
+            undo_args = ()
+        if redo_args is None:
+            redo_args = ()
+        if undo_kwargs is None:
+            undo_kwargs = {}
+        if redo_kwargs is None:
+            redo_kwargs = {}
+
+        self.undo_stack.append((undo_func, redo_func, undo_args, redo_args, undo_kwargs, redo_kwargs))
         self.redo_stack.clear()
-    
+
     def undo(self):
         if not self.undo_stack:
             return False
-        
-        func, args = self.undo_stack.pop()
-        # Perform undo
-        func(*args)
-        # Save for redo
-        self.redo_stack.append((func, args))
+
+        undo_func, redo_func, undo_args, redo_args, undo_kwargs, redo_kwargs = self.undo_stack.pop()
+        undo_func(*undo_args, **undo_kwargs)
+        self.redo_stack.append((undo_func, redo_func, undo_args, redo_args, undo_kwargs, redo_kwargs))
         return True
-    
+
     def redo(self):
         if not self.redo_stack:
             return False
-        
-        # Unpack the data
-        undo_func, redo_func, args = self.redo_stack.pop()
-        
-        # Perform the redo action (The specific action we want to repeat)
-        redo_func(*args)
-        
-        # Move back to undo_stack so we can undo it again
-        self.undo_stack.append((undo_func, redo_func, args))
+
+        undo_func, redo_func, undo_args, redo_args, undo_kwargs, redo_kwargs = self.redo_stack.pop()
+        redo_func(*redo_args, **redo_kwargs)
+        self.undo_stack.append((undo_func, redo_func, undo_args, redo_args, undo_kwargs, redo_kwargs))
         return True
 
 
@@ -380,7 +381,16 @@ class SDFSceneBuilder:
         self.primitives.append((op_id, primitive))
         self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
         self.next_id += 1
-        glob_history.add(self.delete_item, op_id)
+
+        glob_history.add(
+            self.delete_item,
+            self.add_primitive,
+            (op_id,),  # Undo args
+            (primitive_type, position, size_or_radius, rotation, scale, ui_name, color),  # Redo args
+            {},  # Undo kwargs
+            kwargs  # Redo kwargs
+        )
+
         return op_id
         
 
@@ -1687,6 +1697,16 @@ def main():
             last_key_z_pressed = False
 
 
+        if io.keys_down[glfw.KEY_Y] and io.key_ctrl:
+            if not last_key_y_pressed: 
+                undo_success = glob_history.redo()
+                if undo_success:
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+                last_key_y_pressed = True
+        else:
+            last_key_y_pressed = False
 
 
         # Check F10 for settings (with debouncing)
