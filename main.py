@@ -2037,7 +2037,7 @@ def main():
 
 
         # Check Undo/Redo keys Ctrl+Z/Y
-        if io.keys_down[glfw.KEY_Z] and io.key_ctrl:
+        if io.keys_down[glfw.KEY_Z] and io.key_ctrl and not io.key_shift:
             if not last_key_z_pressed: 
                 undo_success = glob_history.undo()
                 if undo_success:
@@ -2049,7 +2049,8 @@ def main():
             last_key_z_pressed = False
 
 
-        if io.keys_down[glfw.KEY_Y] and io.key_ctrl:
+        if (io.keys_down[glfw.KEY_Y] and io.key_ctrl) or \
+           (io.keys_down[glfw.KEY_Z] and io.key_ctrl and io.key_shift):
             if not last_key_y_pressed: 
                 undo_success = glob_history.redo()
                 if undo_success:
