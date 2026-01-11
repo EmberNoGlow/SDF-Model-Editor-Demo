@@ -26,6 +26,7 @@ While the current version is a **demo with limited functionality**, it serves as
 This is an **early-stage prototype** with known bugs and missing features. Check the **[Roadmap](#-roadmap)** for planned improvements.
 
 ### **Known Issues**
+- Redo/Undo bugs
 - Small bugs
 
 
@@ -51,6 +52,7 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **🎯 Roadmap**
 
 ### *Current Progress*
+- **🐜 Fix Undo/Redo** bugs
 - **〽 Found and Fix** bugs
 - **⏱ Optimize**
 - **🧷 Integrate [marching cubes](https://github.com/EmberNoGlow/Rust-Marching-Cubes-Generator) written in Rust** for export into 3D format (example, obj)
@@ -60,10 +62,10 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 - [x] **Free movement of the camera in 3d space** - Done!
 - [x] **Translation operations for primitives** - rotation, scale, and position - can be changed in real time in the inspector.
 - [x] **Save/Load projects** (JSON or custom format)
+- [x] **Undo/Redo support**
 - [ ] **Export to 3D formats** (OBJ, GLTF) via voxelization/[marching cubes](https://github.com/EmberNoGlow/Rust-Marching-Cubes-Generator)
 - [ ] **Gizmo-based manipulation** (drag, rotate, scale primitives)
 - [ ] **Add AABB** - optimization
-- [ ] **Undo/Redo support**
 - [ ] **Write Docs!**
 
 ### **User Experience (Future Improvements)**
