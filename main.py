@@ -11,6 +11,7 @@ from imgui.integrations.glfw import GlfwRenderer
 
 import numpy as np
 import math
+import copy
 
 
 def load_shader_code(file_path):
@@ -364,6 +365,7 @@ def MonitorChanges(func):
         return result
     return wrapper
         
+# Replace the SDFSceneBuilder class in your main.py with this updated version.
 
 class SDFSceneBuilder:
     def __init__(self):
@@ -377,10 +379,10 @@ class SDFSceneBuilder:
         """Save the complete state of an item for undo/redo."""
         if op_id not in self.id_to_index:
             return None
-        
+
         item_type, index = self.id_to_index[op_id]
-        
-        if item_type == 'primitive': 
+
+        if item_type == 'primitive':
             primitive = self.primitives[index][1]
             return {
                 'type': 'primitive',
@@ -394,43 +396,56 @@ class SDFSceneBuilder:
                 'type': 'operation',
                 'op_id': op_id,
                 'index': index,
-                'data': operation. to_dict()
+                'data': operation.to_dict()
             }
-
 
     def _get_all_dependent_items(self, op_id):
         """Get all operations that depend on this item (directly or indirectly)."""
         dependent = []
-        
+
         def get_dependents(item_id):
             for op_id_check, operation in self.operations:
+                # operation.args may include references to other op ids
                 if item_id in operation.args and op_id_check not in dependent:
                     dependent.append(op_id_check)
                     get_dependents(op_id_check)  # Recursively get dependents of dependents
-        
+
         get_dependents(op_id)
         return dependent
 
-    def add_primitive(self, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
-        op_id = f"d{self.next_id}"
+    def add_primitive(self, primitive_type, position, size_or_radius,
+                      rotation=None, scale=None, ui_name=None, color=None,
+                      forced_op_id=None, **kwargs):
+
+        op_id = forced_op_id or f"d{self.next_id}"
+
+        # Ensure uniqueness
+        self._ensure_op_id_unique(op_id)
+
         primitive = SDFPrimitive(primitive_type, position, size_or_radius, rotation, scale, ui_name, color, **kwargs)
         self.primitives.append((op_id, primitive))
         self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
-        self.next_id += 1
+
+        # Always increment next_id if not forced
+        if not forced_op_id:
+            self.next_id += 1
 
         # Register undo/redo
-        glob_history. add(
-            self. delete_item,
-            self. add_primitive,
-            (op_id,),  # Undo args
-            (primitive_type, position, size_or_radius, rotation, scale, ui_name, color),  # Redo args
-            {},  # Undo kwargs
-            kwargs  # Redo kwargs
+        # redo should restore the same op_id; pass it via redo_kwargs
+        redo_kwargs = copy.deepcopy(kwargs) if kwargs else {}
+        redo_kwargs['forced_op_id'] = op_id
+
+        glob_history.add(
+            self.delete_item,
+            self.add_primitive,
+            (op_id,),
+            (primitive_type, copy.deepcopy(position), copy.deepcopy(size_or_radius),
+             copy.deepcopy(rotation), copy.deepcopy(scale), ui_name, copy.deepcopy(color)),
+            {},
+            redo_kwargs
         )
 
         return op_id
-
-        
 
     def add_box(self, position, size, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("box", position, size, rotation, scale, ui_name, color)
@@ -440,47 +455,56 @@ class SDFSceneBuilder:
 
     def add_sphere(self, position, radius, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("sphere", position, radius, rotation, scale, ui_name, color)
-    
+
     def add_torus(self, position, major_radius, minor_radius, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("torus", position, [major_radius, minor_radius], rotation, scale, ui_name, color)
-    
+
     def add_cone(self, position, c_sin, c_cos, height, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("cone", position, [0.0], rotation, scale, ui_name, color, c_sin=c_sin, c_cos=c_cos, height=height)
-    
+
     def add_plane(self, position, normal, h, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("plane", position, [0.0], rotation, scale, ui_name, color, normal=normal, h=h)
-    
+
     def add_hex_prism(self, position, hex_radius, height, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("hex_prism", position, [hex_radius, height], rotation, scale, ui_name, color)
-    
+
     def add_vertical_capsule(self, position, height, radius, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("vertical_capsule", position, [height, radius], rotation, scale, ui_name, color)
-    
+
     def add_capped_cylinder(self, position, radius, height, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("capped_cylinder", position, [radius, height], rotation, scale, ui_name, color)
-    
+
     def add_rounded_cylinder(self, position, radius_a, radius_b, height, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("rounded_cylinder", position, [radius_a, radius_b], rotation, scale, ui_name, color, height=height)
 
-    def add_operation(self, operation_type, *args, ui_name=None):
-        op_id = f"d{self.next_id}"
+    def add_operation(self, operation_type, *args, ui_name=None, forced_op_id=None):
+        """
+        Add an operation. Accepts forced_op_id so undo/redo can recreate the same id.
+        """
+        op_id = forced_op_id or f"d{self.next_id}"
+
+        # Ensure uniqueness before adding
+        self._ensure_op_id_unique(op_id)
+
         operation = SDFOperation(operation_type, *args, ui_name=ui_name)
         self.operations.append((op_id, operation))
         self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
-        self.next_id += 1
+
+        if not forced_op_id:
+            self.next_id += 1
 
         # Register undo/redo for operations
+        redo_kwargs = {'forced_op_id': op_id}
         glob_history.add(
             self._undo_operation_delete,
             self._redo_operation_add,
-            (op_id, operation_type, args, ui_name),
-            (operation_type, args, ui_name),
+            (op_id, operation_type, copy.deepcopy(args), copy.deepcopy(ui_name)),
+            (copy.deepcopy(operation_type), copy.deepcopy(args), copy.deepcopy(ui_name)),
             {},
-            {}
+            redo_kwargs
         )
 
         return op_id
-
 
     def sunion(self, d_a, d_b, k=0.05, ui_name=None):
         return self.add_operation("sunion", d_a, d_b, k, ui_name=ui_name)
@@ -496,7 +520,7 @@ class SDFSceneBuilder:
 
     def invert(self, d_a, ui_name=None):
         return self.add_operation("invert", d_a, ui_name=ui_name)
-    
+
     def sub(self, d_a, d_b, ui_name=None):
         return self.add_operation("sub", d_a, d_b, ui_name=ui_name)
 
@@ -515,34 +539,52 @@ class SDFSceneBuilder:
     def onion(self, d_a, thickness, ui_name=None):
         return self.add_operation("onion", d_a, thickness, ui_name=ui_name)
 
+    def _ensure_op_id_unique(self, op_id):
+        """Remove any duplicate op_id from primitives or operations before adding new one."""
+        # Remove from primitives
+        self.primitives = [(pid, prim) for pid, prim in self.primitives if pid != op_id]
+
+        # Remove from operations
+        self.operations = [(oid, op) for oid, op in self.operations if oid != op_id]
+
+        # Remove from mapping
+        if op_id in self.id_to_index:
+            del self.id_to_index[op_id]
+
+        # Update all indices after removal
+        for i, (pid, _) in enumerate(self.primitives):
+            self.id_to_index[pid] = ('primitive', i)
+        for i, (oid, _) in enumerate(self.operations):
+            self.id_to_index[oid] = ('operation', i)
 
     def _undo_operation_delete(self, op_id, operation_type, args, ui_name):
-        """Helper to restore a deleted operation."""
+        """Helper to restore a deleted operation (used by history)."""
+        # Make sure this op_id will be unique (remove any current duplicates)
+        self._ensure_op_id_unique(op_id)
         self.operations.append((op_id, SDFOperation(operation_type, *args, ui_name=ui_name)))
         self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
 
-    def _redo_operation_add(self, operation_type, args, ui_name):
-        """Helper to add an operation for redo."""
-        return self.add_operation(operation_type, *args, ui_name=ui_name)
-
-
-
+    def _redo_operation_add(self, operation_type, args, ui_name, forced_op_id=None):
+        """Helper to add an operation for redo (preserve op id if provided)."""
+        return self.add_operation(operation_type, *args, ui_name=ui_name, forced_op_id=forced_op_id)
 
     def delete_item(self, op_id):
         """Delete a primitive or operation by its ID, with full undo support."""
         if op_id not in self.id_to_index:
             return False
-        
+
         item_type, index = self.id_to_index[op_id]
-        
+
         # Save state of the item being deleted
         deleted_item_state = self._save_item_state(op_id)
-        
+
         # Get all dependent items BEFORE deletion
         dependent_ops = self._get_all_dependent_items(op_id)
+        # Save dependent states, skipping any that can't be saved
         dependent_states = [self._save_item_state(dep_id) for dep_id in dependent_ops]
-        
-        if item_type == 'primitive': 
+        dependent_states = [s for s in dependent_states if s is not None]
+
+        if item_type == 'primitive':
             # Remove the primitive
             del self.primitives[index]
             # Update indices for all primitives after this one
@@ -556,24 +598,31 @@ class SDFSceneBuilder:
             for i in range(index, len(self.operations)):
                 op_op_id = self.operations[i][0]
                 self.id_to_index[op_op_id] = ('operation', i)
-        
+
         # Remove from mapping
-        del self.id_to_index[op_id]
-        
+        if op_id in self.id_to_index:
+            del self.id_to_index[op_id]
+
         # Remove any operations that depend on this deleted item
+        # We must be careful because indices change as we delete; use id lookup each time
         for dep_id in dependent_ops:
             if dep_id in self.id_to_index:
                 dep_item_type, dep_index = self.id_to_index[dep_id]
                 if dep_item_type == 'operation':
-                    del self.operations[dep_index]
-                    # Update indices
-                    for i in range(dep_index, len(self.operations)):
-                        op_op_id = self.operations[i][0]
-                        self.id_to_index[op_op_id] = ('operation', i)
-                del self.id_to_index[dep_id]
-        
+                    # Find exact tuple index in operations list for this dep_id
+                    for i, (oid, _) in enumerate(self.operations):
+                        if oid == dep_id:
+                            del self.operations[i]
+                            # Update indices
+                            for j in range(i, len(self.operations)):
+                                op_op_id = self.operations[j][0]
+                                self.id_to_index[op_op_id] = ('operation', j)
+                            break
+                if dep_id in self.id_to_index:
+                    del self.id_to_index[dep_id]
+
         # Register undo/redo for the deletion
-        glob_history. add(
+        glob_history.add(
             self._undo_delete_with_dependents,
             self._redo_delete_with_dependents,
             (deleted_item_state, dependent_states),
@@ -581,29 +630,64 @@ class SDFSceneBuilder:
             {},
             {}
         )
-        
+
         return True
 
+
+
+    def _insert_primitive_at(self, index, op_id, primitive):
+        # clamp index
+        if index < 0:
+            index = 0
+        if index > len(self.primitives):
+            index = len(self.primitives)
+        self.primitives.insert(index, (op_id, primitive))
+        # update id mapping for primitives
+        for i, (pid, _) in enumerate(self.primitives):
+            self.id_to_index[pid] = ('primitive', i)
+
+    def _insert_operation_at(self, index, op_id, operation):
+        # clamp index
+        if index < 0:
+            index = 0
+        if index > len(self.operations):
+            index = len(self.operations)
+        self.operations.insert(index, (op_id, operation))
+        # update id mapping for operations
+        for i, (oid, _) in enumerate(self.operations):
+            self.id_to_index[oid] = ('operation', i)
+
     def _undo_delete_with_dependents(self, deleted_item_state, dependent_states):
-        """Restore a deleted item and all its dependent operations."""
-        # Restore the main item
+        """Restore a deleted item and all its dependent operations at their original indices."""
+        if deleted_item_state is None:
+            return
+
+        # Restore the main item at its original index (if present)
         item = deleted_item_state
         op_id = item['op_id']
-        
+        original_index = item.get('index', None)
+
+        # Ensure uniqueness before restoring
+        self._ensure_op_id_unique(op_id)
+
         if item['type'] == 'primitive':
             prim_dict = item['data']
             primitive = SDFPrimitive(
                 primitive_type=prim_dict["primitive_type"],
                 position=prim_dict["position"],
                 size_or_radius=prim_dict["size_or_radius"],
-                rotation=prim_dict. get("rotation", [0.0, 0.0, 0.0]),
+                rotation=prim_dict.get("rotation", [0.0, 0.0, 0.0]),
                 scale=prim_dict.get("scale", [1.0, 1.0, 1.0]),
                 ui_name=prim_dict.get("ui_name"),
                 color=prim_dict.get("color", [0.8, 0.6, 0.4]),
                 **prim_dict.get("kwargs", {})
             )
-            self.primitives.append((op_id, primitive))
-            self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
+            # insert at saved index if available
+            if original_index is None:
+                self.primitives.append((op_id, primitive))
+                self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
+            else:
+                self._insert_primitive_at(original_index, op_id, primitive)
         else:
             op_dict = item['data']
             operation = SDFOperation(
@@ -611,124 +695,169 @@ class SDFSceneBuilder:
                 *op_dict["args"],
                 ui_name=op_dict.get("ui_name")
             )
-            if op_dict. get("smooth_k") is not None:
-                operation. smooth_k = op_dict["smooth_k"]
-            self.operations.append((op_id, operation))
-            self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
-        
-        # Restore all dependent operations
-        for dep_state in dependent_states:
+            if op_dict.get("smooth_k") is not None:
+                operation.smooth_k = op_dict["smooth_k"]
+            if original_index is None:
+                self.operations.append((op_id, operation))
+                self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
+            else:
+                self._insert_operation_at(original_index, op_id, operation)
+
+        # Restore dependent operations at their saved indices.
+        # Skip invalid/null dependent states; sort by index ascending so insertion doesn't invalidate later indices.
+        valid_dep_states = [s for s in (dependent_states or []) if s]
+        # Filter for operation-type states only (dependents are operations)
+        valid_dep_states = [s for s in valid_dep_states if s.get('type') == 'operation']
+        # sort by their original index (missing index -> large number -> appended at end)
+        def dep_index_key(s):
+            try:
+                return s.get('index', 10**9)
+            except Exception:
+                return 10**9
+        valid_dep_states.sort(key=dep_index_key)
+
+        for dep_state in valid_dep_states:
             dep_id = dep_state['op_id']
-            if dep_state['type'] == 'operation':
-                op_dict = dep_state['data']
-                operation = SDFOperation(
-                    op_dict["operation_type"],
-                    *op_dict["args"],
-                    ui_name=op_dict.get("ui_name")
-                )
-                if op_dict.get("smooth_k") is not None:
-                    operation.smooth_k = op_dict["smooth_k"]
-                self.operations. append((dep_id, operation))
+            # ensure uniqueness
+            self._ensure_op_id_unique(dep_id)
+            op_dict = dep_state['data']
+            operation = SDFOperation(
+                op_dict["operation_type"],
+                *op_dict["args"],
+                ui_name=op_dict.get("ui_name")
+            )
+            if op_dict.get("smooth_k") is not None:
+                operation.smooth_k = op_dict["smooth_k"]
+            dep_index = dep_state.get('index', None)
+            if dep_index is None:
+                # append at end
+                self.operations.append((dep_id, operation))
                 self.id_to_index[dep_id] = ('operation', len(self.operations) - 1)
+            else:
+                self._insert_operation_at(dep_index, dep_id, operation)
+
+        # Recompute next_id to avoid future duplicates
+        all_ids = [int(op_id[1:]) for op_id, _ in (self.primitives + self.operations) if op_id.startswith('d')]
+        if all_ids:
+            self.next_id = max(all_ids) + 1
 
     def _redo_delete_with_dependents(self, op_id):
         """Redo deletion of an item and all its dependents."""
         self.delete_item(op_id)
-    
 
-
-    def modify_primitive_property(self, op_id, property_name, old_value, new_value):
-        """Track modifications to primitive properties for undo/redo."""
-        if op_id not in self. id_to_index:
+    # ---- Property change helpers ----
+    def _set_primitive_property(self, op_id, property_name, value):
+        """Set primitive property without recording history (used by undo/redo)."""
+        if op_id not in self.id_to_index:
             return False
-        
+
         item_type, index = self.id_to_index[op_id]
         if item_type != 'primitive':
             return False
-        
+
         primitive = self.primitives[index][1]
-        
+
+        if property_name == 'position':
+            primitive.position = list(value)
+        elif property_name == 'size_or_radius':
+            primitive.size_or_radius = list(value) if isinstance(value, (list, tuple)) else [value]
+        elif property_name == 'rotation':
+            primitive.rotation = list(value)
+        elif property_name == 'scale':
+            primitive.scale = list(value)
+        elif property_name == 'color':
+            primitive.color = list(value)
+        elif property_name.startswith('kwargs.'):
+            kwarg_name = property_name[7:]
+            primitive.kwargs[kwarg_name] = value
+        return True
+
+    def modify_primitive_property(self, op_id, property_name, old_value, new_value):
+        """Track modifications to primitive properties for undo/redo."""
+        if op_id not in self.id_to_index:
+            return False
+
+        item_type, index = self.id_to_index[op_id]
+        if item_type != 'primitive':
+            return False
+
         # Register the modification in history
         glob_history.add(
             self._undo_property_change,
             self._redo_property_change,
-            (op_id, property_name, old_value),
-            (op_id, property_name, new_value),
+            (op_id, property_name, copy.deepcopy(old_value)),
+            (op_id, property_name, copy.deepcopy(new_value)),
             {},
             {}
         )
-        
-        # Apply the new value
-        if property_name == 'position': 
-            primitive.position = list(new_value)
-        elif property_name == 'size_or_radius':
-            primitive.size_or_radius = list(new_value) if isinstance(new_value, (list, tuple)) else [new_value]
-        elif property_name == 'rotation':
-            primitive.rotation = list(new_value)
-        elif property_name == 'scale':
-            primitive.scale = list(new_value)
-        elif property_name == 'color':
-            primitive.color = list(new_value)
-        elif property_name. startswith('kwargs.'):
-            kwarg_name = property_name[7:]  # Remove 'kwargs.' prefix
-            primitive.kwargs[kwarg_name] = new_value
-        
-        return True
+
+        # Apply the new value without creating another history entry
+        return self._set_primitive_property(op_id, property_name, new_value)
 
     def _undo_property_change(self, op_id, property_name, old_value):
-        """Restore old property value."""
-        self.modify_primitive_property(op_id, property_name, None, old_value)
+        """Restore old property value (without creating history)."""
+        self._set_primitive_property(op_id, property_name, old_value)
 
     def _redo_property_change(self, op_id, property_name, new_value):
-        """Reapply property change."""
-        self.modify_primitive_property(op_id, property_name, None, new_value)
+        """Reapply property change (without creating history)."""
+        self._set_primitive_property(op_id, property_name, new_value)
+
+    def _set_operation_parameter(self, op_id, param_name, value):
+        """Set operation parameter without recording history (used by undo/redo)."""
+        if op_id not in self.id_to_index:
+            return False
+
+        item_type, index = self.id_to_index[op_id]
+        if item_type != 'operation':
+            return False
+
+        operation = self.operations[index][1]
+
+        if param_name == 'smooth_k':
+            operation.smooth_k = value
+            if len(operation.args) >= 3:
+                operation.args[2] = value
+        elif param_name == 'float_param':
+            operation.float_param = value
+            if len(operation.args) >= 2:
+                operation.args[1] = value
+        elif param_name.startswith('args['):
+            # Handle args like "args[0]", "args[1]", etc.
+            arg_index = int(param_name.split('[')[1].split(']')[0])
+            if arg_index < len(operation.args):
+                operation.args[arg_index] = value
+        return True
 
     def modify_operation_parameter(self, op_id, param_name, old_value, new_value):
         """Track modifications to operation parameters for undo/redo."""
         if op_id not in self.id_to_index:
             return False
-        
+
         item_type, index = self.id_to_index[op_id]
-        if item_type != 'operation': 
+        if item_type != 'operation':
             return False
-        
-        operation = self.operations[index][1]
-        
+
         glob_history.add(
             self._undo_op_param_change,
             self._redo_op_param_change,
-            (op_id, param_name, old_value),
-            (op_id, param_name, new_value),
+            (op_id, param_name, copy.deepcopy(old_value)),
+            (op_id, param_name, copy.deepcopy(new_value)),
             {},
             {}
         )
-        
-        # Apply the new value
-        if param_name == 'smooth_k':
-            operation.smooth_k = new_value
-            if len(operation.args) >= 3: 
-                operation.args[2] = new_value
-        elif param_name == 'float_param':
-            operation.float_param = new_value
-            if len(operation.args) >= 2:
-                operation.args[1] = new_value
-        elif param_name. startswith('args['):
-            # Handle args like "args[0]", "args[1]", etc.
-            arg_index = int(param_name. split('[')[1].split(']')[0])
-            operation.args[arg_index] = new_value
-        
-        return True
+
+        # Apply the new value without creating another history entry
+        return self._set_operation_parameter(op_id, param_name, new_value)
 
     def _undo_op_param_change(self, op_id, param_name, old_value):
-        """Restore old operation parameter value."""
-        self.modify_operation_parameter(op_id, param_name, None, old_value)
+        """Restore old operation parameter value (without creating history)."""
+        self._set_operation_parameter(op_id, param_name, old_value)
 
     def _redo_op_param_change(self, op_id, param_name, new_value):
-        """Reapply operation parameter change."""
-        self.modify_operation_parameter(op_id, param_name, None, new_value)
+        """Reapply operation parameter change (without creating history)."""
+        self._set_operation_parameter(op_id, param_name, new_value)
 
-
-
+    # --- Remaining methods unchanged (but included for completeness) ---
     def get_all_items(self):
         """Get all items in order: primitives then operations."""
         return self.primitives + self.operations
@@ -737,26 +866,26 @@ class SDFSceneBuilder:
         """Get all valid operands for an operation (excluding itself and operations that reference it)."""
         all_items = self.get_all_items()
         valid_items = []
-        
+
         # Find the index of current operation
         current_index = -1
         for idx, (item_id, _) in enumerate(all_items):
             if item_id == current_op_id:
                 current_index = idx
                 break
-        
+
         # Only allow items that come before the current operation
         for idx, item in enumerate(all_items):
             if idx < current_index:
                 valid_items.append(item)
-        
+
         return valid_items
 
     def get_item_name(self, op_id):
         """Get the display name of an item."""
         if op_id not in self.id_to_index:
             return op_id
-        
+
         item_type, index = self.id_to_index[op_id]
         if item_type == 'primitive':
             return self.primitives[index][1].ui_name
@@ -793,26 +922,25 @@ class SDFSceneBuilder:
 
         return scene_code
 
-
     def to_dict(self):
         """Convert the entire scene to a dictionary for JSON serialization."""
         scene_dict = {
             "primitives": [],
             "operations": []
         }
-    
+
         # Serialize primitives
         for op_id, primitive in self.primitives:
             prim_dict = primitive.to_dict()
             prim_dict["op_id"] = op_id
             scene_dict["primitives"].append(prim_dict)
-    
+
         # Serialize operations
         for op_id, operation in self.operations:
             op_dict = operation.to_dict()
             op_dict["op_id"] = op_id
             scene_dict["operations"].append(op_dict)
-    
+
         return scene_dict
 
     def from_dict(self, scene_dict):
@@ -822,7 +950,7 @@ class SDFSceneBuilder:
         self.operations.clear()
         self.id_to_index.clear()
         self.next_id = 0
-    
+
         # Load primitives
         for prim_dict in scene_dict.get("primitives", []):
             op_id = prim_dict["op_id"]
@@ -837,14 +965,17 @@ class SDFSceneBuilder:
                 color=prim_dict.get("color", [0.8, 0.6, 0.4]),
                 **prim_dict.get("kwargs", {})
             )
-        
+
             self.primitives.append((op_id, primitive))
             self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
-        
+
             # Update next_id
-            prim_num = int(op_id[1:])  # Extract number from "d0", "d1", etc.
-            self.next_id = max(self.next_id, prim_num + 1)
-    
+            try:
+                prim_num = int(op_id[1:])  # Extract number from "d0", "d1", etc.
+                self.next_id = max(self.next_id, prim_num + 1)
+            except Exception:
+                pass
+
         # Load operations
         for op_dict in scene_dict.get("operations", []):
             op_id = op_dict["op_id"]
@@ -863,11 +994,12 @@ class SDFSceneBuilder:
             self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
 
             # Update next_id
-            op_num = int(op_id[1:])
-            self.next_id = max(self.next_id, op_num + 1)
+            try:
+                op_num = int(op_id[1:])
+                self.next_id = max(self.next_id, op_num + 1)
+            except Exception:
+                pass
 
-
-   
     def save_to_json(self, filepath):
         """Save the scene to a JSON file."""
         import json
@@ -877,7 +1009,7 @@ class SDFSceneBuilder:
             return True, f"Scene saved to {filepath}"
         except Exception as e:
             return False, f"Error saving scene: {str(e)}"
-    
+
     def load_from_json(self, filepath):
         """Load a scene from a JSON file."""
         import json
@@ -888,12 +1020,10 @@ class SDFSceneBuilder:
             return True, f"Scene loaded from {filepath}"
         except FileNotFoundError:
             return False, f"File not found: {filepath}"
-        except json.JSONDecodeError: 
+        except json.JSONDecodeError:
             return False, f"Invalid JSON file: {filepath}"
         except Exception as e:
             return False, f"Error loading scene: {str(e)}"
-
-
 
 
 
@@ -1224,7 +1354,7 @@ def main():
     
     # Simple shader for displaying texture
     display_vertex_shader = """
-    #version 330 bindings
+    #version 330 core
     layout (location = 0) in vec2 aPos;
     layout (location = 1) in vec2 aTexCoord;
     out vec2 TexCoord;
@@ -1832,10 +1962,11 @@ def main():
                     success, message = load_scene_dialog(scene_builder)
                     save_load_message = message
                     save_load_message_time = time.time()
-                    if success: 
+                    if success:
+                        glob_history.undo_stack.clear()
+                        glob_history.redo_stack.clear() 
                         selected_item_id = None
                         selection_mode = None
-                        # Recompile shader after loading
                         success, new_uniforms = recompile_shader()
                         if success:
                             uniform_locs = new_uniforms
@@ -2459,9 +2590,12 @@ You can also support the project by reporting an error, or by suggesting an impr
                                     current_index,
                                     [scene_builder.get_item_name(item_id) for item_id, _ in valid_operands]
                                 )
-                                
+                                                                
                                 if clicked:
-                                    operation.args[i] = valid_operands[new_index][0]
+                                    old_operand = operation.args[i]
+                                    new_operand = valid_operands[new_index][0]
+                                    # Use scene_builder API so the change is recorded in history
+                                    scene_builder.modify_operation_parameter(op_id, f"args[{i}]", old_operand, new_operand)
                                     success, new_uniforms = recompile_shader()
                                     if success:
                                         uniform_locs = new_uniforms
