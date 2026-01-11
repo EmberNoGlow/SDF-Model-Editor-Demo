@@ -111,6 +111,47 @@ except (FileNotFoundError, IOError) as e:
     print("Please ensure all shader files are present in the project directory.")
     exit(1)
 
+
+
+class History:
+    def __init__(self):
+        self.undo_stack = []
+        self.redo_stack = []
+    
+    def add(self, undo_func, *args):
+        """undo_func — function to call on undo"""
+        self.undo_stack.append((undo_func, args))
+        self.redo_stack.clear()
+    
+    def undo(self):
+        if not self.undo_stack:
+            return False
+        
+        func, args = self.undo_stack.pop()
+        # Perform undo
+        func(*args)
+        # Save for redo
+        self.redo_stack.append((func, args))
+        return True
+    
+    def redo(self):
+        if not self.redo_stack:
+            return False
+        
+        # Unpack the data
+        undo_func, redo_func, args = self.redo_stack.pop()
+        
+        # Perform the redo action (The specific action we want to repeat)
+        redo_func(*args)
+        
+        # Move back to undo_stack so we can undo it again
+        self.undo_stack.append((undo_func, redo_func, args))
+        return True
+
+
+glob_history = History()
+
+
 class SDFPrimitive:
     def __init__(self, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
         self.primitive_type = primitive_type
@@ -339,6 +380,7 @@ class SDFSceneBuilder:
         self.primitives.append((op_id, primitive))
         self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
         self.next_id += 1
+        glob_history.add(self.delete_item, op_id)
         return op_id
         
 
@@ -620,6 +662,11 @@ class SDFSceneBuilder:
         except Exception as e:
             return False, f"Error loading scene: {str(e)}"
 
+
+
+
+
+
 def orbital_to_cartesian(_yaw, _pitch, _radius):
     yaw_rad = _yaw
     pitch_rad = _pitch
@@ -644,6 +691,52 @@ def clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width,scaled_rend
         glClearColor(0.0, 0.0, 0.0, 0.0)
         glClear(GL_COLOR_BUFFER_BIT)
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
+
+
+# Projection 3D to 2D
+# TODO: Unsuccessful attempt
+def proj_3d22d(points, azim_deg=45, elev_deg=30, invert_axes=True):
+    """
+    Projects 3D points onto a 2D plane with specified viewing angles.
+
+    Parameters:
+    - points: numpy.ndarray (N, 3) - array of 3D points
+    - azim_deg: float - azimuth angle in degrees (default 45)
+    - elev_deg: float - elevation angle in degrees (default 30)
+    - invert_axes: bool - invert axes to match the view (default True)
+
+    Returns:
+    - numpy.ndarray (N, 2) - array of 2D points
+    """
+    # Convert angles to radians
+    azim = azim_deg * np.pi / 180
+    elev = elev_deg * np.pi / 180
+
+    # Azimuth direction vector
+    a_vec = np.array([np.cos(azim), np.sin(azim), 0])
+    # Normal vector of the projection plane
+    normal = np.cos(elev) * a_vec + np.array([0, 0, np.sin(elev)])
+
+    # Reference vector (Z-axis)
+    z_vec = np.array([0, 0, 1])
+    # Projection of Z onto the plane, orthogonal to normal
+    y_comp = z_vec - (z_vec @ normal) * normal
+    y_comp = y_comp / np.sqrt(np.sum(y_comp**2))  # normalization
+
+    # X-axis as perpendicular to Y and normal
+    x_comp = np.cross(y_comp, normal)
+
+    # Projection matrix (2×3)
+    proj_mat = np.vstack([x_comp, y_comp])
+
+    if invert_axes:
+        proj_mat = -proj_mat  # invert axes to match view
+
+    # Apply projection: (N,3) @ (3,2) → (N,2)
+    return points @ proj_mat.T
+
+
+
 
 
 
@@ -690,6 +783,8 @@ def main():
     save_load_message_time = None
     last_key_s_pressed = False
     last_key_o_pressed = False
+    last_key_z_pressed = False
+    last_key_y_pressed = False
     last_key_f10_pressed = False  # Add this if not present
 
     delta_time = 0.0 # Delta time
@@ -1379,11 +1474,15 @@ def main():
         prev_cam_orbit = cam_orbit
 
 
+        # TODO: Unsuccessful attempt
+        #circle_points = proj_3d22d(np.array([[0.0, 0.0, 100.0]]), cam_yaw, cam_pitch)
+        #print(circle_points)
+        
         #bg_draw_list = imgui.get_background_draw_list()
         
         #bg_draw_list.add_circle_filled(
-        #    400, 
-        #    300, 
+        #    circle_points[0][0]+(width//2),
+        #    circle_points[0][1]+(height//2),
         #    25, 
         #    imgui.get_color_u32_rgba(1, 0, 0, 1)
         #)
@@ -1573,6 +1672,21 @@ def main():
                 last_key_s_pressed = True
         else:
             last_key_s_pressed = False
+
+
+        # Check Undo/Redo keys Ctrl+Z/Y
+        if io.keys_down[glfw.KEY_Z] and io.key_ctrl:
+            if not last_key_z_pressed: 
+                undo_success = glob_history.undo()
+                if undo_success:
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+                last_key_z_pressed = True
+        else:
+            last_key_z_pressed = False
+
+
 
 
         # Check F10 for settings (with debouncing)
