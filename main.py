@@ -1134,6 +1134,7 @@ def main():
     cam_radius = 5.0
     cam_orbit = [0.0, 0.0, 0.0]
     PAN_SENSITIVITY = 0.01  # Adjust this to control pan speed
+    DRAG_SENSITIVITY = 0.01 # Adjust this to control drag (primitive) speed
     last_x, last_y = 0.0, 0.0
 
     is_mmb_pressed = False
@@ -1142,13 +1143,23 @@ def main():
     # --- SaveLoad ---
     save_load_message = None
     save_load_message_time = None
+
+    # --- Keys ---
     last_key_s_pressed = False
     last_key_o_pressed = False
     last_key_z_pressed = False
     last_key_y_pressed = False
+    last_key_g_pressed = False
     last_key_f10_pressed = False  # Add this if not present
 
-    delta_time = 0.0 # Delta time
+    # --- Draging ---
+    dragging = False
+    dragging = False
+    drag_center_offset_x = drag_center_offset_y = drag_center_offset_z = 0.0
+    saved_offset_x = saved_offset_y = saved_offset_z = 0.0
+
+    # --- Delta time --- 
+    delta_time = 0.0 
 
 
     # --- Scene Definition ---
@@ -1265,6 +1276,7 @@ def main():
             'col_sky_top' : glGetUniformLocation(shader_program, "SkyColorTop"),
             'col_sky_bottom' : glGetUniformLocation(shader_program, "SkyColorBottom"),
             'grid_enabled': glGetUniformLocation(shader_program, "GridEnabled"),
+            'move_pos' : glGetUniformLocation(shader_program, "MovePos"),
         }   
 
 
@@ -2060,6 +2072,60 @@ def main():
                 last_key_y_pressed = True
         else:
             last_key_y_pressed = False
+
+
+        # Drag on G
+        current_x, current_y = glfw.get_cursor_pos(window)
+        key_g_is_down = io.keys_down[glfw.KEY_G]
+
+        if dragging:
+            glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+        else:
+            glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+
+        # State transition logic
+        if key_g_is_down and not last_key_g_pressed:
+            dragging = not dragging
+            
+            if dragging:
+                # Enter drag mode
+                drag_start_mouse_x = current_x
+                drag_start_mouse_y = current_y
+                
+                initial_offset_x = drag_center_offset_x
+                initial_offset_y = drag_center_offset_y
+                initial_offset_z = drag_center_offset_z
+            else:
+                # Exit drag mode
+                saved_offset_x = drag_center_offset_x
+                saved_offset_y = drag_center_offset_y
+                saved_offset_z = drag_center_offset_z
+
+        last_key_g_pressed = key_g_is_down
+
+        # Calculation logic
+        if dragging:
+            mouse_delta_x = (current_x - drag_start_mouse_x) * DRAG_SENSITIVITY
+            mouse_delta_y = (current_y - drag_start_mouse_y) * -DRAG_SENSITIVITY  # Invert Y
+
+            drag_center_offset_x = initial_offset_x + mouse_delta_x * right_x + mouse_delta_y * up_x
+            drag_center_offset_y = initial_offset_y + mouse_delta_x * right_y + mouse_delta_y * up_y
+            drag_center_offset_z = initial_offset_z + mouse_delta_x * right_z + mouse_delta_y * up_z
+
+            if uniform_locs is not False:
+                glUniform3f(uniform_locs['move_pos'],
+                            drag_center_offset_z,
+                            drag_center_offset_y,
+                            drag_center_offset_x)
+        else:
+            if uniform_locs is not False:
+                glUniform3f(uniform_locs['move_pos'],
+                            saved_offset_z,
+                            saved_offset_y,
+                            saved_offset_x)
+
+
+
 
 
         # Check F10 for settings (with debouncing)

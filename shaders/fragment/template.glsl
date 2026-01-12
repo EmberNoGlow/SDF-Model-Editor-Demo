@@ -12,6 +12,9 @@ uniform vec3 SkyColorTop = vec3(0.1, 0.15, 0.25);
 uniform vec3 SkyColorBottom =  vec3(0.05, 0.05, 0.1);
 uniform bool GridEnabled = true;
 
+uniform vec3 MovePos;
+
+
 // Assuming these are replaced by your external code
 {SDF_LIBRARY}
 
