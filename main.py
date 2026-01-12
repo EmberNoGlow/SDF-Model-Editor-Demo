@@ -1150,10 +1150,16 @@ def main():
     last_key_z_pressed = False
     last_key_y_pressed = False
     last_key_g_pressed = False
+    axis_toggled_gx = False
+    axis_toggled_gy = False
+    axis_toggled_gz = False
+    last_key_gx_pressed = False
+    last_key_gy_pressed = False
+    last_key_gz_pressed = False
+
     last_key_f10_pressed = False  # Add this if not present
 
     # --- Draging ---
-    dragging = False
     dragging = False
     drag_center_offset_x = drag_center_offset_y = drag_center_offset_z = 0.0
     saved_offset_x = saved_offset_y = saved_offset_z = 0.0
@@ -1733,24 +1739,24 @@ def main():
 
         # Handle MMB press and release for camera control
         if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.PRESS:
-            shift_pressed = glfw.get_key(window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS or glfw.get_key(window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS
+            shift_pressed = (glfw.get_key(window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS or 
+                            glfw.get_key(window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS)
             
-            if not is_mmb_pressed and not shift_pressed:
+            if not is_mmb_pressed:
                 is_mmb_pressed = True
+                is_shift_mmb_pressed = shift_pressed
                 last_x, last_y = glfw.get_cursor_pos(window)
-                glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
-        
-            elif not is_mmb_pressed and shift_pressed:
-                is_mmb_pressed = True
-                is_shift_mmb_pressed = True
-                last_x, last_y = glfw.get_cursor_pos(window)
-                last_pan_x, last_pan_y = last_x, last_y
-                glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+                if shift_pressed:
+                    last_pan_x, last_pan_y = last_x, last_y
         elif glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.RELEASE:
             if is_mmb_pressed:
                 is_mmb_pressed = False
                 is_shift_mmb_pressed = False
-                glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+
+        if is_mmb_pressed or dragging:
+            glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
+        else:
+            glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
 
 
         prev_cam_yaw = cam_yaw
@@ -2074,14 +2080,13 @@ def main():
             last_key_y_pressed = False
 
 
+
         # Drag on G
         current_x, current_y = glfw.get_cursor_pos(window)
         key_g_is_down = io.keys_down[glfw.KEY_G]
-
-        if dragging:
-            glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
-        else:
-            glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
+        key_x_is_down = io.keys_down[glfw.KEY_X]
+        key_y_is_down = io.keys_down[glfw.KEY_Y]
+        key_z_is_down = io.keys_down[glfw.KEY_Z]
 
         # State transition logic
         if key_g_is_down and not last_key_g_pressed:
@@ -2089,42 +2094,84 @@ def main():
             
             if dragging:
                 # Enter drag mode
-                drag_start_mouse_x = current_x
-                drag_start_mouse_y = current_y
-                
+                drag_start_mouse_x, drag_start_mouse_y = current_x, current_y
                 initial_offset_x = drag_center_offset_x
                 initial_offset_y = drag_center_offset_y
                 initial_offset_z = drag_center_offset_z
             else:
-                # Exit drag mode
+                # Exit drag mode: Save state and RESET axis toggles for next time
                 saved_offset_x = drag_center_offset_x
                 saved_offset_y = drag_center_offset_y
                 saved_offset_z = drag_center_offset_z
+                axis_toggled_gx = axis_toggled_gy = axis_toggled_gz = False
 
         last_key_g_pressed = key_g_is_down
+
+        # --- START: AXIAL SELECTION LOGIC ---
+        # Logic: Pressing a key enables that axis and disables others (Blender style)
+        if dragging:
+            if key_x_is_down and not last_key_gx_pressed:
+                # If already X, turn off. If not X, turn on and kill others.
+                state = not axis_toggled_gx
+                axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = state, False, False
+            
+            if key_y_is_down and not last_key_gy_pressed:
+                state = not axis_toggled_gy
+                axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = False, state, False
+
+            if key_z_is_down and not last_key_gz_pressed:
+                state = not axis_toggled_gz
+                axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = False, False, state
+
+        last_key_gx_pressed = key_x_is_down
+        last_key_gy_pressed = key_y_is_down
+        last_key_gz_pressed = key_z_is_down
+
+        # Determine active axis
+        active_axis = None 
+        if axis_toggled_gx: active_axis = 0
+        elif axis_toggled_gy: active_axis = 1
+        elif axis_toggled_gz: active_axis = 2
+        # --- END: AXIAL SELECTION LOGIC ---
 
         # Calculation logic
         if dragging:
             mouse_delta_x = (current_x - drag_start_mouse_x) * DRAG_SENSITIVITY
-            mouse_delta_y = (current_y - drag_start_mouse_y) * -DRAG_SENSITIVITY  # Invert Y
+            mouse_delta_y = (current_y - drag_start_mouse_y) * -DRAG_SENSITIVITY 
 
-            drag_center_offset_x = initial_offset_x + mouse_delta_x * right_x + mouse_delta_y * up_x
-            drag_center_offset_y = initial_offset_y + mouse_delta_x * right_y + mouse_delta_y * up_y
-            drag_center_offset_z = initial_offset_z + mouse_delta_x * right_z + mouse_delta_y * up_z
+            # Calculate movement vector based on camera orientation
+            move_vec_x = mouse_delta_x * right_x + mouse_delta_y * up_x
+            move_vec_y = mouse_delta_x * right_y + mouse_delta_y * up_y
+            move_vec_z = mouse_delta_x * right_z + mouse_delta_y * up_z
 
-            if uniform_locs is not False:
+            # --- APPLY AXIAL CONSTRAINT ---
+            # To lock to a world axis, we only allow movement on that specific component
+            if active_axis is not None:
+                if active_axis == 0: # Lock to World X
+                    move_vec_y = 0
+                    move_vec_z = 0
+                elif active_axis == 1: # Lock to World Y
+                    move_vec_x = 0
+                    move_vec_z = 0
+                elif active_axis == 2: # Lock to World Z
+                    move_vec_x = 0
+                    move_vec_y = 0
+
+            drag_center_offset_x = initial_offset_x + move_vec_x
+            drag_center_offset_y = initial_offset_y + move_vec_y
+            drag_center_offset_z = initial_offset_z + move_vec_z
+
+            if uniform_locs:
                 glUniform3f(uniform_locs['move_pos'],
                             drag_center_offset_z,
                             drag_center_offset_y,
                             drag_center_offset_x)
         else:
-            if uniform_locs is not False:
+            if uniform_locs:
                 glUniform3f(uniform_locs['move_pos'],
                             saved_offset_z,
                             saved_offset_y,
                             saved_offset_x)
-
-
 
 
 
