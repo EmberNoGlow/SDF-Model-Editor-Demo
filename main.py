@@ -97,6 +97,11 @@ MAX_RADIUS = 100.0
 MIN_PITCH = -math.radians(90)
 MAX_PITCH = math.radians(90)
 
+# Moved variables
+drag_position = [0,0,0] # Track calculation result
+selected_item_id = None  # Track which item is selected in the tree
+
+
 # Load shader files with error handling
 try:
     # Vertex shader source code
@@ -155,6 +160,8 @@ glob_history = History()
 
 
 class SDFPrimitive:
+    global selected_item_id
+    global drag_position
     def __init__(self, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
         self.primitive_type = primitive_type
         self.position = list(position)
@@ -169,8 +176,18 @@ class SDFPrimitive:
         self.ui_name = ui_name or primitive_type
 
     def generate_transform_code(self, op_id):
+        # HERE G
+        if selected_item_id is not None and selected_item_id == op_id:
+            new_position = ["MovePos.x", "MovePos.y", " MovePos.z"]
+        else:
+            # If selected_item_id is None, or if it's not equal to op_id
+            new_position = self.position
+        
+        print(f"pos: {new_position}, drag : {selected_item_id == op_id}")
+        # END
+
         transform_code = f"vec3 p{op_id} = p;"
-        transform_code += f"\np{op_id} -= vec3({self.position[0]}, {self.position[1]}, {self.position[2]});"
+        transform_code += f"\np{op_id} -= vec3({new_position[0]}, {new_position[1]}, {new_position[2]});"
 
         if self.rotation:
             transform_code += f"\np{op_id} = rotateZ({self.rotation[2]}) * rotateX({self.rotation[0]}) * rotateY({self.rotation[1]}) * p{op_id};"
@@ -1102,6 +1119,10 @@ def proj_3d22d(points, azim_deg=45, elev_deg=30, invert_axes=True):
 
 
 def main():
+    # Globals
+    global selected_item_id
+    global drag_position
+
     # Initialize GLFW
     if not glfw.init():
         return
@@ -1184,7 +1205,6 @@ def main():
     show_selection_window = False
     show_settings_window = False
     show_about_window = False
-    selected_item_id = None  # Track which item is selected in the tree
     selection_mode = None  # 'primitive' or 'operation'
     renaming_item_id = None  # Item being renamed
     rename_text = ""
@@ -2161,17 +2181,20 @@ def main():
             drag_center_offset_y = initial_offset_y + move_vec_y
             drag_center_offset_z = initial_offset_z + move_vec_z
 
+            drag_position = [drag_center_offset_z, drag_center_offset_y, drag_center_offset_x]
+
             if uniform_locs:
                 glUniform3f(uniform_locs['move_pos'],
-                            drag_center_offset_z,
-                            drag_center_offset_y,
-                            drag_center_offset_x)
+                            drag_position[0],
+                            drag_position[1],
+                            drag_position[2])
         else:
+            drag_position = [saved_offset_z, saved_offset_y, saved_offset_x]
             if uniform_locs:
                 glUniform3f(uniform_locs['move_pos'],
-                            saved_offset_z,
-                            saved_offset_y,
-                            saved_offset_x)
+                            drag_position[0],
+                            drag_position[1],
+                            drag_position[2])
 
 
 

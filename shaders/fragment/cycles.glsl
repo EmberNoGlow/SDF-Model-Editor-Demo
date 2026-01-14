@@ -14,6 +14,8 @@ uniform int useAccumulation; // 0 = no accumulation, 1 = with accumulation
 uniform vec3 SkyColorTop;
 uniform vec3 SkyColorBottom;
 
+uniform vec3 MovePos;
+
 {SDF_LIBRARY}
 
 // --- RANDOM GENERATOR (Hash without Sine) ---
