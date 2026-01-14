@@ -129,8 +129,8 @@ class History:
         if redo_kwargs is None:
             redo_kwargs = {}
 
-        self.undo_stack. append((undo_func, redo_func, undo_args, redo_args, undo_kwargs, redo_kwargs))
-        self.redo_stack. clear()
+        self.undo_stack.append((undo_func, redo_func, undo_args, redo_args, undo_kwargs, redo_kwargs))
+        self.redo_stack.clear()
 
     def undo(self):
         if not self.undo_stack:
@@ -2645,7 +2645,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         imgui.text("Color:")
                         # Color edit - imgui automatically shows a picker button
                         old_color = primitive.color.copy()
-                        color_changed, color_rgba = imgui.color_edit3("Color##color", *primitive. color)
+                        color_changed, color_rgba = imgui.color_edit3("Color##color", *primitive.color)
                         if color_changed:
                             primitive.color = list(color_rgba[: 3])
                             scene_builder.modify_primitive_property(op_id, 'color', old_color, primitive.color)
