@@ -80,7 +80,7 @@ def load_scene_dialog(scene_builder, parent_window=None):
 
 
 # --- Configuration ---
-SCREEN_SIZE = (800, 600)
+SCREEN_SIZE = (1200, 720)
 FOV_ANGLE = math.radians(75)  # Field of View - Used for ray direction calculation
 
 # UI Constants
@@ -183,6 +183,7 @@ class SDFPrimitive:
         Generate the GLSL transform code for this primitive.
         If this primitive is currently selected, the shader will subtract
         the MovePos uniform (so the C-side can move the primitive interactively).
+        New: supports 'pointer' primitive which mutates the global 'p' variable.
         """
         global selected_item_id
 
@@ -193,7 +194,16 @@ class SDFPrimitive:
             # Use literal numeric components
             new_position = [self.position[0], self.position[1], self.position[2]]
 
-        # Build transform string: translate, rotate, scale
+        # Pointer primitives mutate the global `p` and do NOT create p{op_id}
+        if self.primitive_type == "pointer":
+            # pointer function name stored in kwargs['func'] (default identity)
+            func_name = self.kwargs.get('func', 'pointer_identity')
+            # Optionally pass extra params stored in kwargs['params'] (not used by default)
+            # We pass position as second argument so pointer functions can be local around a point
+            pos_arg = f"vec3({new_position[0]}, {new_position[1]}, {new_position[2]})"
+            return f"    p = {func_name}(p, {pos_arg});"
+
+        # For normal primitives generate the usual transform that works on a local p{op_id}
         transform_code = f"vec3 p{op_id} = p;"
         transform_code += f"\n    p{op_id} -= vec3({new_position[0]}, {new_position[1]}, {new_position[2]});"
 
@@ -205,9 +215,12 @@ class SDFPrimitive:
 
         return transform_code
 
-    
 
     def generate_sdf_code(self, op_id):
+        # Pointer primitives do not emit SDF distance/color—they only mutate p.
+        if self.primitive_type == "pointer":
+            return ""  # no distance/color for pointers
+        
         color_vec = f"vec3({self.color[0]}, {self.color[1]}, {self.color[2]})"
         if self.primitive_type == "box":
             return f"float {op_id} = sdBox(p{op_id}, vec3({self.size_or_radius[0]}, {self.size_or_radius[1]}, {self.size_or_radius[2]}));\n    vec3 col{op_id} = {color_vec};"
@@ -392,8 +405,6 @@ def MonitorChanges(func):
         return result
     return wrapper
         
-# Replace the SDFSceneBuilder class in your main.py with this updated version.
-
 class SDFSceneBuilder:
     def __init__(self):
         self.primitives = []
@@ -583,6 +594,19 @@ class SDFSceneBuilder:
             self.id_to_index[pid] = ('primitive', i)
         for i, (oid, _) in enumerate(self.operations):
             self.id_to_index[oid] = ('operation', i)
+
+    def add_pointer(self, position=(0.0, 0.0, 0.0), func='pointer_identity', ui_name=None, color=None, forced_op_id=None, **kwargs):
+        """
+        Add a pointer primitive. `func` is the name of a GLSL function in the sdf library
+        that takes (vec3 p, vec3 pos) and returns vec3 p (transformed).
+        """
+        # Store the chosen function name in kwargs so it will be serialized
+        kwargs = dict(kwargs) if kwargs else {}
+        kwargs['func'] = func
+        op_id = self.add_primitive("pointer", position, [0.0, 0.0, 0.0], rotation=None, scale=None, ui_name=ui_name or "Pointer", color=color, forced_op_id=forced_op_id, **kwargs)
+        return op_id
+
+
 
     def _undo_operation_delete(self, op_id, operation_type, args, ui_name):
         """Helper to restore a deleted operation (used by history)."""
@@ -2767,6 +2791,49 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 if success:
                                     uniform_locs = new_uniforms
                         
+                        # --- Inspector: add UI to edit pointer function selection (inside the primitive inspector branch) ---
+                        if primitive.primitive_type == "pointer":
+                            # Position control uses same input_float3 as other primitives
+                            old_pos = primitive.position
+                            changed_pos, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
+                            if changed_pos:
+                                scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+
+                            # List of available pointer functions (must exist in sdf_library.glsl)
+                            pointer_funcs = [
+                                "pointer_identity",
+                                "pointer_symmetry_x",
+                                "pointer_symmetry_y",
+                                "pointer_symmetry_z",
+                                # add your custom pointer function names here...
+                            ]
+                            current_func = primitive.kwargs.get('func', 'pointer_identity')
+                            try:
+                                current_index = pointer_funcs.index(current_func)
+                            except ValueError:
+                                pointer_funcs.append(current_func)
+                                current_index = len(pointer_funcs)-1
+
+                            clicked, new_index = imgui.combo("Function", current_index, pointer_funcs)
+                            if clicked:
+                                new_func = pointer_funcs[new_index]
+                                old_func = current_func
+                                primitive.kwargs['func'] = new_func
+                                # Record change in history for undo/redo
+                                scene_builder.modify_primitive_property(op_id, "kwargs.func", old_func, new_func)
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+
+                            imgui.separator()
+                            imgui.text("Pointer functions mutate \nthe raymarch point `p` \nfor subsequent primitives.")
+                            imgui.text_colored("Place a pointer earlier in \nthe tree to affect later objects.", 0.9, 0.8, 0.2, 1.0)
+
+
+
                         # Show rotation as degrees
                         current_degrees = [math.degrees(a) for a in primitive.rotation]
                         changed, degs = imgui.input_float3("Rotation °", *current_degrees)
@@ -2918,6 +2985,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                 ("Vertical Capsule", "vertical_capsule", (1.0, 0.3)),
                 ("Capped Cylinder", "capped_cylinder", (0.3, 1.0)),
                 ("Rounded Cylinder", "rounded_cylinder", (0.3, 0.1)),
+                ("Pointer", "pointer", None),  # <-- new
             ]
 
             for label, prim_type, size_radius in primitives_list:
@@ -2940,6 +3008,9 @@ You can also support the project by reporting an error, or by suggesting an impr
                         new_id = scene_builder.add_capped_cylinder((0.0, 0.0, 0.0), size_radius[0], size_radius[1], ui_name=label)
                     elif prim_type == "rounded_cylinder":
                         new_id = scene_builder.add_rounded_cylinder((0.0, 0.0, 0.0), size_radius[0], size_radius[1], 1.0, ui_name=label)
+                    elif prim_type == "pointer":
+                        # default pointer function
+                        new_id = scene_builder.add_pointer((0.0, 0.0, 0.0), func='pointer_identity', ui_name=label)
                     else:
                         new_id = scene_builder.add_box((0.0, 0.0, 0.0), size_radius, ui_name=label)
                     

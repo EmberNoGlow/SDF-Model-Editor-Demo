@@ -200,3 +200,45 @@ vec3 scale(vec3 p, vec3 s)
     return p / s;
 }
 
+
+// --- Pointer functions: transform the raymarch point p, then return it ---
+// Signature: vec3 pointer_<name>(vec3 p, vec3 anchorPos);
+
+// Identity (no-op)
+vec3 pointer_identity(vec3 p, vec3 anchorPos) {
+    return p;
+}
+
+// Symmetry across X axis around anchorPos
+vec3 pointer_symmetry_x(vec3 p, vec3 anchorPos) {
+    // move to local space, apply abs, move back
+    vec3 q = p - anchorPos;
+    q.x = abs(q.x);
+    return q + anchorPos;
+}
+
+// Symmetry across Y axis around anchorPos
+vec3 pointer_symmetry_y(vec3 p, vec3 anchorPos) {
+    vec3 q = p - anchorPos;
+    q.y = abs(q.y);
+    return q + anchorPos;
+}
+
+// Symmetry across Z axis around anchorPos
+vec3 pointer_symmetry_z(vec3 p, vec3 anchorPos) {
+    vec3 q = p - anchorPos;
+    q.z = abs(q.z);
+    return q + anchorPos;
+}
+
+// Example: radial twist (simple example; you can create more complex warps)
+vec3 pointer_twist_radial(vec3 p, vec3 anchorPos) {
+    vec3 q = p - anchorPos;
+    float r = length(q.xz);
+    float ang = atan(q.z, q.x);
+    float twist = 0.5 * r; // tweak multiplier
+    float na = ang + twist;
+    q.x = r * cos(na);
+    q.z = r * sin(na);
+    return q + anchorPos;
+}
