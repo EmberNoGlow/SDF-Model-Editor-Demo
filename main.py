@@ -7,6 +7,8 @@ import hashlib
 import ctypes
 import imgui
 import imgui.core
+import gui.themes
+
 from imgui.integrations.glfw import GlfwRenderer
 
 import numpy as np
@@ -1123,7 +1125,27 @@ def proj_3d22d(points, azim_deg=45, elev_deg=30, invert_axes=True):
 
 
 
+# --- Font ---
+def rebuild_imgui_fonts(renderer, base_font_path="path/to/your/font.ttf", base_font_size=16.0):
+    # base_font_size is in logical points; multiply by framebuffer scale for pixel-perfect atlas
+    io = imgui.get_io()
+    fb_scale_x, fb_scale_y = io.display_fb_scale
 
+    # clear existing fonts and add scaled font
+    io.fonts.clear()
+    pixel_size = base_font_size * max(fb_scale_x, fb_scale_y)
+    io.fonts.add_font_from_file_ttf(base_font_path, pixel_size)
+
+    # rebuild texture and let the renderer upload it
+    renderer.refresh_font_texture()
+
+    # force nearest filtering if you want crisp text at integer scales
+    tex_id = io.fonts.texture_id
+    if tex_id:
+        glBindTexture(GL_TEXTURE_2D, tex_id)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+        glBindTexture(GL_TEXTURE_2D, 0)
 
 
 def main():
@@ -1146,6 +1168,8 @@ def main():
     # Initialize ImGui
     imgui.create_context()
     impl = GlfwRenderer(window)
+    rebuild_imgui_fonts(impl, "gui/fonts/Roboto-Medium.ttf", 16.0)
+
 
     # --- Camera State ---
     target_yaw = 0.0
@@ -1677,6 +1701,7 @@ def main():
     start_time = time.time()
     prev_time = time.time() 
 
+
     while not glfw.window_should_close(window):
         # calc Delta time 
         current_time = time.time()
@@ -1686,6 +1711,9 @@ def main():
         glfw.poll_events()
         impl.process_inputs()
         imgui.new_frame()
+        gui.themes.setup_dark_red_theme()
+
+
 
         # --- FPS calculation ---
         fps_frames += 1
@@ -2254,9 +2282,9 @@ def main():
                     move_delta_y = 0.0
 
             # accumulate world movement since drag started
-            drag_accum[0] += move_delta_x
+            drag_accum[0] += move_delta_z
             drag_accum[1] += move_delta_y
-            drag_accum[2] += move_delta_z
+            drag_accum[2] += move_delta_x
 
             # compute new primitive position from saved start pos + accumulated movement
             item_type, idx = scene_builder.id_to_index[dragging_op_id]
