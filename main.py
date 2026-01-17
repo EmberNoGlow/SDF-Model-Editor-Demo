@@ -2800,6 +2800,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         #imgui.color_button("Preview##color_preview", primitive.color[0], primitive.color[1], primitive.color[2], 0, 20, 20)
                         
                         # Alternative: RGB sliders for fine control
+                        imgui.spacing()
                         imgui.text("RGB Sliders:")
                         r_changed, primitive.color[0] = imgui.slider_float("R##color_r", primitive.color[0], 0.0, 1.0)
                         g_changed, primitive.color[1] = imgui.slider_float("G##color_g", primitive.color[1], 0.0, 1.0)
