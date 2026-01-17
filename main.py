@@ -1189,10 +1189,29 @@ def main():
 
     # --- Draging ---
     dragging = False
-    dragging_op_id = None           # Which item is being dragged (op_id)
-    drag_center_offset_x = drag_center_offset_y = drag_center_offset_z = 0.0
-    saved_offset_x = saved_offset_y = saved_offset_z = 0.0
-    initial_offset_x = initial_offset_y = initial_offset_z = 0.0
+    dragging_op_id = None           # op_id of the item currently being dragged
+    drag_last_x = 0.0               # last mouse x while dragging (separate from camera last_x/last_y)
+    drag_last_y = 0.0
+    drag_start_pos = None           # original primitive position at drag start (copied list)
+    drag_accum = [0.0, 0.0, 0.0]    # accumulated world-space movement since drag start
+    DRAG_SENSITIVITY = 0.01         # adjust for speed; consider scaling with cam_radius for consistent feel
+    # Helper: safely set MovePos uniform (call this wherever you were directly doing glUniform3f for MovePos)
+    def set_move_pos_uniform(shader_program, uniform_locs, pos):
+        """
+        Safely set the MovePos uniform. If the cached uniform location is missing (-1 or None),
+        query it dynamically and cache it. Only call glUniform if the location exists.
+        """
+        if uniform_locs is None or shader_program is None:
+            return
+        move_key = 'move_pos'
+        loc = uniform_locs.get(move_key, None)
+        if loc is None or loc == -1:
+            # Query the active program for the location (this is safe and will return -1 if not declared)
+            loc = glGetUniformLocation(shader_program, "MovePos")
+            uniform_locs[move_key] = loc
+        if loc != -1:
+            glUniform3f(loc, float(pos[0]), float(pos[1]), float(pos[2]))
+
 
     # --- Delta time --- 
     delta_time = 0.0 
@@ -1928,10 +1947,7 @@ def main():
                 glUniform1f(uniform_locs['radius'], cam_radius)
                 glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
                 glUniform1i(uniform_locs['frameIndex'], frame_count)
-                glUniform3f(uniform_locs['move_pos'],
-                            drag_position[0],
-                            drag_position[1],
-                            drag_position[2])
+                set_move_pos_uniform(shader, uniform_locs, drag_position)
                 
                 # Bind accumulation texture for reading
                 glActiveTexture(GL_TEXTURE0)
@@ -1985,10 +2001,7 @@ def main():
                 glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
                 glUniform1i(uniform_locs['frameIndex'], 0)
                 glUniform1i(uniform_locs['useAccumulation'], 0)
-                glUniform3f(uniform_locs['move_pos'],
-                            drag_position[0],
-                            drag_position[1],
-                            drag_position[2])
+                set_move_pos_uniform(shader, uniform_locs, drag_position)
 
                 glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
                 glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
@@ -2119,70 +2132,74 @@ def main():
 
 
         # Drag on G
-        current_x, current_y = glfw.get_cursor_pos(window)
-        key_g_is_down = io.keys_down[glfw.KEY_G]
-        key_x_is_down = io.keys_down[glfw.KEY_X]
-        key_y_is_down = io.keys_down[glfw.KEY_Y]
-        key_z_is_down = io.keys_down[glfw.KEY_Z]
+        # Read raw key states using GLFW so ImGui doesn't interfere with toggles
+        key_g_is_down = glfw.get_key(window, glfw.KEY_G) == glfw.PRESS
+        key_x_is_down = glfw.get_key(window, glfw.KEY_X) == glfw.PRESS
+        key_y_is_down = glfw.get_key(window, glfw.KEY_Y) == glfw.PRESS
+        key_z_is_down = glfw.get_key(window, glfw.KEY_Z) == glfw.PRESS
 
-        # State transition logic: toggle dragging when G is pressed (debounced)
+        # Toggle dragging on G press (edge detect)
         if key_g_is_down and not last_key_g_pressed:
+            # Toggle dragging state
             dragging = not dragging
 
             if dragging:
-                # Start dragging: capture which item is being dragged and initialize offsets
+                # Start dragging: capture which item and initialize drag state
                 dragging_op_id = selected_item_id
 
-                # Initialize drag offsets from the selected primitive's current position immediately.
                 if dragging_op_id and dragging_op_id in scene_builder.id_to_index:
                     item_type, idx = scene_builder.id_to_index[dragging_op_id]
                     if item_type == 'primitive':
                         prim = scene_builder.primitives[idx][1]
-                        # Map primitive.position [x,y,z] -> internal offsets so
-                        # drag_position = [drag_center_offset_z, drag_center_offset_y, drag_center_offset_x]
-                        drag_center_offset_z = prim.position[0]
-                        drag_center_offset_y = prim.position[1]
-                        drag_center_offset_x = prim.position[2]
-
-                        # initialize saved/initial offsets (used for delta movement)
-                        initial_offset_x = drag_center_offset_x
-                        initial_offset_y = drag_center_offset_y
-                        initial_offset_z = drag_center_offset_z
-                        saved_offset_x = drag_center_offset_x
-                        saved_offset_y = drag_center_offset_y
-                        saved_offset_z = drag_center_offset_z
+                        # Copy the primitive start position so later comparisons/undo work
+                        drag_start_pos = prim.position
+                        # Reset accumulated movement
+                        drag_accum = [0.0, 0.0, 0.0]
+                        # Record starting mouse cursor (independent of camera last_x/last_y)
+                        drag_last_x, drag_last_y = glfw.get_cursor_pos(window)
                     else:
-                        # Not a primitive or nothing selected: reset offsets
-                        drag_center_offset_x = drag_center_offset_y = drag_center_offset_z = 0.0
-                        initial_offset_x = initial_offset_y = initial_offset_z = 0.0
-                        saved_offset_x = saved_offset_y = saved_offset_z = 0.0
+                        # nothing valid to drag
+                        dragging_op_id = None
+                        drag_start_pos = None
+                        drag_accum = [0.0, 0.0, 0.0]
+                else:
+                    dragging_op_id = None
+                    drag_start_pos = None
+                    drag_accum = [0.0, 0.0, 0.0]
 
-                # Reset axis toggles when starting new drag
+                # Reset axis toggles when starting a new drag
                 axis_toggled_gx = axis_toggled_gy = axis_toggled_gz = False
 
             else:
-                # Stop dragging: apply drag_position to the specific primitive immediately.
+                # Stop dragging: commit final position (register undo/redo)
                 if dragging_op_id and dragging_op_id in scene_builder.id_to_index:
                     item_type, idx = scene_builder.id_to_index[dragging_op_id]
                     if item_type == 'primitive':
                         prim = scene_builder.primitives[idx][1]
-                        # drag_position is in [x,y,z] order — apply it back to the primitive position
-                        prim.position = drag_position.copy()
-                # Clear dragging_op_id
+                        final_pos = prim.position
+                        # Register only if changed
+                        if drag_start_pos is not None and final_pos != drag_start_pos:
+                            scene_builder.modify_primitive_property(dragging_op_id, 'position', drag_start_pos, final_pos)
+                            # Optionally recompile if scene/code generation depends on selection
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+
+                # clear drag state
                 dragging_op_id = None
-                # Reset axis toggles
+                drag_start_pos = None
+                drag_accum = [0.0, 0.0, 0.0]
                 axis_toggled_gx = axis_toggled_gy = axis_toggled_gz = False
 
+        # Always update last_key_g_pressed for proper edge detection next frame
         last_key_g_pressed = key_g_is_down
 
-        # --- START: AXIAL SELECTION LOGIC ---
-        # Logic: Pressing a key enables that axis and disables others (Blender style)
+        # Handle axis toggles (Blender-style): toggle on key press, update debounced state every frame
         if dragging:
             if key_x_is_down and not last_key_gx_pressed:
-                # If already X, turn off. If not X, turn on and kill others.
                 state = not axis_toggled_gx
                 axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = state, False, False
-            
+
             if key_y_is_down and not last_key_gy_pressed:
                 state = not axis_toggled_gy
                 axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = False, state, False
@@ -2191,48 +2208,81 @@ def main():
                 state = not axis_toggled_gz
                 axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = False, False, state
 
+        # Update the "last key" flags for X/Y/Z so we only toggle once per press
         last_key_gx_pressed = key_x_is_down
         last_key_gy_pressed = key_y_is_down
         last_key_gz_pressed = key_z_is_down
 
-        # Determine active axis
-        active_axis = None 
-        if axis_toggled_gx: active_axis = 0
-        elif axis_toggled_gy: active_axis = 1
-        elif axis_toggled_gz: active_axis = 2
-        # --- END: AXIAL SELECTION LOGIC ---
+        # Determine active axis (None => free drag)
+        active_axis = None
+        if axis_toggled_gx:
+            active_axis = 0
+        elif axis_toggled_gy:
+            active_axis = 1
+        elif axis_toggled_gz:
+            active_axis = 2
 
-        # Calculation logic
-        if dragging:
-            mouse_delta_x = (current_x - last_x) * DRAG_SENSITIVITY
-            mouse_delta_y = (current_y - last_y) * -DRAG_SENSITIVITY 
+        # Per-frame drag movement (this must run every frame while dragging)
+        if dragging and dragging_op_id and dragging_op_id in scene_builder.id_to_index:
+            # read current mouse and compute delta since last frame
+            current_x, current_y = glfw.get_cursor_pos(window)
+            dx = current_x - drag_last_x
+            dy = current_y - drag_last_y
+            # store for next frame
+            drag_last_x, drag_last_y = current_x, current_y
 
-            # Calculate movement vector based on camera orientation
-            move_vec_x = mouse_delta_x * right_x + mouse_delta_y * up_x
-            move_vec_y = mouse_delta_x * right_y + mouse_delta_y * up_y
-            move_vec_z = mouse_delta_x * right_z + mouse_delta_y * up_z
+            # convert to mouse-space movement (invert Y so screen-up => world up)
+            mouse_delta_x = dx * DRAG_SENSITIVITY
+            mouse_delta_y = -dy * DRAG_SENSITIVITY
 
-            # --- APPLY AXIAL CONSTRAINT ---
-            # To lock to a world axis, we only allow movement on that specific component
+            # transform mouse deltas into world-space using camera right/up vectors
+            # right_x, right_y, right_z and up_x, up_y, up_z must be computed earlier (they are in your code)
+            move_delta_x = mouse_delta_x * right_x + mouse_delta_y * up_x
+            move_delta_y = mouse_delta_x * right_y + mouse_delta_y * up_y
+            move_delta_z = mouse_delta_x * right_z + mouse_delta_y * up_z
+
+            # axis constraints (lock movement to a single world axis)
             if active_axis is not None:
-                if active_axis == 0: # Lock to World X
-                    move_vec_y = 0
-                    move_vec_z = 0
-                elif active_axis == 1: # Lock to World Y
-                    move_vec_x = 0
-                    move_vec_z = 0
-                elif active_axis == 2: # Lock to World Z
-                    move_vec_x = 0
-                    move_vec_y = 0
+                if active_axis == 0:
+                    move_delta_y = 0.0
+                    move_delta_z = 0.0
+                elif active_axis == 1:
+                    move_delta_x = 0.0
+                    move_delta_z = 0.0
+                elif active_axis == 2:
+                    move_delta_x = 0.0
+                    move_delta_y = 0.0
 
-            drag_center_offset_x = initial_offset_x + move_vec_x
-            drag_center_offset_y = initial_offset_y + move_vec_y
-            drag_center_offset_z = initial_offset_z + move_vec_z
+            # accumulate world movement since drag started
+            drag_accum[0] += move_delta_x
+            drag_accum[1] += move_delta_y
+            drag_accum[2] += move_delta_z
 
-            drag_position = [drag_center_offset_z, drag_center_offset_y, drag_center_offset_x]
+            # compute new primitive position from saved start pos + accumulated movement
+            item_type, idx = scene_builder.id_to_index[dragging_op_id]
+            prim = scene_builder.primitives[idx][1]
+            if drag_start_pos is None:
+                drag_start_pos = prim.position.copy()
+
+            new_pos = [
+                drag_start_pos[0] + drag_accum[0],
+                drag_start_pos[1] + drag_accum[1],
+                drag_start_pos[2] + drag_accum[2],
+            ]
+
+            # apply live position (no historical entry yet — recorded on drag end)
+            prim.position = new_pos
+            drag_position = new_pos.copy()
 
         else:
-            drag_position = [saved_offset_z, saved_offset_y, saved_offset_x]
+            # When not dragging keep shader uniform aligned with selection or zero
+            if selected_item_id and selected_item_id in scene_builder.id_to_index:
+                itype, idx = scene_builder.id_to_index[selected_item_id]
+                if itype == 'primitive':
+                    prim = scene_builder.primitives[idx][1]
+                    drag_position = prim.position
+            else:
+                drag_position = [0.0, 0.0, 0.0]
 
 
         # Check F10 for settings (with debouncing)
@@ -2268,10 +2318,7 @@ def main():
                     glUniform1f(uniform_locs['camPitch'], cam_pitch)
                     glUniform1f(uniform_locs['radius'], cam_radius)
                     glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
-                    glUniform3f(uniform_locs['move_pos'],
-                            drag_position[0],
-                            drag_position[1],
-                            drag_position[2])
+                    set_move_pos_uniform(shader, uniform_locs, drag_position)
 
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
@@ -2307,10 +2354,7 @@ def main():
                         glUniform1f(uniform_locs['camPitch'], cam_pitch)
                         glUniform1f(uniform_locs['radius'], cam_radius)
                         glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
-                        glUniform3f(uniform_locs['move_pos'],
-                            drag_position[0],
-                            drag_position[1],
-                            drag_position[2])
+                        set_move_pos_uniform(shader, uniform_locs, drag_position)
 
                     glViewport(panel_width, menu_bar_height, scaled_rendering_width, scaled_rendering_height)
                     glBindVertexArray(vao)
@@ -2331,10 +2375,7 @@ def main():
                     glUniform1f(uniform_locs['camPitch'], cam_pitch)
                     glUniform1f(uniform_locs['radius'], cam_radius)
                     glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
-                    glUniform3f(uniform_locs['move_pos'],
-                            drag_position[0],
-                            drag_position[1],
-                            drag_position[2])
+                    set_move_pos_uniform(shader, uniform_locs, drag_position)
 
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(vao)
