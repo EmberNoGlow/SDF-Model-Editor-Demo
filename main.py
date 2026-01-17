@@ -2180,7 +2180,7 @@ def main():
                     if item_type == 'primitive':
                         prim = scene_builder.primitives[idx][1]
                         # Copy the primitive start position so later comparisons/undo work
-                        drag_start_pos = prim.position
+                        drag_start_pos = prim.position[:]
                         # Reset accumulated movement
                         drag_accum = [0.0, 0.0, 0.0]
                         # Record starting mouse cursor (independent of camera last_x/last_y)
@@ -2605,6 +2605,12 @@ You can also support the project by reporting an error, or by suggesting an impr
                 selected_item_id = op_id
                 selection_mode = 'primitive'
                 renaming_item_id = None
+
+                # Recompile so the shader is regenerated with the correct selected_item_id
+                # (this prevents MovePos from being associated with a different primitive)
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
             
             imgui.tree_pop()
 
@@ -2623,6 +2629,11 @@ You can also support the project by reporting an error, or by suggesting an impr
                 selected_item_id = op_id
                 selection_mode = 'operation'
                 renaming_item_id = None
+
+                # Recompile so the shader is regenerated with the correct selected_item_id
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
             
             imgui.tree_pop()
 
