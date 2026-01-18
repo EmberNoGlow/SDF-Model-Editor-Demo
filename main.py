@@ -1935,7 +1935,7 @@ def main():
 
 
 
-        elip = 0.0005
+        elip = 0.0001
         if (abs(cam_yaw - prev_cam_yaw) > elip or 
             abs(cam_pitch - prev_cam_pitch) > elip or
             abs(cam_radius - prev_cam_radius) > elip or
@@ -2287,6 +2287,10 @@ def main():
             mouse_delta_x = dx * DRAG_SENSITIVITY
             mouse_delta_y = -dy * DRAG_SENSITIVITY
 
+            if np.linalg.norm(np.array([mouse_delta_x, mouse_delta_y])) > 0.01:
+                frame_count = 0
+                clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
+
             # transform mouse deltas into world-space using camera right/up vectors
             # right_x, right_y, right_z and up_x, up_y, up_z must be computed earlier (they are in your code)
             move_delta_x = mouse_delta_x * right_x + mouse_delta_y * up_x
@@ -2468,7 +2472,10 @@ def main():
             imgui.text(f"{resolution_scale:.2f}x")
             
             changed, resolution_scale = imgui.slider_float("##resolution_scale", resolution_scale, 0.25, 2.0, "%.2f")
-            
+            if changed:
+                frame_count = 0
+
+
             imgui.spacing()
             imgui.text_colored("1.0 = Normal resolution", 0.7, 0.7, 0.7, 1.0)
             imgui.text_colored("2.0 = Oversampling (better quality)", 0.7, 0.7, 0.7, 1.0)
@@ -2710,13 +2717,14 @@ You can also support the project by reporting an error, or by suggesting an impr
                         imgui.text(f"Type: {primitive.primitive_type}")
                         
                         # Position
-                        old_pos = primitive.position
-                        changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
-                        if changed:
-                            scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
+                        if primitive.primitive_type != "pointer":
+                            old_pos = primitive.position
+                            changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
+                            if changed:
+                                scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
                         
                         # Size/Radius - varies by primitive type
                         # I have python 3.8, "match", get out.
@@ -2743,12 +2751,13 @@ You can also support the project by reporting an error, or by suggesting an impr
                             changed2, primitive.size_or_radius[1] = imgui.input_float("Radius B", primitive.size_or_radius[1])
                             changed = changed1 or changed2
                         else:
-                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder"]:
+                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer"]:
                                 changed, primitive.size_or_radius = imgui.input_float3("Size##size", *primitive.size_or_radius)
-                        if changed:
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
+                        if primitive.primitive_type != "pointer": # HACK
+                            if changed:
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
                         
                         # Special parameters for specific primitives
                         if primitive.primitive_type == "cone":
@@ -2833,62 +2842,62 @@ You can also support the project by reporting an error, or by suggesting an impr
                             imgui.text_colored("Place a pointer earlier in \nthe tree to affect later objects.", 0.9, 0.8, 0.2, 1.0)
 
 
+                        else:
+                            # Show rotation as degrees
+                            current_degrees = [math.degrees(a) for a in primitive.rotation]
+                            changed, degs = imgui.input_float3("Rotation °", *current_degrees)
+                            if changed:
+                                primitive.rotation = [math.radians(a) for a in degs]
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
 
-                        # Show rotation as degrees
-                        current_degrees = [math.degrees(a) for a in primitive.rotation]
-                        changed, degs = imgui.input_float3("Rotation °", *current_degrees)
-                        if changed:
-                            primitive.rotation = [math.radians(a) for a in degs]
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
-
-                        # Scale stays as-is
-                        changed, primitive.scale = imgui.input_float3("Scale", *primitive.scale)
-                        if changed:
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
-                        
-
-                        # Special parameters for specific primitives
-                        if primitive.primitive_type == "round_box":
-                            changed, primitive.kwargs['radius'] = imgui.input_float("Corner Radius", primitive.kwargs.get('radius', 0.1))
+                            # Scale stays as-is
+                            changed, primitive.scale = imgui.input_float3("Scale", *primitive.scale)
                             if changed:
                                 success, new_uniforms = recompile_shader()
                                 if success:
                                     uniform_locs = new_uniforms
                         
-                        # Color picker
-                        imgui.separator()
-                        imgui.text("Color:")
-                        # Color edit - imgui automatically shows a picker button
-                        old_color = primitive.color.copy()
-                        color_changed, color_rgba = imgui.color_edit3("Color##color", *primitive.color)
-                        if color_changed:
-                            primitive.color = list(color_rgba[: 3])
-                            scene_builder.modify_primitive_property(op_id, 'color', old_color, primitive.color)
-                            success, new_uniforms = recompile_shader()
-                            if success: 
-                                uniform_locs = new_uniforms
-                        
-                        # Show color preview button
-                        imgui.same_line()
-                        # color_button takes: label, r, g, b, flags, size_x, size_y
-                        #imgui.color_button("Preview##color_preview", primitive.color[0], primitive.color[1], primitive.color[2], 0, 20, 20)
-                        
-                        # Alternative: RGB sliders for fine control
-                        imgui.spacing()
-                        imgui.text("RGB Sliders:")
-                        r_changed, primitive.color[0] = imgui.slider_float("R##color_r", primitive.color[0], 0.0, 1.0)
-                        g_changed, primitive.color[1] = imgui.slider_float("G##color_g", primitive.color[1], 0.0, 1.0)
-                        b_changed, primitive.color[2] = imgui.slider_float("B##color_b", primitive.color[2], 0.0, 1.0)
-                        if r_changed or g_changed or b_changed:
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
-                        
-                        break
+
+                            # Special parameters for specific primitives
+                            if primitive.primitive_type == "round_box":
+                                changed, primitive.kwargs['radius'] = imgui.input_float("Corner Radius", primitive.kwargs.get('radius', 0.1))
+                                if changed:
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+                            
+                            # Color picker
+                            imgui.separator()
+                            imgui.text("Color:")
+                            # Color edit - imgui automatically shows a picker button
+                            old_color = primitive.color.copy()
+                            color_changed, color_rgba = imgui.color_edit3("Color##color", *primitive.color)
+                            if color_changed:
+                                primitive.color = list(color_rgba[: 3])
+                                scene_builder.modify_primitive_property(op_id, 'color', old_color, primitive.color)
+                                success, new_uniforms = recompile_shader()
+                                if success: 
+                                    uniform_locs = new_uniforms
+                            
+                            # Show color preview button
+                            imgui.same_line()
+                            # color_button takes: label, r, g, b, flags, size_x, size_y
+                            #imgui.color_button("Preview##color_preview", primitive.color[0], primitive.color[1], primitive.color[2], 0, 20, 20)
+                            
+                            # Alternative: RGB sliders for fine control
+                            imgui.spacing()
+                            imgui.text("RGB Sliders:")
+                            r_changed, primitive.color[0] = imgui.slider_float("R##color_r", primitive.color[0], 0.0, 1.0)
+                            g_changed, primitive.color[1] = imgui.slider_float("G##color_g", primitive.color[1], 0.0, 1.0)
+                            b_changed, primitive.color[2] = imgui.slider_float("B##color_b", primitive.color[2], 0.0, 1.0)
+                            if r_changed or g_changed or b_changed:
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                            
+                            break
 
             elif selection_mode == 'operation':
                 # Find the operation
