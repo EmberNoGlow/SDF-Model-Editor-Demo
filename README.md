@@ -6,6 +6,20 @@
 
 ---
 
+> [!WARNING]
+> I created this branch that supports BVH. Please note that this version requires a lot of processing power (compared to the main version), so I can't test it on my old computer (it causes the video driver to shut down due to video memory overflow). This is due to recursive calculations in the shader and memory management. In theory, it should run faster on more powerful hardware thanks to the new optimization method, but it will require more powerful hardware. I can't say for sure what hardware it will work on, or if it won't work at all. Feel free to test it yourself.
+
+> **This branch will be deprecated in the near future**. However, you can create a pull request if you find an issue with the BVH logic.
+
+
+
+
+
+
+
+
+
+
 ## **🌟 Overview**
 This project is a **work-in-progress** editor for designing 3D models using **Signed Distance Fields (SDFs)**. Built with `Python`, `GLSL`, `ImGui`, `GLFW`, and `PyOpenGL`, it allows real-time rendering and interaction with SDF primitives.
 
