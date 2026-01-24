@@ -15,6 +15,7 @@ uniform vec3 SkyColorTop;
 uniform vec3 SkyColorBottom;
 
 uniform vec3 MovePos;
+uniform int MaxFrames = 0;
 
 {SDF_LIBRARY}
 

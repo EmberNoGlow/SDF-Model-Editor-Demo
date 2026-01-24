@@ -1365,20 +1365,21 @@ def main():
     def get_uniform_locations(shader_program):
         """Get all uniform locations for the shader program."""
         return {
-            'time': glGetUniformLocation(shader_program, "time"),
-            'resolution': glGetUniformLocation(shader_program, "resolution"),
-            'viewportOffset': glGetUniformLocation(shader_program, "viewportOffset"),
-            'camYaw': glGetUniformLocation(shader_program, "camYaw"),
-            'camPitch': glGetUniformLocation(shader_program, "camPitch"),
-            'radius': glGetUniformLocation(shader_program, "radius"),
-            'CamOrbit': glGetUniformLocation(shader_program, "CamOrbit"),
-            'frameIndex':  glGetUniformLocation(shader_program, "frameIndex"),
-            'accumulationTexture': glGetUniformLocation(shader_program, "accumulationTexture"),
-            'useAccumulation': glGetUniformLocation(shader_program, "useAccumulation"),
-            'col_sky_top' : glGetUniformLocation(shader_program, "SkyColorTop"),
-            'col_sky_bottom' : glGetUniformLocation(shader_program, "SkyColorBottom"),
-            'grid_enabled': glGetUniformLocation(shader_program, "GridEnabled"),
-            'move_pos' : glGetUniformLocation(shader_program, "MovePos"),
+            'time'                 :       glGetUniformLocation(shader_program, "time"),
+            'resolution'           :       glGetUniformLocation(shader_program, "resolution"),
+            'viewportOffset'       :       glGetUniformLocation(shader_program, "viewportOffset"),
+            'camYaw'               :       glGetUniformLocation(shader_program, "camYaw"),
+            'camPitch'             :       glGetUniformLocation(shader_program, "camPitch"),
+            'radius'               :       glGetUniformLocation(shader_program, "radius"),
+            'CamOrbit'             :       glGetUniformLocation(shader_program, "CamOrbit"),
+            'frameIndex'           :       glGetUniformLocation(shader_program, "frameIndex"),
+            'accumulationTexture'  :       glGetUniformLocation(shader_program, "accumulationTexture"),
+            'useAccumulation'      :       glGetUniformLocation(shader_program, "useAccumulation"),
+            'col_sky_top'          :       glGetUniformLocation(shader_program, "SkyColorTop"),
+            'col_sky_bottom'       :       glGetUniformLocation(shader_program, "SkyColorBottom"),
+            'grid_enabled'         :       glGetUniformLocation(shader_program, "GridEnabled"),
+            'move_pos'             :       glGetUniformLocation(shader_program, "MovePos"),
+            'maxFrames'           :       glGetUniformLocation(shader_program, "MaxFrames")
         }   
 
 
@@ -1640,6 +1641,7 @@ def main():
     accumulation_width = 0
     accumulation_height = 0
     frame_count = 0
+    max_frames = 512
     accumulation_textures = [None, None]  # Double buffer
     accumulation_fbos = [None, None]
     current_accum_index = 0  # Which one to write to
@@ -1794,7 +1796,7 @@ def main():
 
         # Increment frame counter only when using cycles shader
         if shader_choice == 1:   # cycles_fragment_shader.glsl
-            frame_count += 1
+            frame_count = min(frame_count + 1, max_frames)
         else: 
             frame_count = 0  # Reset accumulation when switching shaders
         
@@ -1977,51 +1979,52 @@ def main():
             if setup_accumulation_buffer(scaled_rendering_width, scaled_rendering_height):
                 use_accumulation = 1
 
-        # --- RENDER TO ACCUMULATION BUFFER (if using cycles) ---
+        # --- RENDER TO ACCUMULATION BUFFER ---
         if shader is not None and shader_choice == 1 and use_accumulation == 1:
             write_buffer = current_accum_index
             read_buffer = 1 - current_accum_index
-
             glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[write_buffer])
             glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
 
             if frame_count == 0:
                 glClear(GL_COLOR_BUFFER_BIT)
 
-            glUseProgram(shader)
-            if uniform_locs is not None:
-                current_time_uniform = time.time() - start_time
-                glUniform1f(uniform_locs['time'], current_time_uniform)
-                glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
-                glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
-                glUniform1f(uniform_locs['camYaw'], cam_yaw)
-                glUniform1f(uniform_locs['camPitch'], cam_pitch)
-                glUniform1f(uniform_locs['radius'], cam_radius)
-                glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
-                glUniform1i(uniform_locs['frameIndex'], frame_count)
-                set_move_pos_uniform(shader, uniform_locs, drag_position)
-                
-                # Bind accumulation texture for reading
-                glActiveTexture(GL_TEXTURE0)
-                glBindTexture(GL_TEXTURE_2D, accumulation_textures[read_buffer])
-                glUniform1i(uniform_locs['accumulationTexture'], 0)
-                glUniform1i(uniform_locs['useAccumulation'], 1)
+            # Check if frame_count is less than max_frames before rendering
+            if frame_count < max_frames:
+                glUseProgram(shader)
+                if uniform_locs is not None:
+                    current_time_uniform = time.time() - start_time
+                    glUniform1f(uniform_locs['time'], current_time_uniform)
+                    glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
+                    glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
+                    glUniform1f(uniform_locs['camYaw'], cam_yaw)
+                    glUniform1f(uniform_locs['camPitch'], cam_pitch)
+                    glUniform1f(uniform_locs['radius'], cam_radius)
+                    glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                    glUniform1i(uniform_locs['frameIndex'], frame_count)
+                    glUniform1i(uniform_locs['maxFrames'], max_frames)
+                    set_move_pos_uniform(shader, uniform_locs, drag_position)
 
-                glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
-                glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+                    # Bind accumulation texture for reading
+                    glActiveTexture(GL_TEXTURE0)
+                    glBindTexture(GL_TEXTURE_2D, accumulation_textures[read_buffer])
+                    glUniform1i(uniform_locs['accumulationTexture'], 0)
+                    glUniform1i(uniform_locs['useAccumulation'], 1)
 
+                    glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
+                    glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
 
-            glBindVertexArray(vao)
-            glDrawArrays(GL_QUADS, 0, 4)
-            
+                glBindVertexArray(vao)
+                glDrawArrays(GL_QUADS, 0, 4)
+
             # Switch back to default framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
             glViewport(0, 0, width, height)
             #glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
-            
+
             glActiveTexture(GL_TEXTURE0)
             glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])  # <- use the correct texture handle
-            glUniform1i(uniform_locs['accumulationTexture'], 0)
+
 
             # Display accumulated result
             glUseProgram(display_shader)
@@ -2034,7 +2037,7 @@ def main():
             glBindVertexArray(display_vao)
             glDrawArrays(GL_QUADS, 0, 4)
             glBindVertexArray(0)
-            
+
             glViewport(0, 0, width, height)
             current_accum_index = 1 - current_accum_index
         
@@ -2508,6 +2511,17 @@ def main():
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
+
+                imgui.spacing()
+                imgui.separator()
+
+            elif shader_choice == 1:
+                imgui.text("Max Samples count:")
+                changed, max_frames = imgui.input_int("", max_frames)
+                if changed:
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
 
                 imgui.spacing()
                 imgui.separator()
