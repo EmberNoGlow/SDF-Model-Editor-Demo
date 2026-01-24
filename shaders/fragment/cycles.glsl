@@ -32,18 +32,27 @@ vec3 hash33(vec3 p3) {
     return fract((p3.xxy + p3.yxx) * p3.zyx);
 }
 
-vec3 getCosHemisphereSample(vec3 normal, vec2 seed) {
-    float u = hash12(seed);
-    float v = hash12(seed + 0.1234);
+vec2 stratifiedSample(vec2 seed, int sampleIndex, int totalSamples) {
+    int gridSize = int(sqrt(float(totalSamples)));
+    vec2 gridPos = vec2(mod(sampleIndex, gridSize), int(sampleIndex / gridSize)) / float(gridSize);
+    vec2 offset = vec2(hash12(seed), hash12(seed + 0.1234)) / float(gridSize);
+    return gridPos + offset;
+}
+
+vec3 getCosHemisphereSample(vec3 normal, vec2 seed, int sampleIndex, int totalSamples) {
+    vec2 sample = stratifiedSample(seed, sampleIndex, totalSamples);
+    float u = sample.x;
+    float v = sample.y;
     float r = sqrt(u);
     float phi = 6.28318530718 * v;
     vec3 dir = vec3(r * cos(phi), r * sin(phi), sqrt(1.0 - u));
-    
+
     vec3 up = abs(normal.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
     vec3 tangent = normalize(cross(up, normal));
     vec3 bitangent = cross(normal, tangent);
     return tangent * dir.x + bitangent * dir.y + normal * dir.z;
 }
+
 
 vec3 mixColorSmooth(vec3 colA, vec3 colB, float dA, float dB, float k) {
     k *= 4.0;
@@ -97,7 +106,7 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
             vec3 albedo = res.xyz;
             
             ro = p + n * 0.01;
-            rd = getCosHemisphereSample(n, seed + float(bounce) + float(frameIndex));
+            rd = getCosHemisphereSample(n, seed + float(bounce) + float(frameIndex), frameIndex, MaxFrames);
             
             throughput *= albedo;
         } else {
