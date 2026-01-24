@@ -2,6 +2,14 @@
 // https://iquilezles.org/articles/distfunctions
 
 
+// Helper function for BVH
+float distToAABB(vec3 pt, vec3 a_min, vec3 a_max) {
+    vec3 dx = max(vec3(0.0), max(a_min - pt, pt - a_max));
+    return length(dx);
+}
+
+
+
 // SDF for a box
 float sdBox( vec3 p, vec3 b )
 {

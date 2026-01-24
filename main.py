@@ -404,7 +404,233 @@ def MonitorChanges(func):
         result = func(*args, **kwargs)
         return result
     return wrapper
+
+
+
+
+
+import numpy as np
+import math
+from typing import List, Tuple, Dict, Optional
+class AABB:
+    """Axis-Aligned Bounding Box"""
+    def __init__(self, min_point=(0, 0, 0), max_point=(0, 0, 0)):
+        self.min = np.array(min_point, dtype=np.float32)
+        self.max = np.array(max_point, dtype=np.float32)
+    
+    def expand(self, point):
+        self.min = np.minimum(self.min, point)
+        self.max = np.maximum(self.max, point)
+    
+    def merge(self, other):
+        return AABB(
+            np.minimum(self.min, other.min),
+            np.maximum(self.max, other.max)
+        )
+    
+    def surface_area(self):
+        extent = self.max - self.min
+        return 2.0 * (extent[0] * extent[1] + extent[1] * extent[2] + extent[2] * extent[0])
+    
+    def centroid(self):
+        return (self.min + self.max) * 0.5
+
+
+class BVHNode:
+    """Single node in BVH tree"""
+    def __init__(self, aabb):
+        self.aabb = aabb
+        self.left = None
+        self.right = None
+        self.left_id = -1
+        self.right_id = -1
+        self.primitive_indices = []
+        self.prim_start = -1
+        self.is_leaf = False
+    
+    def pack_for_gpu(self):
+        """
+        Pack node as 9 floats:
+        [ min.x, min.y, min.z, left_idx,
+        max.x, max.y, max.z, right_or_prim_idx,
+        prim_count ]
+        For internal nodes: prim_count = 0
+        For leaves: left_idx = -1 (no left child), right_or_prim_idx = prim_start, prim_count = number_of_prims
+        """
+        left_idx = float(self.left_id if self.left_id is not None else -1)
+        if left_idx is None:
+            left_idx = -1.0
+
+        if self.is_leaf:
+            prim_idx_or_right = float(self.prim_start if self.prim_start is not None else -1)
+            prim_count = float(len(self.primitive_indices) if self.primitive_indices is not None else 0)
+        else:
+            prim_idx_or_right = float(self.right_id if self.right_id is not None else -1)
+            prim_count = 0.0
+
+        return np.array([
+            self.aabb.min[0], self.aabb.min[1], self.aabb.min[2], left_idx,
+            self.aabb.max[0], self.aabb.max[1], self.aabb.max[2], prim_idx_or_right,
+            prim_count
+        ], dtype=np.float32)
+
+
+class BVH:
+    """Bounding Volume Hierarchy for SDF acceleration"""
+    def __init__(self, scene_primitives):
+        self.primitives = scene_primitives
+        self.nodes = []
+        self.root_idx = 0
+        self.max_leaf_size = 4
+        self.tbo = None  # Texture buffer object
+        self.tbo_texture = None
         
+    def build(self):
+        """Build the BVH tree"""
+        if not self.primitives:
+            return False
+        
+        indices = list(range(len(self.primitives)))
+        self.root_idx = self._build_recursive(indices)
+        return True
+    
+    def _compute_aabb(self, prim_indices):
+        """Compute AABB for a set of primitives"""
+        if not prim_indices:
+            return AABB()
+        
+        aabb = AABB(
+            self.primitives[prim_indices[0]]['aabb_min'],
+            self.primitives[prim_indices[0]]['aabb_max']
+        )
+        
+        for idx in prim_indices[1:]:
+            prim_aabb = AABB(
+                self.primitives[idx]['aabb_min'],
+                self.primitives[idx]['aabb_max']
+            )
+            aabb = aabb.merge(prim_aabb)
+        
+        return aabb
+    
+    def _build_recursive(self, prim_indices):
+        """Recursively build BVH node"""
+        node_idx = len(self.nodes)
+        aabb = self._compute_aabb(prim_indices)
+        node = BVHNode(aabb)
+        self.nodes.append(node)
+        
+        # Leaf node condition
+        if len(prim_indices) <= self.max_leaf_size:
+            node.is_leaf = True
+            node.primitive_indices = prim_indices
+            node.prim_start = prim_indices[0] if prim_indices else 0
+            return node_idx
+        
+        # Find best split axis
+        extents = aabb.max - aabb.min
+        split_axis = int(np.argmax(extents))
+        
+        # Sort primitives along split axis
+        centroids = [
+            (self.primitives[i]['aabb_min'][split_axis] + 
+             self.primitives[i]['aabb_max'][split_axis]) * 0.5
+            for i in prim_indices
+        ]
+        
+        sorted_indices = sorted(
+            range(len(prim_indices)),
+            key=lambda i: centroids[i]
+        )
+        sorted_prim_indices = [prim_indices[i] for i in sorted_indices]
+        
+        # Surface Area Heuristic (SAH)
+        best_split = len(sorted_prim_indices) // 2
+        best_cost = float('inf')
+        parent_area = aabb.surface_area()
+        
+        for split in range(1, len(sorted_prim_indices)):
+            left_aabb = self._compute_aabb(sorted_prim_indices[:split])
+            right_aabb = self._compute_aabb(sorted_prim_indices[split:])
+            
+            left_area = left_aabb.surface_area()
+            right_area = right_aabb.surface_area()
+            
+            cost = (left_area * split + right_area * (len(sorted_prim_indices) - split)) / parent_area
+            
+            if cost < best_cost:
+                best_cost = cost
+                best_split = split
+        
+        # Split and recurse
+        left_indices = sorted_prim_indices[:best_split]
+        right_indices = sorted_prim_indices[best_split:]
+        
+        node.left_id = self._build_recursive(left_indices)
+        node.right_id = self._build_recursive(right_indices)
+        node.left = self.nodes[node.left_id]
+        node.right = self.nodes[node.right_id]
+        
+        return node_idx
+    
+    def upload_to_gpu(self):
+        """Upload BVH to GPU as texture buffer"""
+        if not self.nodes:
+            return False
+        
+        # Pack all nodes
+        packed_data = []
+        for node in self.nodes:
+            packed_data.extend(node.pack_for_gpu())
+        
+        packed_array = np.array(packed_data, dtype=np.float32)
+        
+        # Delete old TBO if exists
+        if self.tbo is not None:
+            glDeleteBuffers(1, [self.tbo])
+            glDeleteTextures(1, [self.tbo_texture])
+        
+        # Create texture buffer
+        self.tbo = glGenBuffers(1)
+        glBindBuffer(GL_TEXTURE_BUFFER, self.tbo)
+        glBufferData(GL_TEXTURE_BUFFER, packed_array.nbytes, packed_array, GL_STATIC_DRAW)
+        
+        # Create texture from buffer
+        self.tbo_texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_BUFFER, self.tbo_texture)
+        glTexBuffer(GL_TEXTURE_BUFFER, GL_R32F, self.tbo)
+        
+        glBindBuffer(GL_TEXTURE_BUFFER, 0)
+        glBindTexture(GL_TEXTURE_BUFFER, 0)
+        
+        return True
+    
+    def bind_to_shader(self, shader_program):
+        """Bind BVH texture to shader"""
+        if self.tbo_texture is None:
+            return False
+        
+        # Bind texture buffer
+        glActiveTexture(GL_TEXTURE0)
+        glBindTexture(GL_TEXTURE_BUFFER, self.tbo_texture)
+        
+        # Set uniform
+        loc = glGetUniformLocation(shader_program, "bvhNodeBuffer")
+        if loc != -1:
+            glUniform1i(loc, 0)
+        
+        loc = glGetUniformLocation(shader_program, "bvhNodeCount")
+        if loc != -1:
+            glUniform1i(loc, len(self.nodes))
+        
+        loc = glGetUniformLocation(shader_program, "bvhRootIdx")
+        if loc != -1:
+            glUniform1i(loc, self.root_idx)
+        
+        return True
+
+
+
 class SDFSceneBuilder:
     def __init__(self):
         self.primitives = []
@@ -412,6 +638,7 @@ class SDFSceneBuilder:
         self.next_id = 0
         self.id_to_index = {}
         self.deleted_items_cache = {}  # Cache for restoring deleted items
+        self.bvh = None
 
     def _save_item_state(self, op_id):
         """Save the complete state of an item for undo/redo."""
@@ -944,33 +1171,187 @@ class SDFSceneBuilder:
             return self.operations[index][1].ui_name
 
     def generate_raymarch_code(self):
-        scene_code = []
+        """
+        Generate the code to be placed inside `vec4 getSceneDist(vec3 p) { ... }`.
 
-        for op_id, primitive in self.primitives:
-            transform_code = primitive.generate_transform_code(op_id)
-            sdf_code = primitive.generate_sdf_code(op_id)
-            scene_code.append(transform_code)
-            scene_code.append(sdf_code)
+        This implementation:
+        - Builds a list of non-pointer primitives in the same order used by compute_primitive_aabbs()
+        - Emits a BVH-guided traversal implemented inline (stack-based)
+        - For each leaf, evaluates only the primitives contained in the leaf using a generated switch/case
+        - Uses AABB-to-point distance to cull nodes (lower bound), so nodes are skipped when their
+            AABB cannot contain a closer primitive than the current best distance.
 
-        for op_id, operation in self.operations:
-            code = operation.generate_code(op_id)
-            scene_code.append(code)
+        Returns:
+        str: GLSL code (function body) that ends by returning vec4(color, dist).
+        """
+        # Build the ordered primitives list used by compute_primitive_aabbs (skip pointers)
+        prim_aabbs = self.compute_primitive_aabbs()
+        # prim_aabbs entries are dicts with 'op_id' and primitive_type and aabb info.
+        # We need to map prim list indices -> primitive instance
+        prim_index_to_primitive = []
+        # Map op_id -> primitive object for lookup
+        prim_map = {op_id: prim for op_id, prim in self.primitives}
 
-        if scene_code:
-            scene_code = "\n    ".join(scene_code)
-            # Return the last operation if there are any, otherwise the last primitive
-            if self.operations:
-                last_op_id = self.operations[-1][0]
-                last_col_id = f"col{last_op_id}"
-            elif self.primitives:
-                last_op_id = self.primitives[-1][0]
-                last_col_id = f"col{last_op_id}"
+        for entry in prim_aabbs:
+            op_id = entry['op_id']
+            if op_id in prim_map:
+                prim_obj = prim_map[op_id]
+                prim_index_to_primitive.append((op_id, prim_obj))
             else:
-                return "return vec4(1000.0, 0.0, 0.0, 0.0);"
-            scene_code += f"\n    return vec4({last_col_id}, {last_op_id});"
-        else:
-            scene_code = "return vec4(0.0, 0.0, 0.0, 1000.0);"
+                # Should not happen, but guard
+                continue
 
+        # If no primitives, return trivial far distance
+        if not prim_index_to_primitive:
+            return "    return vec4(vec3(0.0), 1000.0);"
+
+        # Helper to format floats consistently
+        def f(x):
+            # ensure decimal point for GLSL; small optimization: avoid trailing zeros explosion
+            if isinstance(x, (int, np.integer)):
+                return f"{float(x):.6f}"
+            return f"{float(x):.6f}"
+
+        # Start building the code string to insert inside getSceneDist
+        lines = []
+        lines.append("    // BVH-accelerated scene evaluation generated by Python")
+        lines.append("    float bestDist = 1e20;")
+        lines.append("    vec3 bestColor = vec3(0.0);")
+        lines.append("")
+        #lines.append("    // compute distance from point to AABB")
+        #lines.append("    #if 1")
+        #lines.append("    float distToAABB(vec3 pt, vec3 a_min, vec3 a_max) {")
+        #lines.append("        vec3 dx = max(vec3(0.0), max(a_min - pt, pt - a_max));")
+        #lines.append("        return length(dx);")
+        #lines.append("    }")
+        #lines.append("    #endif")
+        #lines.append("")
+        lines.append("    // stack-based BVH traversal (node indices are ints).")
+        lines.append("    int stack[64];")
+        lines.append("    int sp = 0;")
+        lines.append("    stack[sp++] = int(bvhRootIdx);")
+        lines.append("")
+        lines.append("    while (sp > 0) {")
+        lines.append("        int nodeIdx = stack[--sp];")
+        lines.append("        BVHNode node = getBVHNode(nodeIdx);")
+        lines.append("        float aabbMinDist = distToAABB(p, node.aabb_min, node.aabb_max);")
+        lines.append("        if (aabbMinDist > bestDist) continue;")
+        lines.append("")
+        lines.append("        // Leaf test: prim_count > 0.5 (we store count as float to avoid conditionals earlier)")
+        lines.append("        if (node.prim_count > 0.5) {")
+        lines.append("            int primStart = int(node.right_or_prim_idx);")
+        lines.append("            int primCount = int(node.prim_count);")
+        lines.append("            for (int pi = 0; pi < primCount; ++pi) {")
+        lines.append("                int primIdx = primStart + pi;")
+        lines.append("                // Evaluate primitive by index (generated switch below)")
+        lines.append("                // Each case will compute `float d` and `vec3 col` for the primitive at `p`")
+        lines.append("                float d = 1e20;")
+        lines.append("                vec3 col = vec3(0.0);")
+        lines.append("                switch(primIdx) {")
+        # Generate switch cases
+        for i, (op_id, prim) in enumerate(prim_index_to_primitive):
+            # For each primitive generate a case body, using primitive parameters
+            pos = prim.position
+            rot = prim.rotation if prim.rotation is not None else [0.0, 0.0, 0.0]
+            scale_ = prim.scale if prim.scale is not None else [1.0, 1.0, 1.0]
+            color = prim.color if prim.color is not None else [0.8, 0.6, 0.4]
+            ptype = prim.primitive_type
+            # produce transform and sdf evaluation code
+            case_lines = []
+            case_lines.append(f"                    case {i}: {{")
+            case_lines.append(f"                        vec3 p_local = p;")
+            case_lines.append(f"                        p_local -= vec3({f(pos[0])}, {f(pos[1])}, {f(pos[2])});")
+            # rotations
+            if rot:
+                # keep order: rotateZ * rotateX * rotateY as in your code
+                case_lines.append(f"                        p_local = rotateZ({f(rot[2])}) * rotateX({f(rot[0])}) * rotateY({f(rot[1])}) * p_local;")
+            # scale
+            if scale_:
+                case_lines.append(f"                        p_local = scale(p_local, vec3({f(scale_[0])}, {f(scale_[1])}, {f(scale_[2])}));")
+            # SDF calls per primitive
+            if ptype == "box":
+                s = prim.size_or_radius
+                case_lines.append(f"                        d = sdBox(p_local, vec3({f(s[0])}, {f(s[1])}, {f(s[2])}));")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "round_box":
+                s = prim.size_or_radius
+                r = prim.kwargs.get('radius', 0.1)
+                case_lines.append(f"                        d = sdRoundBox(p_local, vec3({f(s[0])}, {f(s[1])}, {f(s[2])}), {f(r)});")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "sphere":
+                r = prim.size_or_radius[0]
+                case_lines.append(f"                        d = sdSphere(p_local, {f(r)});")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "torus":
+                maj = prim.size_or_radius[0]
+                minr = prim.size_or_radius[1]
+                case_lines.append(f"                        d = sdTorus(p_local, vec2({f(maj)}, {f(minr)}));")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "cone":
+                c_sin = prim.kwargs.get('c_sin', 0.5)
+                c_cos = prim.kwargs.get('c_cos', 0.866)
+                height = prim.kwargs.get('height', 1.0)
+                case_lines.append(f"                        d = sdCone(p_local, vec2({f(c_sin)}, {f(c_cos)}), {f(height)});")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "plane":
+                normal = prim.kwargs.get('normal', [0.0, 1.0, 0.0])
+                h = prim.kwargs.get('h', 0.0)
+                case_lines.append(f"                        d = sdPlane(p_local, vec3({f(normal[0])}, {f(normal[1])}, {f(normal[2])}), {f(h)});")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "hex_prism":
+                rad = prim.size_or_radius[0]
+                height = prim.size_or_radius[1]
+                case_lines.append(f"                        d = sdHexPrism(p_local, vec2({f(rad)}, {f(height)}));")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "vertical_capsule":
+                h = prim.size_or_radius[0]
+                r = prim.size_or_radius[1]
+                case_lines.append(f"                        d = sdVerticalCapsule(p_local, {f(h)}, {f(r)});")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "capped_cylinder":
+                r = prim.size_or_radius[0]
+                h = prim.size_or_radius[1]
+                case_lines.append(f"                        d = sdCappedCylinder(p_local, {f(r)}, {f(h)});")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            elif ptype == "rounded_cylinder":
+                r0 = prim.size_or_radius[0]
+                r1 = prim.size_or_radius[1]
+                h = prim.kwargs.get('height', 1.0)
+                case_lines.append(f"                        d = sdRoundedCylinder(p_local, {f(r0)}, {f(r1)}, {f(h)});")
+                case_lines.append(f"                        col = vec3({f(color[0])}, {f(color[1])}, {f(color[2])});")
+            else:
+                # Unknown primitive, skip
+                case_lines.append(f"                        d = 1e20;")
+                case_lines.append(f"                        col = vec3(0.0);")
+
+            # Update best if this primitive is closer
+            case_lines.append("                        if (d < bestDist) { bestDist = d; bestColor = col; }")
+            case_lines.append("                        break;")
+            case_lines.append("                    }")
+            # Append case to the main lines list
+            lines.extend(case_lines)
+
+        # default case
+        lines.append("                    default: { d = 1e20; col = vec3(0.0); break; }")
+        lines.append("                } // end switch(primIdx)")
+        lines.append("            } // end for primitives in leaf")
+        lines.append("        } else {")
+        lines.append("            // internal node — push children (right then left) to preserve spatial locality")
+        lines.append("            int right = int(node.right_or_prim_idx);")
+        lines.append("            int left = int(node.left_idx);")
+        lines.append("            if (right >= 0) stack[sp++] = right;")
+        lines.append("            if (left >= 0) stack[sp++] = left;")
+        lines.append("        }")
+        lines.append("    } // end traversal while")
+        lines.append("")
+        lines.append("    // If nothing found, bestDist remains large — return background")
+        lines.append("    if (bestDist > 1e19) {")
+        lines.append("        return vec4(vec3(0.0), 1000.0);")
+        lines.append("    }")
+        lines.append("    return vec4(bestColor, bestDist);")
+
+        # join all lines with newline+4-space indentation (we're inside getSceneDist)
+        scene_code = "\n".join(lines)
         return scene_code
 
     def to_dict(self):
@@ -1075,6 +1456,88 @@ class SDFSceneBuilder:
             return False, f"Invalid JSON file: {filepath}"
         except Exception as e:
             return False, f"Error loading scene: {str(e)}"
+        
+
+
+
+
+    def compute_primitive_aabbs(self):
+        """Compute AABBs for all primitives"""
+        aabbs = []
+        
+        for op_id, primitive in self.primitives:
+            if primitive.primitive_type == "pointer":
+                continue
+            
+            position = np.array(primitive.position, dtype=np.float32)
+            scale = np.array(primitive.scale if primitive.scale else [1.0, 1.0, 1.0], dtype=np.float32)
+            
+            # Get primitive bounds
+            size_estimates = self._get_primitive_bounds(primitive)
+            base_min = np.array(size_estimates[0], dtype=np.float32)
+            base_max = np.array(size_estimates[1], dtype=np.float32)
+            
+            # Apply scale
+            base_min *= scale
+            base_max *= scale
+            
+            # Apply rotation (bounding sphere approach)
+            radius = np.linalg.norm(base_max - base_min) * 0.5
+            
+            # Apply position
+            aabb_min = position + base_min - radius
+            aabb_max = position + base_max + radius
+            
+            aabbs.append({
+                'op_id': op_id,
+                'aabb_min': tuple(aabb_min),
+                'aabb_max': tuple(aabb_max),
+                'primitive_type': primitive.primitive_type
+            })
+        
+        return aabbs
+    
+    def _get_primitive_bounds(self, primitive):
+        """Get approximate bounds for a primitive"""
+        ptype = primitive.primitive_type
+        
+        if ptype == "box":
+            s = primitive.size_or_radius
+            return ((-s[0]/2, -s[1]/2, -s[2]/2), (s[0]/2, s[1]/2, s[2]/2))
+        elif ptype == "sphere":
+            r = primitive.size_or_radius[0]
+            return ((-r, -r, -r), (r, r, r))
+        elif ptype == "round_box":
+            s = primitive.size_or_radius
+            r = primitive.kwargs.get('radius', 0.1)
+            return ((-s[0]/2-r, -s[1]/2-r, -s[2]/2-r), (s[0]/2+r, s[1]/2+r, s[2]/2+r))
+        elif ptype == "torus":
+            maj = primitive.size_or_radius[0]
+            min_r = primitive.size_or_radius[1]
+            return ((-maj-min_r, -min_r, -maj-min_r), (maj+min_r, min_r, maj+min_r))
+        elif ptype == "vertical_capsule":
+            h = primitive.size_or_radius[0]
+            r = primitive.size_or_radius[1]
+            return ((-r, -h/2, -r), (r, h/2, r))
+        elif ptype == "capped_cylinder":
+            r = primitive.size_or_radius[0]
+            h = primitive.size_or_radius[1]
+            return ((-r, -h/2, -r), (r, h/2, r))
+        else:
+            return ((-1, -1, -1), (1, 1, 1))
+    
+    def build_bvh(self):
+        """Build BVH for current scene"""
+        aabbs = self.compute_primitive_aabbs()
+        
+        if not aabbs:
+            self.bvh = None
+            return False
+        
+        self.bvh = BVH(aabbs)
+        self.bvh.build()
+        return self.bvh.upload_to_gpu()
+
 
 
 
@@ -1385,7 +1848,7 @@ def main():
 
     @MonitorChanges
     def recompile_shader():
-        """Recompile shader and update uniform locations.  Returns (success, uniforms_dict). Uses caching."""
+        """Recompile shader and upload BVH"""
         nonlocal shader, uniform_locs
         
         new_shader, new_uniforms = compile_shader()
@@ -1401,6 +1864,9 @@ def main():
             
             if old_hash is None:
                 glDeleteProgram(shader)
+        
+        # Build and upload BVH
+        scene_builder.build_bvh()
         
         shader = new_shader
         uniform_locs = new_uniforms
@@ -1989,6 +2455,9 @@ def main():
                 glClear(GL_COLOR_BUFFER_BIT)
 
             glUseProgram(shader)
+            if scene_builder.bvh is not None:
+                scene_builder.bvh.bind_to_shader(shader)
+
             if uniform_locs is not None:
                 current_time_uniform = time.time() - start_time
                 glUniform1f(uniform_locs['time'], current_time_uniform)
@@ -2012,7 +2481,7 @@ def main():
 
 
             glBindVertexArray(vao)
-            glDrawArrays(GL_QUADS, 0, 4)
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
             
             # Switch back to default framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -2032,7 +2501,7 @@ def main():
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
             glBindVertexArray(display_vao)
-            glDrawArrays(GL_QUADS, 0, 4)
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
             glBindVertexArray(0)
             
             glViewport(0, 0, width, height)
@@ -2041,6 +2510,9 @@ def main():
         # --- RENDER DIRECTLY (if NOT using cycles or accumulation disabled) ---
         elif shader is not None: 
             glUseProgram(shader)
+            if scene_builder.bvh is not None:   
+                scene_builder.bvh.bind_to_shader(shader)
+
             if uniform_locs is not None:
                 current_time_uniform = time.time() - start_time
                 glUniform1f(uniform_locs['time'], current_time_uniform)
@@ -2062,7 +2534,7 @@ def main():
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
             glBindVertexArray(vao)
-            glDrawArrays(GL_QUADS, 0, 4)
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
             glViewport(0, 0, width, height)
 
 
@@ -2365,6 +2837,8 @@ def main():
                 glClear(GL_COLOR_BUFFER_BIT)
                 
                 glUseProgram(shader)
+                if scene_builder.bvh is not None:
+                    scene_builder.bvh.bind_to_shader(shader)
                 if uniform_locs is not None:
                     current_time_uniform = time.time() - start_time
                     glUniform1f(uniform_locs['time'], current_time_uniform)
@@ -2377,7 +2851,7 @@ def main():
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
 
                 glBindVertexArray(vao)
-                glDrawArrays(GL_QUADS, 0, 4)
+                glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
                 
                 # Switch back to default framebuffer
                 glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -2392,7 +2866,7 @@ def main():
                 # Set viewport to the rendering area (accounting for menu bar)
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(display_vao)
-                glDrawArrays(GL_QUADS, 0, 4)
+                glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
                 glBindVertexArray(0)
                 
                 # Reset viewport
@@ -2401,6 +2875,8 @@ def main():
                 # Fallback to direct rendering if framebuffer fails
                 if shader is not None:
                     glUseProgram(shader)
+                    if scene_builder.bvh is not None:
+                        scene_builder.bvh.bind_to_shader(shader)
                     if uniform_locs is not None:
                         current_time_uniform = time.time() - start_time
                         glUniform1f(uniform_locs['time'], current_time_uniform)
@@ -2414,13 +2890,15 @@ def main():
 
                     glViewport(panel_width, menu_bar_height, scaled_rendering_width, scaled_rendering_height)
                     glBindVertexArray(vao)
-                    glDrawArrays(GL_QUADS, 0, 4)
+                    glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
                     glViewport(0, 0, width, height)
         else:
             # Direct rendering when scale is 1.0 or display shader not available
             # Skip if accumulation handled above (see guard at top)
             if shader is not None:
                 glUseProgram(shader)
+                if scene_builder.bvh is not None:
+                    scene_builder.bvh.bind_to_shader(shader)
                 if uniform_locs is not None:
                     current_time_uniform = time.time() - start_time
                     glUniform1f(uniform_locs['time'], current_time_uniform)
@@ -2435,7 +2913,7 @@ def main():
 
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(vao)
-                glDrawArrays(GL_QUADS, 0, 4)
+                glDrawArrays(GL_TRIANGLE_FAN, 0, 4)
                 glViewport(0, 0, width, height)
         # --- SETTINGS WINDOW ---
         if show_settings_window:

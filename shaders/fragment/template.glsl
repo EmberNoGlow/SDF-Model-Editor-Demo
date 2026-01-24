@@ -4,16 +4,19 @@ out vec4 FragColor;
 uniform float time;
 uniform vec2 resolution;
 uniform vec2 viewportOffset;
-uniform float camYaw;     // Horizontal rotation (around Y axis)
-uniform float camPitch;   // Vertical rotation (around X axis)
-uniform float radius = 5.0; // Camera orbit distance
-uniform vec3 CamOrbit = vec3(0.0); // Center of orbit
+uniform float camYaw;
+uniform float camPitch;
+uniform float radius = 5.0;
+uniform vec3 CamOrbit = vec3(0.0);
 uniform vec3 SkyColorTop = vec3(0.1, 0.15, 0.25);
 uniform vec3 SkyColorBottom =  vec3(0.05, 0.05, 0.1);
 uniform bool GridEnabled = true;
-
 uniform vec3 MovePos;
 
+// BVH uniforms
+uniform samplerBuffer bvhNodeBuffer;
+uniform int bvhNodeCount;
+uniform int bvhRootIdx;
 
 // Assuming these are replaced by your external code
 {SDF_LIBRARY}
@@ -28,11 +31,54 @@ vec3 mixColorSmooth(vec3 colA, vec3 colB, float dA, float dB, float k) {
     return mix(closer, blended, h);
 }
 
+
+struct BVHNode {
+    vec3 aabb_min;
+    float left_idx;          // -1 for leaf
+    vec3 aabb_max;
+    float right_or_prim_idx; // right child idx for internal, prim_start for leaf
+    float prim_count;        // 0 for internal, >0 for leaf
+};
+
+BVHNode getBVHNode(int idx) {
+    int offset = idx * 9;
+    BVHNode node;
+    node.aabb_min = vec3(
+        texelFetch(bvhNodeBuffer, offset).x,
+        texelFetch(bvhNodeBuffer, offset + 1).x,
+        texelFetch(bvhNodeBuffer, offset + 2).x
+    );
+    node.left_idx = texelFetch(bvhNodeBuffer, offset + 3).x;
+    node.aabb_max = vec3(
+        texelFetch(bvhNodeBuffer, offset + 4).x,
+        texelFetch(bvhNodeBuffer, offset + 5).x,
+        texelFetch(bvhNodeBuffer, offset + 6).x
+    );
+    node.right_or_prim_idx = texelFetch(bvhNodeBuffer, offset + 7).x;
+    node.prim_count = texelFetch(bvhNodeBuffer, offset + 8).x;
+    return node;
+}
+
+bool rayIntersectsAABB(vec3 rayOrigin, vec3 rayDir, vec3 aabbMin, vec3 aabbMax) {
+    vec3 invDir = 1.0 / (abs(rayDir) + vec3(0.0001));
+    invDir = mix(invDir, -invDir, lessThan(rayDir, vec3(0.0)));
+    
+    vec3 t1 = (aabbMin - rayOrigin) * invDir;
+    vec3 t2 = (aabbMax - rayOrigin) * invDir;
+    
+    vec3 tMin = min(t1, t2);
+    vec3 tMax = max(t1, t2);
+    
+    float tNear = max(max(tMin.x, tMin.y), tMin.z);
+    float tFar = min(min(tMax.x, tMax.y), tMax.z);
+    
+    return tNear <= tFar && tFar >= 0.0;
+}
+
 // --- SCENE WRAPPER ---
-// We wrap your external scene code here so we can mix it with the floor later
 vec4 getSceneDist(vec3 p)
 {
-    {SCENE_CODE} // Your python code injects the object logic here
+    {SCENE_CODE}
 }
 
 // --- MAIN MAP FUNCTION ---
@@ -42,19 +88,6 @@ vec4 map(vec3 p) {
 }
 
 float FOV_ANGLE = {FOV_ANGLE_VAL}; 
-
-// Raymarching function - returns distance
-float rayMarch(vec3 ro, vec3 rd) {
-    float dO = 0.0;
-    for(int i = 0; i < 128; i++) {
-        vec3 p = ro + rd * dO;
-        vec4 res = map(p);
-        float dS = res.w; 
-        dO += dS;
-        if(dS < 0.001 || dO > 100.0) break;
-    }
-    return dO;
-}
 
 // Raymarching function that also returns color
 vec4 rayMarchWithColor(vec3 ro, vec3 rd) {
@@ -84,69 +117,44 @@ vec3 calcNormal(vec3 p) {
                      k.xxx * map(p + k.xxx * h).w);
 }
 
-
 // Grid
 bool intersectPlane(vec3 ro, vec3 rd, out float t) {
     t = (-ro.y) / rd.y;
     return t > 0.0;
 }
-// Improved grid floor pattern with anti-aliasing
+
 float gridFloor(vec3 worldPos, float cellSize, float lineThickness) {
-    // Use world XZ coordinates for grid
     vec2 uv = worldPos.xz;
-
-    // Calculate anti-aliasing width based on screen derivatives
     vec2 aaWidth = fwidth(uv) * 0.5;
-
-    // Create grid lines with smooth edges
     vec2 grid = abs(fract(uv / cellSize - 0.5) - 0.5) * cellSize;
     grid = 1.0 - smoothstep(lineThickness - aaWidth, lineThickness + aaWidth, grid);
-
-    // Combine X and Z lines
     return max(grid.x, grid.y);
 }
 
-// Improved grid rendering with better blending and depth handling
 vec3 add_grid(vec3 color, vec3 ro, vec3 rd, float depth) {
-    // Plane intersection
     float planeDepth = 0.0;
     bool hitPlane = intersectPlane(ro, rd, planeDepth);
 
     if (hitPlane && planeDepth < depth) {
-        // Get intersection point
         vec3 hitPoint = ro + rd * planeDepth;
-
-        // Calculate grid intensity with multiple scales
         float gridIntensity =
             gridFloor(hitPoint, 4.0, 0.05) * 0.6 +
             gridFloor(hitPoint, 2.0, 0.03) * 0.8 +
             gridFloor(hitPoint, 0.5, 0.02) * 1.0;
         gridIntensity *= 0.45;
-
-        // Apply depth-based fading
         float depthFade = 1.0-smoothstep(3.0, 30.0, planeDepth);
-
-        // Blend grid with scene color
         if (gridIntensity > 0.0) {
             color = mix(color, vec3(1.0), gridIntensity*depthFade);
         }
     }
-
     return color;
 }
 
-// Main image function
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
-    // convert fragCoord to viewport-local coordinates (fragCoord is window coords)
     vec2 localFrag = fragCoord - viewportOffset;
-
-    // use localFrag when building uv
     vec2 uv = (localFrag - 0.5 * resolution.xy) / resolution.y;
 
-
-    // --- Camera Setup ---
     vec3 ta = CamOrbit; 
-    
     float pitch = clamp(camPitch, -1.55, 1.55); 
     float yaw = camYaw; 
 
@@ -164,27 +172,21 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     float fovFactor = 1.0 / tan(FOV_ANGLE * 0.5);
     vec3 rd = normalize(uu * uv.x * fovFactor + vv * uv.y * fovFactor + ww);
 
-    // --- Raymarching ---
     vec4 rayResult = rayMarchWithColor(ro, rd);
     float d = rayResult.w;
     vec3 surfaceColor = rayResult.xyz;
 
-    // --- Shading ---
     vec3 col = vec3(0.0);
     
     if(d < 100.0) {
-        // Hit object or floor
         vec3 p = ro + rd * d;
         vec3 n = calcNormal(p);
 
-        // Simple directional light
         vec3 lightDir = normalize(vec3(0.5, 0.8, 0.5));
         float diff = max(dot(n, lightDir), 0.0);
 
-        // Ambient + Diffuse
         col = surfaceColor * diff + surfaceColor * vec3(0.15);  
         
-        // Optional: Simple distance fog to blend floor into background
         float fog = 1.0 - exp(-d * 0.02);
         vec3 skyColor = vec3(0.1, 0.15, 0.25);
         col = mix(col, skyColor, fog);
@@ -196,7 +198,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     }
 
     if(GridEnabled == true) col = add_grid(col,ro,rd,d);
-
 
     fragColor = vec4(col, 1.0);
 }
