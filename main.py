@@ -1466,50 +1466,10 @@ def main():
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
             return True
         return True
+
     
-    # Simple shader for displaying texture
-    display_vertex_shader = """
-    #version 330 core
-    layout (location = 0) in vec2 aPos;
-    layout (location = 1) in vec2 aTexCoord;
-    out vec2 TexCoord;
-    void main() {
-        gl_Position = vec4(aPos, 0.0, 1.0);
-        TexCoord = aTexCoord;
-    }
-    """
-    
-    display_fragment_shader = """
-    #version 330 core
-    out vec4 FragColor;
-    in vec2 TexCoord;
-    uniform sampler2D renderTexture;
-    uniform int isAccumulation; // 1 = accumulation (linear), 0 = already-tonemapped
-    void main() {
-        vec4 tex = texture(renderTexture, TexCoord);
-        vec3 color = tex.rgb;
-        if (isAccumulation == 1) {
-            // display accumulation buffer: apply tonemapping & gamma
-            // clamp to avoid negative / NaN
-            vec3 mapped = pow(clamp(color, 0.0, 10000.0), vec3(0.4545));
-            FragColor = vec4(mapped, 1.0);
-        } else {
-            // already-tonemapped render targets (pass-through)
-            FragColor = vec4(color, 1.0);
-        }
-    }
-    """
-    
-    display_shader = None
-    display_vao = None
-    display_vbo = None
     
     try:
-        display_shader = compileProgram(
-            compileShader(display_vertex_shader, GL_VERTEX_SHADER),
-            compileShader(display_fragment_shader, GL_FRAGMENT_SHADER)
-        )
-        
         # Quad with texture coordinates for displaying the rendered texture
         quad_vertices = [
             # positions   # tex coords
@@ -1533,7 +1493,6 @@ def main():
     except Exception as e:
         print(f"Warning: Could not create display shader: {e}")
         print("Falling back to direct rendering (resolution scale may not work correctly)")
-        display_shader = None
     
     # --- Framebuffer Setup for Resolution Scaling ---
     fbo = None
@@ -1594,8 +1553,17 @@ def main():
     out vec4 FragColor;
     in vec2 TexCoord;
     uniform sampler2D renderTexture;
+    uniform int isAccumulation; // 1 = accumulation (linear), 0 = already-tonemapped
     void main() {
-        FragColor = texture(renderTexture, TexCoord);
+        vec4 tex = texture(renderTexture, TexCoord);
+        vec3 color = tex.rgb;
+        if (isAccumulation == 1) {
+            // display accumulation buffer
+            FragColor = vec4(color, 1.0);
+        } else {
+            // already-tonemapped render targets (pass-through)
+            FragColor = vec4(color, 1.0);
+        }
     }
     """
     
@@ -1989,7 +1957,6 @@ def main():
             if frame_count == 0:
                 glClear(GL_COLOR_BUFFER_BIT)
 
-            # Check if frame_count is less than max_frames before rendering
             if frame_count < max_frames:
                 glUseProgram(shader)
                 if uniform_locs is not None:
@@ -2020,18 +1987,22 @@ def main():
             # Switch back to default framebuffer
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
             glViewport(0, 0, width, height)
-            #glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
 
             glActiveTexture(GL_TEXTURE0)
-            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])  # <- use the correct texture handle
-
+            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])
 
             # Display accumulated result
             glUseProgram(display_shader)
             glActiveTexture(GL_TEXTURE0)
-            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])  # <- use the same texture for display
+            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])
             glUniform1i(glGetUniformLocation(display_shader, "renderTexture"), 0)
-            glUniform1i(glGetUniformLocation(display_shader, "isAccumulation"), 0)
+
+            # Set isAccumulation to 1 if rendering is complete
+            if frame_count >= max_frames:
+                glUniform1i(glGetUniformLocation(display_shader, "isAccumulation"), 1)
+            else:
+                glUniform1i(glGetUniformLocation(display_shader, "isAccumulation"), 0)
+            #print(glGetUniformLocation(display_shader,"isAccumulation"))
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
             glBindVertexArray(display_vao)
