@@ -1549,22 +1549,21 @@ def main():
     """
     
     display_fragment_shader = """
-    #version 330 core
-    out vec4 FragColor;
-    in vec2 TexCoord;
-    uniform sampler2D renderTexture;
-    uniform int isAccumulation; // 1 = accumulation (linear), 0 = already-tonemapped
-    void main() {
-        vec4 tex = texture(renderTexture, TexCoord);
-        vec3 color = tex.rgb;
-        if (isAccumulation == 1) {
-            // display accumulation buffer
-            FragColor = vec4(color, 1.0);
-        } else {
-            // already-tonemapped render targets (pass-through)
-            FragColor = vec4(color, 1.0);
-        }
+#version 330 core
+out vec4 FragColor;
+in vec2 TexCoord;
+uniform sampler2D renderTexture;
+uniform int isAccumulation;
+
+void main() {
+    vec4 tex = texture(renderTexture, TexCoord);
+
+    if (isAccumulation == 1) {
+        FragColor = vec4(tex.rgb, 1.0);
+    } else {
+        FragColor = vec4(tex.rgb, 1.0);
     }
+}
     """
     
     display_shader = None
@@ -1609,7 +1608,7 @@ def main():
     accumulation_width = 0
     accumulation_height = 0
     frame_count = 0
-    max_frames = 512
+    max_frames = 128
     accumulation_textures = [None, None]  # Double buffer
     accumulation_fbos = [None, None]
     current_accum_index = 0  # Which one to write to
