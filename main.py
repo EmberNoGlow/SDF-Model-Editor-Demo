@@ -1173,58 +1173,45 @@ def rebuild_imgui_fonts(renderer, base_font_path="path/to/your/font.ttf", base_f
 
 
 
-def HSpinner(value, value_step, name, width = 16, height = 10):
+
+
+def HSpinner(value, value_step, name, width=16, height=16):
+    """Combined spinner with input field above buttons"""
+    imgui.begin_group()
+
+    # Input field at top
+    imgui.push_item_width(width)
+    input_changed, value = imgui.input_float(f"##input_{name}", value, 0, 0, "%.3f")
+    imgui.pop_item_width()
+
+    btn_changed = False
+
+    # Minus button (left)
+    if imgui.button(f"-##btn_{name}_minus", (width/2.0)-1, height):
+        value -= value_step
+        btn_changed = True
+
+    imgui.same_line(0, 2)
+
+    # Plus button (right)
+    if imgui.button(f"+##btn_{name}_plus", (width/2.0)-1, height):
+        value += value_step
+        btn_changed = True
+
+    imgui.end_group()
+    return input_changed or btn_changed, value
+
+def input_vec3(vector, item_width=60, value_step=0.1):
+    """Handles a 3D vector input with separate HSpinners for each component"""
     imgui.begin_group()
     changed = False
-    if imgui.button(f"+##btn_{(name)}_plus", width=20, height=8):
-        value += value_step
-        changed = True
-    if imgui.button(f"-##btn_{(name)}_minus", width=20, height=8):
-        value -= value_step
-        changed = True
+    for i, axis in enumerate(['x', 'y', 'z']):
+        c, vector[i] = HSpinner(vector[i], value_step, axis, item_width)
+        changed = changed or c
+        if i < 2:
+            imgui.same_line()
     imgui.end_group()
-
-    return changed, value
-
-
-
-
-def input_vec3(vector, item_width = 40, value_step = 0.1): 
-    imgui.begin_group()
-
-    # X
-    imgui.push_item_width(item_width)
-    changed, vector[0] = imgui.input_float("##x", vector[0])
-    imgui.pop_item_width()
-    imgui.same_line()
-
-    changed, vector[0] = HSpinner(vector[0], 0.1, "x")
-
-    imgui.same_line(0, 1)
-
-    # Y
-    imgui.push_item_width(item_width)
-    changed_y, vector[1] = imgui.input_float("##y", vector[1])
-    imgui.pop_item_width()
-    imgui.same_line()
-
-    changed, vector[1] = HSpinner(vector[1], 0.1, "y")
-
-    imgui.same_line(0, 1)
-
-    # Z
-    imgui.push_item_width(item_width)
-    changed_z, vector[2] = imgui.input_float("##z", vector[2])
-    imgui.pop_item_width()
-    imgui.same_line()
-
-    changed, vector[2] = HSpinner(vector[2], 0.1, "z")
-
-    imgui.end_group()
-
-    #changed = changed_x | changed_y | changed_z
     return changed, vector
-
 
 
 
