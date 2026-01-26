@@ -1272,16 +1272,19 @@ def HSpinner(value, value_step, name, width=16, height=16, repeat_delay=0.25, re
     imgui.end_group()
     return input_changed or btn_changed, value
 
-def input_vec3(vector, item_width=60, value_step=0.1):
+def input_vec3(name, vector, value_step=0.1, item_width=60):
     """Handles a 3D vector input with separate HSpinners for each component"""
     imgui.begin_group()
     changed = False
     for i, axis in enumerate(['x', 'y', 'z']):
-        c, vector[i] = HSpinner(vector[i], value_step, axis, item_width)
+        c, vector[i] = HSpinner(vector[i], value_step, f"{name}_{axis}", item_width)
         changed = changed or c
         if i < 2:
             imgui.same_line()
     imgui.end_group()
+
+    imgui.same_line()
+    imgui.text(name)
     return changed, vector
 
 
@@ -2816,17 +2819,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                 for op_id, primitive in scene_builder.primitives:
                     if op_id == selected_item_id:
                         imgui.text(f"Type: {primitive.primitive_type}")
-                        
-                        # Position
-                        if primitive.primitive_type != "pointer":
-                            old_pos = primitive.position
-                            #changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
-                            changed, primitive.position = input_vec3(primitive.position)
-                            if changed:
-                                scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
+                    
                         
                         # Size/Radius - varies by primitive type
                         # I have python 3.8, "match", get out.
@@ -2945,9 +2938,20 @@ You can also support the project by reporting an error, or by suggesting an impr
 
 
                         else:
+                            # Position
+                            old_pos = primitive.position
+                            #changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
+                            changed, primitive.position = input_vec3("Position", primitive.position)
+                            if changed:
+                                scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+
+
                             # Show rotation as degrees
                             current_degrees = [math.degrees(a) for a in primitive.rotation]
-                            changed, degs = imgui.input_float3("Rotation °", *current_degrees)
+                            changed, degs = input_vec3("Rotation °", current_degrees, 5.0)
                             if changed:
                                 primitive.rotation = [math.radians(a) for a in degs]
                                 success, new_uniforms = recompile_shader()
@@ -2955,7 +2959,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                                     uniform_locs = new_uniforms
 
                             # Scale stays as-is
-                            changed, primitive.scale = imgui.input_float3("Scale", *primitive.scale)
+                            changed, primitive.scale = input_vec3("Scale", primitive.scale)
                             if changed:
                                 success, new_uniforms = recompile_shader()
                                 if success:
