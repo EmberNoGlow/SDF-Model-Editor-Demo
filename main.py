@@ -1174,9 +1174,8 @@ def rebuild_imgui_fonts(renderer, base_font_path="path/to/your/font.ttf", base_f
 
 
 
-
-def HSpinner(value, value_step, name, width=16, height=16):
-    """Combined spinner with input field above buttons"""
+def HSpinner(value, value_step, name, width=16, height=16, repeat_delay=0.25, repeat_rate=0.1):
+    """Combined spinner with input field above buttons with auto-repeat on hold"""
     imgui.begin_group()
 
     # Input field at top
@@ -1185,18 +1184,90 @@ def HSpinner(value, value_step, name, width=16, height=16):
     imgui.pop_item_width()
 
     btn_changed = False
-
+    
+    # Create unique IDs for buttons
+    minus_btn_id = f"##btn_{name}_minus"
+    plus_btn_id = f"##btn_{name}_plus"
+    
+    # Track button state and timing
+    if not hasattr(HSpinner, "button_states"):
+        HSpinner.button_states = {}
+    
     # Minus button (left)
-    if imgui.button(f"-##btn_{name}_minus", (width/2.0)-1, height):
+    if imgui.button(f"-{minus_btn_id}", (width/2.0)-1, height):
         value -= value_step
         btn_changed = True
+    
+    # Check if minus button is held down
+    if imgui.is_item_active() and imgui.is_mouse_down(0):  # Left mouse button
+        current_time = time.time()
+        btn_key = minus_btn_id
+        
+        # Initialize button state if not exists
+        if btn_key not in HSpinner.button_states:
+            HSpinner.button_states[btn_key] = {
+                'first_press_time': current_time,
+                'last_repeat_time': current_time,
+                'has_repeated': False
+            }
+        
+        state = HSpinner.button_states[btn_key]
+        
+        # Check if enough time has passed for first repeat
+        if not state['has_repeated'] and (current_time - state['first_press_time']) >= repeat_delay:
+            value -= value_step
+            btn_changed = True
+            state['has_repeated'] = True
+            state['last_repeat_time'] = current_time
+        # Check if enough time has passed for subsequent repeats
+        elif state['has_repeated'] and (current_time - state['last_repeat_time']) >= repeat_rate:
+            value -= value_step
+            btn_changed = True
+            state['last_repeat_time'] = current_time
+    else:
+        # Reset button state when not pressed
+        minus_btn_key = minus_btn_id
+        if minus_btn_key in HSpinner.button_states:
+            del HSpinner.button_states[minus_btn_key]
 
     imgui.same_line(0, 2)
 
     # Plus button (right)
-    if imgui.button(f"+##btn_{name}_plus", (width/2.0)-1, height):
+    if imgui.button(f"+{plus_btn_id}", (width/2.0)-1, height):
         value += value_step
         btn_changed = True
+    
+    # Check if plus button is held down
+    if imgui.is_item_active() and imgui.is_mouse_down(0):  # Left mouse button
+        current_time = time.time()
+        btn_key = plus_btn_id
+        
+        # Initialize button state if not exists
+        if btn_key not in HSpinner.button_states:
+            HSpinner.button_states[btn_key] = {
+                'first_press_time': current_time,
+                'last_repeat_time': current_time,
+                'has_repeated': False
+            }
+        
+        state = HSpinner.button_states[btn_key]
+        
+        # Check if enough time has passed for first repeat
+        if not state['has_repeated'] and (current_time - state['first_press_time']) >= repeat_delay:
+            value += value_step
+            btn_changed = True
+            state['has_repeated'] = True
+            state['last_repeat_time'] = current_time
+        # Check if enough time has passed for subsequent repeats
+        elif state['has_repeated'] and (current_time - state['last_repeat_time']) >= repeat_rate:
+            value += value_step
+            btn_changed = True
+            state['last_repeat_time'] = current_time
+    else:
+        # Reset button state when not pressed
+        plus_btn_key = plus_btn_id
+        if plus_btn_key in HSpinner.button_states:
+            del HSpinner.button_states[plus_btn_key]
 
     imgui.end_group()
     return input_changed or btn_changed, value
