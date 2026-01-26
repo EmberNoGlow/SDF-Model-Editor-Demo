@@ -1172,6 +1172,65 @@ def rebuild_imgui_fonts(renderer, base_font_path="path/to/your/font.ttf", base_f
         glBindTexture(GL_TEXTURE_2D, 0)
 
 
+
+def HSpinner(value, value_step, name, width = 16, height = 10):
+    imgui.begin_group()
+    changed = False
+    if imgui.button(f"+##btn_{(name)}_plus", width=20, height=8):
+        value += value_step
+        changed = True
+    if imgui.button(f"-##btn_{(name)}_minus", width=20, height=8):
+        value -= value_step
+        changed = True
+    imgui.end_group()
+
+    return changed, value
+
+
+
+
+def input_vec3(vector, item_width = 40, value_step = 0.1): 
+    imgui.begin_group()
+
+    # X
+    imgui.push_item_width(item_width)
+    changed, vector[0] = imgui.input_float("##x", vector[0])
+    imgui.pop_item_width()
+    imgui.same_line()
+
+    changed, vector[0] = HSpinner(vector[0], 0.1, "x")
+
+    imgui.same_line(0, 1)
+
+    # Y
+    imgui.push_item_width(item_width)
+    changed_y, vector[1] = imgui.input_float("##y", vector[1])
+    imgui.pop_item_width()
+    imgui.same_line()
+
+    changed, vector[1] = HSpinner(vector[1], 0.1, "y")
+
+    imgui.same_line(0, 1)
+
+    # Z
+    imgui.push_item_width(item_width)
+    changed_z, vector[2] = imgui.input_float("##z", vector[2])
+    imgui.pop_item_width()
+    imgui.same_line()
+
+    changed, vector[2] = HSpinner(vector[2], 0.1, "z")
+
+    imgui.end_group()
+
+    #changed = changed_x | changed_y | changed_z
+    return changed, vector
+
+
+
+
+
+
+
 def main():
     # Globals
     global start_drag, end_drag, dragging, selected_item_id, drag_position
@@ -2703,7 +2762,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                         # Position
                         if primitive.primitive_type != "pointer":
                             old_pos = primitive.position
-                            changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
+                            #changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
+                            changed, primitive.position = input_vec3(primitive.position)
                             if changed:
                                 scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
                                 success, new_uniforms = recompile_shader()
