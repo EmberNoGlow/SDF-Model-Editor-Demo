@@ -1177,17 +1177,19 @@ def rebuild_imgui_fonts(renderer, base_font_path="path/to/your/font.ttf", base_f
 
 
 
-def HSpinner(value, value_step, name, width=16, height=16, repeat_delay=0.25, repeat_rate=0.1):
-    """Combined spinner with input field above buttons with auto-repeat on hold"""
+def HSpinner(value, value_step, name, width=16, height=16, under=True, repeat_delay=0.25, repeat_rate=0.1):
+    # Combined spinner with input field above buttons with auto-repeat on hold
     imgui.begin_group()
 
     # Input field at top
     imgui.push_item_width(width)
     input_changed, value = imgui.input_float(f"##input_{name}", value, 0, 0, "%.3f")
     imgui.pop_item_width()
+    if under==False: imgui.same_line()
 
     btn_changed = False
-    
+    width_mul = 2.0 if under else 5.0
+
     # Create unique IDs for buttons
     minus_btn_id = f"##btn_{name}_minus"
     plus_btn_id = f"##btn_{name}_plus"
@@ -1197,7 +1199,7 @@ def HSpinner(value, value_step, name, width=16, height=16, repeat_delay=0.25, re
         HSpinner.button_states = {}
     
     # Minus button (left)
-    if imgui.button(f"-{minus_btn_id}", (width/2.0)-1, height):
+    if imgui.button(f"-{minus_btn_id}", (width/width_mul)-1, height):
         value -= value_step
         btn_changed = True
     
@@ -1236,7 +1238,7 @@ def HSpinner(value, value_step, name, width=16, height=16, repeat_delay=0.25, re
     imgui.same_line(0, 2)
 
     # Plus button (right)
-    if imgui.button(f"+{plus_btn_id}", (width/2.0)-1, height):
+    if imgui.button(f"+{plus_btn_id}", (width/width_mul)-1, height):
         value += value_step
         btn_changed = True
     
@@ -1276,7 +1278,7 @@ def HSpinner(value, value_step, name, width=16, height=16, repeat_delay=0.25, re
     return input_changed or btn_changed, value
 
 def input_vec3(name, vector, value_step=0.1, item_width=60):
-    """Handles a 3D vector input with separate HSpinners for each component"""
+    # Handles a 3D vector input with separate HSpinners for each component
     imgui.begin_group()
     changed = False
     for i, axis in enumerate(['x', 'y', 'z']):
@@ -1291,6 +1293,15 @@ def input_vec3(name, vector, value_step=0.1, item_width=60):
     return changed, vector
 
 
+def input_float(name, value, value_step=0.1, item_width=60):
+    imgui.begin_group()
+    changed, value = HSpinner(value, value_step, f"{name}_f", item_width, 20, False)
+    imgui.same_line()
+    imgui.end_group()
+
+    imgui.same_line()
+    imgui.text(name)
+    return changed, value
 
 
 
@@ -1897,6 +1908,7 @@ void main() {
         rendering_width = width - 2 * panel_width
         rendering_height = height - menu_bar_height
         panel_elem_width_vec3 = (panel_width/4)-14
+        panel_elem_width_float = (panel_width/2)-14
 
         
         scaled_rendering_width = int(rendering_width * resolution_scale)
@@ -2829,30 +2841,65 @@ You can also support the project by reporting an error, or by suggesting an impr
                         # Size/Radius - varies by primitive type
                         # I have python 3.8, "match", get out.
                         if primitive.primitive_type == "sphere":
-                            changed, primitive.size_or_radius[0] = imgui.input_float("Radius", primitive.size_or_radius[0])
+                            changed, primitive.size_or_radius[0] = input_float(
+                                "Radius", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
                         elif primitive.primitive_type == "torus":
-                            changed1, primitive.size_or_radius[0] = imgui.input_float("Major Radius", primitive.size_or_radius[0])
-                            changed2, primitive.size_or_radius[1] = imgui.input_float("Minor Radius", primitive.size_or_radius[1])
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Major Radius", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Minor Radius", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
                             changed = changed1 or changed2
                         elif primitive.primitive_type == "hex_prism":
-                            changed1, primitive.size_or_radius[0] = imgui.input_float("Hex Radius", primitive.size_or_radius[0])
-                            changed2, primitive.size_or_radius[1] = imgui.input_float("Height", primitive.size_or_radius[1])
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Hex Radius", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Height", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
                             changed = changed1 or changed2
                         elif primitive.primitive_type == "vertical_capsule":
-                            changed1, primitive.size_or_radius[0] = imgui.input_float("Height", primitive.size_or_radius[0])
-                            changed2, primitive.size_or_radius[1] = imgui.input_float("Radius", primitive.size_or_radius[1])
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Height", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Radius", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
                             changed = changed1 or changed2
                         elif primitive.primitive_type == "capped_cylinder":
-                            changed1, primitive.size_or_radius[0] = imgui.input_float("Radius", primitive.size_or_radius[0])
-                            changed2, primitive.size_or_radius[1] = imgui.input_float("Height", primitive.size_or_radius[1])
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Radius", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Height", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
                             changed = changed1 or changed2
                         elif primitive.primitive_type == "rounded_cylinder":
-                            changed1, primitive.size_or_radius[0] = imgui.input_float("Radius A", primitive.size_or_radius[0])
-                            changed2, primitive.size_or_radius[1] = imgui.input_float("Radius B", primitive.size_or_radius[1])
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Radius A", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Radius B", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
                             changed = changed1 or changed2
                         else:
                             if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer"]:
-                                changed, primitive.size_or_radius = imgui.input_float3("Size##size", *primitive.size_or_radius)
+                                changed, primitive.size_or_radius = input_vec3(
+                                    "Size", primitive.size_or_radius, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                                )
                         if primitive.primitive_type != "pointer": # HACK
                             if changed:
                                 success, new_uniforms = recompile_shader()
@@ -2864,9 +2911,15 @@ You can also support the project by reporting an error, or by suggesting an impr
                             c_sin = primitive.kwargs.get('c_sin', 0.5)
                             c_cos = primitive.kwargs.get('c_cos', 0.866)
                             height = primitive.kwargs.get('height', 1.0)
-                            changed1, c_sin = imgui.input_float("Sin(Angle)", c_sin)
-                            changed2, c_cos = imgui.input_float("Cos(Angle)", c_cos)
-                            changed3, height = imgui.input_float("Height", height)
+                            changed1, c_sin = input_float(
+                                "Sin(Angle)", c_sin, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, c_cos = input_float(
+                                "Cos(Angle)", c_cos, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed3, height = input_float(
+                                "Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
                             if changed1 or changed2 or changed3:
                                 primitive.kwargs['c_sin'] = c_sin
                                 primitive.kwargs['c_cos'] = c_cos
@@ -2878,8 +2931,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                         elif primitive.primitive_type == "plane":
                             normal = primitive.kwargs.get('normal', [0.0, 1.0, 0.0])
                             h = primitive.kwargs.get('h', 0.0)
-                            changed1, normal = imgui.input_float3("Normal", *normal)
-                            changed2, h = imgui.input_float("Offset (h)", h)
+                            changed1, normal = input_vec3("Normal", normal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                            changed2, h = input_float("Offset (h)", h, STEP_VARIABLE_FLOAT, panel_elem_width_float)
                             if changed1 or changed2:
                                 # Normalize the normal vector
                                 norm_len = math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
@@ -2893,7 +2946,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         
                         elif primitive.primitive_type == "rounded_cylinder":
                             height = primitive.kwargs.get('height', 1.0)
-                            changed, height = imgui.input_float("Height", height)
+                            changed, height = input_float("Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float)
                             if changed:
                                 primitive.kwargs['height'] = height
                                 success, new_uniforms = recompile_shader()
@@ -2902,9 +2955,10 @@ You can also support the project by reporting an error, or by suggesting an impr
                         
                         # --- Inspector: add UI to edit pointer function selection (inside the primitive inspector branch) ---
                         if primitive.primitive_type == "pointer":
-                            # Position control uses same input_float3 as other primitives
                             old_pos = primitive.position
-                            changed_pos, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
+                            changed_pos, primitive.position = input_vec3(
+                                "Position", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                            )
                             if changed_pos:
                                 scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
                                 success, new_uniforms = recompile_shader()
@@ -2943,11 +2997,23 @@ You can also support the project by reporting an error, or by suggesting an impr
 
 
                         else:
+                            # Special parameters for specific primitives
+                            if primitive.primitive_type == "round_box":
+                                imgui.spacing()
+                                changed, primitive.kwargs['radius'] = input_float(
+                                    "Radius", primitive.kwargs.get('radius', 0.1),STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                    )
+                                if changed:
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+
+
                             imgui.begin_group()
 
                             imgui.spacing()
                             imgui.separator()
-                            imgui.dummy((panel_width/3), 0)
+                            imgui.dummy((panel_width/4)-8, 0)
                             imgui.same_line()
                             imgui.text_colored("Transform", 1.0,0.7,0.5,1.0)
                             imgui.spacing()
@@ -2986,19 +3052,20 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 success, new_uniforms = recompile_shader()
                                 if success:
                                     uniform_locs = new_uniforms
-                        
-
-                            # Special parameters for specific primitives
-                            if primitive.primitive_type == "round_box":
-                                changed, primitive.kwargs['radius'] = imgui.input_float("Corner Radius", primitive.kwargs.get('radius', 0.1))
-                                if changed:
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
+                    
                             
                             # Color picker
+                            imgui.begin_group()
+
+                            imgui.spacing()
                             imgui.separator()
-                            imgui.text("Color:")
+                            imgui.dummy((panel_width/3)-16, 0)
+                            imgui.same_line()
+                            imgui.text_colored("Color", 1.0,0.7,0.5,1.0)
+                            imgui.spacing()
+                
+                            imgui.end_group()
+
                             # Color edit - imgui automatically shows a picker button
                             old_color = primitive.color.copy()
                             color_changed, color_rgba = imgui.color_edit3("Color##color", *primitive.color)
@@ -3075,7 +3142,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         
                         # Show float parameter for single-operand operations with parameters
                         if hasattr(operation, 'float_param') and operation.float_param is not None:
-                            changed, operation.float_param = imgui.input_float("Parameter", operation.float_param, 0.01, 0.1)
+                            changed, operation.float_param = input_float("Parameter", operation.float_param, 0.01, panel_elem_width_float)
                             if changed:
                                 # Update the operation with new parameter
                                 if len(operation.args) >= 2:
@@ -3086,7 +3153,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         
                         # Show smoothing factor for smooth operations
                         elif operation.smooth_k is not None:
-                            changed, operation.smooth_k = imgui.input_float("Smoothing Factor (k)", operation.smooth_k, 0.01, 0.1)
+                            changed, operation.smooth_k = input_float("Smoothing Factor (k)", operation.smooth_k, 0.01, panel_elem_width_float)
                             if changed:
                                 if len(operation.args) >= 3:
                                     operation.args[2] = operation.smooth_k
