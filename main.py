@@ -82,6 +82,9 @@ def load_scene_dialog(scene_builder, parent_window=None):
 # --- Configuration ---
 SCREEN_SIZE = (1200, 720)
 FOV_ANGLE = math.radians(75)  # Field of View - Used for ray direction calculation
+STEP_VARIABLE_FLOAT = 0.1
+STEP_VARIABLE_ROTATION = 5.0
+
 
 # UI Constants
 PANEL_WIDTH_RATIO = 0.2  # Left and right panel width as ratio of window width
@@ -1893,6 +1896,8 @@ void main() {
         panel_width = int(width * PANEL_WIDTH_RATIO)
         rendering_width = width - 2 * panel_width
         rendering_height = height - menu_bar_height
+        panel_elem_width_vec3 = (panel_width/4)-14
+
         
         scaled_rendering_width = int(rendering_width * resolution_scale)
         scaled_rendering_height = int(rendering_height * resolution_scale)
@@ -2938,10 +2943,23 @@ You can also support the project by reporting an error, or by suggesting an impr
 
 
                         else:
+                            imgui.begin_group()
+
+                            imgui.spacing()
+                            imgui.separator()
+                            imgui.dummy((panel_width/3), 0)
+                            imgui.same_line()
+                            imgui.text_colored("Transform", 1.0,0.7,0.5,1.0)
+                            imgui.spacing()
+                
+                            imgui.end_group()
+
+
                             # Position
                             old_pos = primitive.position
-                            #changed, primitive.position = imgui.input_float3("Position##pos", *primitive.position)
-                            changed, primitive.position = input_vec3("Position", primitive.position)
+                            changed, primitive.position = input_vec3(
+                                "Position", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                            )
                             if changed:
                                 scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
                                 success, new_uniforms = recompile_shader()
@@ -2951,15 +2969,19 @@ You can also support the project by reporting an error, or by suggesting an impr
 
                             # Show rotation as degrees
                             current_degrees = [math.degrees(a) for a in primitive.rotation]
-                            changed, degs = input_vec3("Rotation °", current_degrees, 5.0)
+                            changed, degs = input_vec3(
+                                "Rotation °", current_degrees, STEP_VARIABLE_ROTATION, panel_elem_width_vec3
+                            )
                             if changed:
                                 primitive.rotation = [math.radians(a) for a in degs]
                                 success, new_uniforms = recompile_shader()
                                 if success:
                                     uniform_locs = new_uniforms
 
-                            # Scale stays as-is
-                            changed, primitive.scale = input_vec3("Scale", primitive.scale)
+                            # Scale
+                            changed, primitive.scale = input_vec3(
+                                "Scale", primitive.scale, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                            )
                             if changed:
                                 success, new_uniforms = recompile_shader()
                                 if success:
