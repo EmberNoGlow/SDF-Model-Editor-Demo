@@ -5,6 +5,7 @@ from OpenGL.GL.shaders import compileProgram, compileShader
 from skimage import measure
 import os
 
+
 # Vertex shader: pass-through for full-screen quad
 vertex_shader = """
 #version 330 core
@@ -24,10 +25,20 @@ uniform vec3 worldMax;
 uniform float zCoord;  // Slice z in [0,1]
 uniform vec2 viewportSize;
 
+vec3 mixColorSmooth(vec3 colA, vec3 colB, float dA, float dB, float k) {
+    k *= 4.0;
+    float h = max(k - abs(dA - dB), 0.0) / k;
+    float t = clamp(0.5 + 0.5 * (dB - dA) / k, 0.0, 1.0);
+    vec3 blended = mix(colA, colB, t);
+    vec3 closer = (dA < dB) ? colA : colB;
+    return mix(closer, blended, h);
+}
+
 
 {SDF_LIBRARY}
 
-float map(vec3 p) {
+
+vec4 map(vec3 p) {
 {SCENE_CODE}
 }
 
@@ -38,7 +49,7 @@ void main() {
     // Interpolate 3D point: uv.x, uv.y → X,Y; zCoord → Z
     vec3 p = mix(worldMin, worldMax, vec3(uv.x, uv.y, zCoord));
     
-    fragDistance = map(p);
+    fragDistance = map(p).w;
 }
 """
 
@@ -76,7 +87,7 @@ def init_opengl(width, height):
     return VAO, shader
 
 
-def compute_sdf_3d(grid_size=32, quality = 1.0, scene_code="return 100.0;"):
+def compute_sdf_3d(grid_size=32, quality = 1.0, scene_code="return vec4(vec3(0.0), 100.0);"):
     # World bounds
     hgs_base = grid_size // 2
     world_min = (-hgs_base, -hgs_base, -hgs_base)
@@ -177,13 +188,6 @@ def save_3d_texture(array, filename="sdf_texture.bin"):
     print(f"Size: {array.nbytes / 1024:.2f} KB")
 
 
-
-
-
-import numpy as np
-from skimage import measure
-import os
-
 def export_to_obj(sdf_array: np.ndarray, filename: str, level: float = 0.0, scale: float = 1.0, offset: tuple = (0.0, 0.0, 0.0)):
 
     if sdf_array.dtype != np.float32:
@@ -257,12 +261,15 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, level: float = 0.0, scal
     print(f"Successfully exported mesh to {filename}")
 
 
+# Helper function for previewing the size of the resulting bin file
+def calculate_sdf_file_size(grid_size=32, quality=1.0):
+    final_grid_size = int(grid_size * quality)
+    total_voxels = final_grid_size ** 3
+    bytes_per_voxel = 4  # float32
+    total_size_bytes = total_voxels * bytes_per_voxel
 
-
-
-
-
-
-distance_array = compute_sdf_3d(16, 8.0, "return min(sdBox( p, vec3(1.0) ), sdSphere(p+vec3(0.0,2.0,0.0), 1.0) );")
-#save_3d_texture(distance_array)
-export_to_obj(distance_array, "sdfmodel.obj")
+    # Format
+    total_size_kb = total_size_bytes / 1024
+    total_size_mb = total_size_kb / 1024
+    
+    return total_size_kb, total_size_mb

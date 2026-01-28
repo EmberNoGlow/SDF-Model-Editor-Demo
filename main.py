@@ -8,8 +8,10 @@ import ctypes
 import imgui
 import imgui.core
 import gui.themes
+import exporter as sdfexp
 
 from imgui.integrations.glfw import GlfwRenderer
+
 
 import numpy as np
 import math
@@ -105,6 +107,7 @@ MAX_PITCH = math.radians(90)
 # Moved variables
 drag_position = [0,0,0] # Track calculation result
 selected_item_id = None  # Track which item is selected in the tree
+
 
 
 # Load shader files with error handling
@@ -1414,6 +1417,8 @@ def main():
     # --- UI State ---
     show_selection_window = False
     show_settings_window = False
+    show_export_vol_window = False
+    show_export_obj_window = False
     show_about_window = False
     selection_mode = None  # 'primitive' or 'operation'
     renaming_item_id = None  # Item being renamed
@@ -1436,6 +1441,12 @@ def main():
 
     # --- Settings ---
     resolution_scale = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
+
+    # Export Config
+    grid_size = 16
+    vox_quality = 1.0
+
+
 
     # --- FPS tracking ---
     fps_clock = time.time()
@@ -2177,7 +2188,7 @@ void main() {
 
 
 
-        # --- TOP MENU BAR (Render first so it's on top) ---
+        # --- TOP MENU BAR ---
         if imgui.begin_main_menu_bar():
             if imgui.begin_menu("File", True):
                 if imgui.menu_item("Save Scene", "Ctrl+S")[0]:
@@ -2185,7 +2196,6 @@ void main() {
                     success, message = save_scene_dialog(scene_builder)
                     save_load_message = message
                     save_load_message_time = time.time()
-                    #if success and shader is not None:
         
                 if imgui.menu_item("Load Scene", "Ctrl+O")[0]:
                     # Trigger load dialog
@@ -2201,8 +2211,19 @@ void main() {
                         if success:
                             uniform_locs = new_uniforms
 
+                imgui.separator()
+                imgui.spacing()
+                if imgui.begin_menu("Export..."):
+                    if imgui.menu_item("As Volume")[0]:
+                        show_export_vol_window = True
+                    if imgui.menu_item("To OBJ")[0]:
+                        show_export_obj_window = True
+                    imgui.end_menu()
+
+                imgui.spacing()
 
                 imgui.separator()
+                imgui.spacing()
                 if imgui.menu_item("Exit", "Alt+F4")[0]:
                     glfw.set_window_should_close(window, True)
 
@@ -2547,6 +2568,8 @@ void main() {
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
                 glViewport(0, 0, width, height)
+        
+
         # --- SETTINGS WINDOW ---
         if show_settings_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
@@ -2646,6 +2669,52 @@ void main() {
             
             
             imgui.end()
+
+
+        if show_export_vol_window:
+            imgui.set_next_window_position(width // 2 - 150, height // 2 - 110)
+            imgui.set_next_window_size(300, 220)
+            is_open, show_export_vol_window = imgui.begin("Export as Volume", True, imgui.WINDOW_NO_COLLAPSE)
+
+            if not is_open:
+                show_export_vol_window = False
+
+            imgui.text("Grid Size:")
+            changed, grid_size = imgui.input_int("##GridSize", grid_size, 8)
+            imgui.text_colored(
+                "Note that its dimensions range \nfrom -GridSize/2 to +GridSize/2.",
+                0.56, 0.93, 0.56
+            )
+
+            imgui.spacing()
+
+            changed, vox_quality = input_float("Voxelization Quality", vox_quality, 0.25, 100)
+
+            imgui.separator()
+            imgui.spacing()
+
+            file_preview_size = sdfexp.calculate_sdf_file_size(grid_size, vox_quality)
+            if file_preview_size[1]>1:
+                imgui.text(f"File size = {file_preview_size[1]:.2f} mb")
+            else:
+                imgui.text(f"File size = {file_preview_size[0]:.2f} kb")
+
+            imgui.spacing()
+            imgui.spacing()
+
+            if imgui.button("Cancel", 135,30):
+                show_export_vol_window = False
+
+            imgui.same_line(150)
+
+            if imgui.button("Export", 135,30):
+                code = scene_builder.generate_raymarch_code()
+                
+
+            imgui.end()
+
+
+
 
         if show_about_window:
             imgui.set_next_window_position(width // 2 - 250, height // 2 - 200)
