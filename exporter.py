@@ -1,10 +1,10 @@
 import numpy as np
 from OpenGL.GL import *
-from OpenGL.GLUT import *
 from OpenGL.GL.shaders import compileProgram, compileShader
 from skimage import measure
 import os
-
+import glfw  # Using GLFW for context management
+import time
 
 # Vertex shader: pass-through for full-screen quad
 vertex_shader = """
@@ -16,7 +16,7 @@ void main() {
 """
 
 # Fragment shader: compute 3D SDF at gl_FragCoord.xy
-fragment_shader = """
+fragment_shader_template = """
 #version 330 core
 out float fragDistance;
 
@@ -38,11 +38,11 @@ vec3 mixColorSmooth(vec3 colA, vec3 colB, float dA, float dB, float k) {
 {SDF_LIBRARY}
 
 
-vec4 map(vec3 p) {
+vec4 map(vec3 p) {{
 {SCENE_CODE}
-}
+}}
 
-void main() {
+void main() {{
     // Normalize screen coordinates to [0,1]
     vec2 uv = gl_FragCoord.xy / viewportSize;
     
@@ -50,23 +50,36 @@ void main() {
     vec3 p = mix(worldMin, worldMax, vec3(uv.x, uv.y, zCoord));
     
     fragDistance = map(p).w;
-}
+}}
 """
 
-def init_opengl(width, height):
-    """Initialize OpenGL context and shader program."""
-    glutInit()
-    glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH)
-    glutInitWindowSize(width, height)
-    glutCreateWindow(b"3D SDF Calculation")
-
-    # Compile shaders and link program
-    shader = compileProgram(
-        compileShader(vertex_shader, GL_VERTEX_SHADER),
-        compileShader(fragment_shader, GL_FRAGMENT_SHADER)
-    )
-    glUseProgram(shader)
-
+def initialize_headless_context(width, height):
+    """Initialize an OpenGL context using GLFW that is NOT visible."""
+    
+    # 1. Initialize GLFW (If the main script hasn't done so, this is necessary)
+    if not glfw.init():
+        raise RuntimeError("GLFW initialization failed.")
+        
+    # 2. Set context hints for headless operation
+    # Crucial: This prevents GLFW from trying to show a window on screen.
+    glfw.window_hint(glfw.VISIBLE, False)
+    
+    # Request an OpenGL version compatible with your shaders (330 core)
+    glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
+    glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
+    glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+    
+    # 3. Create Window (This creates the context bound to this window handle)
+    window = glfw.create_window(width, height, "Headless SDF Renderer", None, None)
+    if not window:
+        glfw.terminate()
+        raise RuntimeError("GLFW window/context creation failed.")
+    
+    # 4. Bind the context to the current thread (Crucial step)
+    glfw.make_context_current(window)
+    
+    # --- VAO/VBO Setup (Full-screen quad) ---
+    
     # Full-screen quad vertices
     vertices = np.array([
         -1.0, -1.0, 0.0,
@@ -84,100 +97,136 @@ def init_opengl(width, height):
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
     glEnableVertexAttribArray(0)
 
-    return VAO, shader
+    return VAO, VBO, window
 
+def cleanup_context(VAO, shader, VBO, window):
+    """Safely clean up resources and destroy the temporary GLFW context."""
+    
+    # Ensure all commands are executed before tearing down
+    glFinish()
+    
+    # Delete OpenGL Resources
+    glDeleteVertexArrays(1, [VAO])
+    glDeleteProgram(shader)
+    glDeleteBuffers(1, [VBO])
+    
+    # Destroy the context window
+    glfw.destroy_window(window)
+    
+    # WARNING: Do NOT call glfw.terminate() here, as the main application relies on it.
 
-def compute_sdf_3d(grid_size=32, quality = 1.0, scene_code="return vec4(vec3(0.0), 100.0);"):
-    # World bounds
+def compute_sdf_3d(grid_size=32, quality = 1.0, scene_code="return vec4(vec3(0.0), 100.0);", 
+                   main_window_handle=None, sdf_library_path="shaders/sdf_library.glsl"):
+    
+    # 1. Load Library Code (Assuming external file reading is acceptable here)
+    try:
+        with open(sdf_library_path, 'r') as f:
+            sdf_library_code = f.read()
+    except FileNotFoundError:
+        print(f"Warning: Could not find {sdf_library_path}. Using dummy content.")
+        sdf_library_code = "// Dummy SDF Library Content"
+        
+    # Inject scene code into the template
+    final_fragment_shader = fragment_shader_template.replace("{SDF_LIBRARY}", sdf_library_code)
+    final_fragment_shader = final_fragment_shader.replace("{SCENE_CODE}", scene_code)
+
+    # World bounds setup (Context Independent)
     hgs_base = grid_size // 2
     world_min = (-hgs_base, -hgs_base, -hgs_base)
     world_max = ( hgs_base,  hgs_base,  hgs_base)
 
-    # 2. Define Render Dimensions (Viewport Size) based on quality
-    # If quality=1, render 32x32. If quality=2, render 64x64.
     render_dim = int(grid_size * quality)
+    final_grid_size = render_dim
     
-    # 3. Define the Voxel Indexing Grid (This is the size of the output array)
-    final_grid_size = render_dim 
-
-    # Load and inject shader components
-    from main import load_shader_code
-    sdf_library = load_shader_code("shaders/sdf_library.glsl")
+    VAO, VBO, temp_window = None, None, None # Renamed temporary window to avoid confusion
+    shader = None
     
-    global fragment_shader
-    fragment_shader = fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
-    fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
-
-    # Initialize OpenGL using the high-resolution render dimensions
-    VAO, shader = init_opengl(render_dim, render_dim)
-
-    # Set world bounds (They are now fixed, not scaled by quality)
-    world_min_loc = glGetUniformLocation(shader, "worldMin")
-    world_max_loc = glGetUniformLocation(shader, "worldMax")
-    viewport_size_loc = glGetUniformLocation(shader, "viewportSize")
-    # We no longer need to pass 'quality' as a uniform affecting the distance map calculation
-    
-    glUniform3f(world_min_loc, *world_min)
-    glUniform3f(world_max_loc, *world_max)
-    glUniform2f(viewport_size_loc, float(render_dim), float(render_dim))
-
-    # Create 3D array to store results (This should match the final desired storage size)
-    distance_array = np.zeros((final_grid_size, final_grid_size, final_grid_size), dtype=np.float32)
-
-    # Loop over Z-slices (We iterate based on the final storage size)
-    for z_idx in range(final_grid_size):
-        # Create FBO
-        texture = glGenTextures(1)
-        glBindTexture(GL_TEXTURE_2D, texture)
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, render_dim, render_dim, 0, GL_RED, GL_FLOAT, None)
+    try:
+        # 2. Initialize Headless Context (Context B)
+        VAO, VBO, temp_window = initialize_headless_context(render_dim, render_dim)
         
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+        # Compile shaders using the context we just bound
+        shader = compileProgram(
+            compileShader(vertex_shader, GL_VERTEX_SHADER),
+            compileShader(final_fragment_shader, GL_FRAGMENT_SHADER)
+        )
+        glUseProgram(shader)
 
-        fbo = glGenFramebuffers(1)
+        # 3. Set Uniforms
+        world_min_loc = glGetUniformLocation(shader, "worldMin")
+        world_max_loc = glGetUniformLocation(shader, "worldMax")
+        viewport_size_loc = glGetUniformLocation(shader, "viewportSize")
+        
+        glUniform3f(world_min_loc, *world_min)
+        glUniform3f(world_max_loc, *world_max)
+        glUniform2f(viewport_size_loc, float(render_dim), float(render_dim))
 
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo)
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0)
-
-        if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
-            raise RuntimeError("FBO is not complete!")
-
-        # Set z-coordinate
-        z_coord = (z_idx / (final_grid_size - 1)) if final_grid_size > 1 else 0.5
+        distance_array = np.zeros((final_grid_size, final_grid_size, final_grid_size), dtype=np.float32)
         z_coord_loc = glGetUniformLocation(shader, "zCoord")
-        glUniform1f(z_coord_loc, z_coord)
 
-
-        # Read pixel data
-        glViewport(0, 0, render_dim, render_dim)
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
-
-        # Read pixel data (This now correctly reads from the render_dim x render_dim texture)
-        high_res_data = glReadPixels(0, 0, render_dim, render_dim, GL_RED, GL_FLOAT)
-        high_res_slice = np.frombuffer(high_res_data, dtype=np.float32).reshape((render_dim, render_dim))
-
-        if render_dim <= final_grid_size:
-            downsampled_slice = high_res_slice
+        # 4. Loop over Z-slices (All drawing happens within Context B)
+        for z_idx in range(final_grid_size):
             
-        distance_array[:, :, z_idx] = downsampled_slice # Stores render_dim x render_dim slice
+            # FBO and Texture Setup for this slice
+            texture = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, texture)
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, render_dim, render_dim, 0, GL_RED, GL_FLOAT, None)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
 
+            fbo = glGenFramebuffers(1)
+            glBindFramebuffer(GL_FRAMEBUFFER, fbo)
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0)
 
-        # Clean up
-        glDeleteFramebuffers(1, [fbo])
-        glDeleteTextures(1, [texture])
+            if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
+                raise RuntimeError("FBO is not complete!")
 
-    # Clean up OpenGL objects
-    glDeleteVertexArrays(1, [VAO])
-    glDeleteProgram(shader)
+            # Set z-coordinate
+            z_coord = (z_idx / (final_grid_size - 1)) if final_grid_size > 1 else 0.5
+            glUniform1f(z_coord_loc, z_coord)
 
+            # Render
+            glViewport(0, 0, render_dim, render_dim)
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            
+            # Draw the full-screen quad (Uses VAO/VBO set up during context creation)
+            glBindVertexArray(VAO) 
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
+
+            # Read pixel data (Reads from the texture attached to the FBO)
+            high_res_data = glReadPixels(0, 0, render_dim, render_dim, GL_RED, GL_FLOAT)
+            high_res_slice = np.frombuffer(high_res_data, dtype=np.float32).reshape((render_dim, render_dim))
+
+            distance_array[:, :, z_idx] = high_res_slice
+
+            # Clean up FBO/Texture for the next slice
+            glDeleteFramebuffers(1, [fbo])
+            glDeleteTextures(1, [texture])
+            
+    except Exception as e:
+        print(f"An error occurred during headless computation: {e}")
+        raise
+        
+    finally:
+        # 5. Cleanup Context B
+        if temp_window is not None:
+            # Destroy context B resources
+            cleanup_context(VAO, shader, VBO, temp_window)
+            
+        # 6. CRITICAL STEP: Re-bind Context A (the main application context)
+        if main_window_handle:
+            # We use the handle from the main application to make its context current again.
+            # We assume the main application's context object is still valid.
+            glfw.make_context_current(main_window_handle)
+            glFinish() # Ensure synchronization after context switch
+            
     return distance_array
-
 
 
 def save_3d_texture(array, filename="sdf_texture.bin"):
     """Save 3D numpy array as a binary file."""
     # Ensure directory exists
+    os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
 
     # Save as raw binary data
     with open(filename, 'wb') as f:
@@ -200,7 +249,6 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, level: float = 0.0, scal
 
     try:
         # Extract vertices and faces using marching cubes
-        # spacing=(1.0, 1.0, 1.0) assumes voxel dimensions are 1x1x1
         vertices, faces, normals, values = measure.marching_cubes(
             sdf_array, 
             level=level, 
@@ -245,17 +293,11 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, level: float = 0.0, scal
 
         # Write Normals (vn)
         for n in normals:
-            # Write normals directly. Dark shading usually implies normals are missing 
-            # or incorrectly oriented relative to the face winding.
             f.write(f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}\n")
             
         # Write Faces (f)
-        # Format: f v1//vn1 v2//vn2 v3//vn3 (We use v/vt/vn, assuming vt=empty)
         for face in faces:
-            # Face indices are 0-indexed from marching_cubes, need +1 for OBJ format
             v1_idx, v2_idx, v3_idx = face + 1
-            
-            # Since marching_cubes outputs corresponding normals for vertices, we reuse the vertex index for the normal index
             f.write(f"f {v1_idx}//{v1_idx} {v2_idx}//{v2_idx} {v3_idx}//{v3_idx}\n")
 
     print(f"Successfully exported mesh to {filename}")

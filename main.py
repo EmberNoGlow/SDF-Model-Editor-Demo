@@ -2709,7 +2709,9 @@ void main() {
 
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
-                
+                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, window)
+
+                show_export_vol_window = False
 
             imgui.end()
 
