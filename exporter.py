@@ -2,8 +2,8 @@ import numpy as np
 from OpenGL.GL import *
 from OpenGL.GLUT import *
 from OpenGL.GL.shaders import compileProgram, compileShader
+from skimage import measure
 import os
-import argparse
 
 # Vertex shader: pass-through for full-screen quad
 vertex_shader = """
@@ -179,5 +179,90 @@ def save_3d_texture(array, filename="sdf_texture.bin"):
 
 
 
-distance_array = compute_sdf_3d(32, 2.0, "return min(sdBox( p, vec3(1.0) ), sdSphere(p, 1.0) );")
-save_3d_texture(distance_array)
+
+import numpy as np
+from skimage import measure
+import os
+
+def export_to_obj(sdf_array: np.ndarray, filename: str, level: float = 0.0, scale: float = 1.0, offset: tuple = (0.0, 0.0, 0.0)):
+
+    if sdf_array.dtype != np.float32:
+        print(f"Warning: Input array is not float32. Converting from {sdf_array.dtype}.")
+        sdf_array = sdf_array.astype(np.float32)
+
+    grid_size = sdf_array.shape[0]
+    
+    print(f"Starting marching cubes extraction on array shape: {sdf_array.shape} at level {level}...")
+
+    try:
+        # Extract vertices and faces using marching cubes
+        # spacing=(1.0, 1.0, 1.0) assumes voxel dimensions are 1x1x1
+        vertices, faces, normals, values = measure.marching_cubes(
+            sdf_array, 
+            level=level, 
+            spacing=(1.0, 1.0, 1.0)
+        )
+        
+        print(f"Marching cubes generated {len(vertices)} vertices and {len(faces)} faces.")
+
+    except ValueError as e:
+        print(f"Error during marching cubes execution: {e}")
+        return
+
+    # --- Apply transformations ---
+
+    # 1. Centering: Shift vertices so that the center of the grid (N-1)/2 becomes (0, 0, 0)
+    center_shift = (grid_size - 1) / 2.0
+    vertices[:, 0] -= center_shift
+    vertices[:, 1] -= center_shift
+    vertices[:, 2] -= center_shift
+
+    # 2. Apply scaling
+    if scale != 1.0:
+        vertices *= scale
+
+    # 3. Apply final offset
+    if offset != (0.0, 0.0, 0.0):
+        offset_array = np.array(offset, dtype=np.float32)
+        vertices += offset_array
+
+    # --- Write to OBJ File ---
+    
+    # Ensure the directory exists
+    os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
+    
+    with open(filename, 'w') as f:
+        f.write("# OBJ file generated from SDF marching cubes\n")
+        
+        # Write Vertices (v)
+        for v in vertices:
+            # OBJ format: v x y z
+            f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
+
+        # Write Normals (vn)
+        for n in normals:
+            # Write normals directly. Dark shading usually implies normals are missing 
+            # or incorrectly oriented relative to the face winding.
+            f.write(f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}\n")
+            
+        # Write Faces (f)
+        # Format: f v1//vn1 v2//vn2 v3//vn3 (We use v/vt/vn, assuming vt=empty)
+        for face in faces:
+            # Face indices are 0-indexed from marching_cubes, need +1 for OBJ format
+            v1_idx, v2_idx, v3_idx = face + 1
+            
+            # Since marching_cubes outputs corresponding normals for vertices, we reuse the vertex index for the normal index
+            f.write(f"f {v1_idx}//{v1_idx} {v2_idx}//{v2_idx} {v3_idx}//{v3_idx}\n")
+
+    print(f"Successfully exported mesh to {filename}")
+
+
+
+
+
+
+
+
+distance_array = compute_sdf_3d(16, 8.0, "return min(sdBox( p, vec3(1.0) ), sdSphere(p+vec3(0.0,2.0,0.0), 1.0) );")
+#save_3d_texture(distance_array)
+export_to_obj(distance_array, "sdfmodel.obj")
