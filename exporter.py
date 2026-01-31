@@ -259,6 +259,9 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP = True, level: floa
 
     except ValueError as e:
         print(f"Error during marching cubes execution: {e}")
+        min_val = sdf_array.min()
+        max_val = sdf_array.max()
+        print(f"volume data min: {min_val}, max: {max_val}")
         return
 
     # --- Apply transformations ---

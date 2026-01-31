@@ -96,7 +96,7 @@ def save_sdfvol_dialog(data, parent_window=None):
     return False
 
 
-def save_sdfobj_dialog(data, export_z_up, parent_window=None):
+def save_sdfobj_dialog(data, export_z_up, export_level = 0.0, parent_window=None):
     """Open a save dialog and save the scene to JSON."""
     root = tk.Tk()
     root.withdraw()  # Hide the root window
@@ -110,7 +110,7 @@ def save_sdfobj_dialog(data, export_z_up, parent_window=None):
     root.destroy()
     
     if filepath:
-        sdfexp.export_to_obj(data, filepath, export_z_up)
+        sdfexp.export_to_obj(data, filepath, export_z_up, export_level)
         return True
     return False
 
@@ -1486,6 +1486,7 @@ def main():
     grid_size = 16
     vox_quality = 1.0
     export_z_up = True
+    export_level = 0.0
 
 
 
@@ -2797,6 +2798,10 @@ void main() {
             imgui.separator()
             imgui.spacing() 
 
+            changed, export_level = input_float("Level", export_level, 0.05)
+
+            imgui.spacing()
+
             changed, export_z_up = imgui.checkbox("Z up", export_z_up)
 
             imgui.separator()
@@ -2810,7 +2815,8 @@ void main() {
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
                 comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, window)
-                save_sdfobj_dialog(comp_bin, export_z_up)
+                elvl = np.interp(export_level, [0,1], [comp_bin.min(), comp_bin.max()])
+                save_sdfobj_dialog(comp_bin, export_z_up, elvl)
 
                 show_export_obj_window = False
 
