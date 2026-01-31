@@ -11,7 +11,7 @@ import gui.themes
 import exporter as sdfexp
 
 from imgui.integrations.glfw import GlfwRenderer
-
+from PIL import Image
 
 import numpy as np
 import math
@@ -260,7 +260,7 @@ class SDFPrimitive:
 
     def generate_sdf_code(self, op_id):
         # Pointer primitives do not emit SDF distance/color—they only mutate p.
-        if self.primitive_type == "pointer":
+        if self.primitive_type == "pointer" or self.primitive_type == "sprite":
             return ""  # no distance/color for pointers
         
         color_vec = f"vec3({self.color[0]}, {self.color[1]}, {self.color[2]})"
@@ -333,37 +333,89 @@ class Sprite:
         Alpha: float = 1.0, LOD: float = 0.0
     ):
         # Store the data as instance attributes
-        self.planePoint = planePoint
-        self.planeNormal = planeNormal
-        self.planeWidth = planeWidth
-        self.planeHeight = planeHeight
+        self.planePoint = list(planePoint)
+        self.planeNormal = list(planeNormal)
+        self.planeWidth = float(planeWidth)
+        self.planeHeight = float(planeHeight)
 
-        self.SprTexture = SprTexture
-        self.uvSize = uvSize
-        self.Alpha = Alpha
-        self.LOD = LOD
+        # Sampler name (used in shader code). Set a default unique name if none given
+        self.SprTexture = SprTexture if SprTexture else f"sprTex_{id(self)}"
+        self.uvSize = list(uvSize)
+        self.Alpha = float(Alpha)
+        self.LOD = float(LOD)
 
+        # GL texture handle (created when loading image from disk). None => not loaded
+        self.texture_id = None
+        self.tex_size = (0, 0)
 
     def generate_spr_code(self):
+        # NOTE: This injects literal values into the shader. The sampler is passed
+        # as the identifier self.SprTexture (must match the uniform declared).
         code = (
             f"col = Sprite("
             f"ro,rd,"
             f"vec3({self.planePoint[0]},{self.planePoint[1]},{self.planePoint[2]}),"
             f"vec3({self.planeNormal[0]},{self.planeNormal[1]},{self.planeNormal[2]}),"
-            f"{self.planeWidth},"
-            f"{self.planeHeight},"
+            f"{self.planeWidth:.6f},"
+            f"-{self.planeHeight:.6f},"
             f"col, d,"
-            f"{self.SprTexture},"
-            f"vec2({self.uvSize[0]},{self.uvSize[1]}),"
-            f"{self.Alpha},"
-            f"{self.LOD}"
+            f"{self.SprTexture},"  # sampler uniform name (no quotes)
+            f"vec2({self.uvSize[0]:.6f},{self.uvSize[1]:.6f}),"
+            f"{self.Alpha:.6f},"
+            f"{self.LOD:.6f}"
             f");\n"
         )
 
         return code
 
     def generate_uniforms_code(self):
+        # Return a sampler declaration using the sampler name
         return f"uniform sampler2D {self.SprTexture};\n"
+
+    def load_texture_from_file(self, filepath):
+        """Load an image from disk and upload to GL as an RGBA texture. Returns True on success."""
+        try:
+            img = Image.open(filepath).convert("RGBA")
+            w, h = img.size
+            img_data = img.tobytes("raw", "RGBA", 0, -1)
+            
+
+
+            tex = glGenTextures(1)
+            glBindTexture(GL_TEXTURE_2D, tex)
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
+            # Upload
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img_data)
+            glGenerateMipmap(GL_TEXTURE_2D)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+            glBindTexture(GL_TEXTURE_2D, 0)
+
+            # If an old texture existed, delete it
+            if self.texture_id:
+                try:
+                    glDeleteTextures(1, [self.texture_id])
+                except Exception:
+                    pass
+
+            self.texture_id = tex
+            self.tex_size = (w, h)
+            return True
+        except Exception as e:
+            print(f"Failed to load sprite texture '{filepath}': {e}")
+            return False
+
+    def free_texture(self):
+        if self.texture_id:
+            try:
+                glDeleteTextures(1, [self.texture_id])
+            except Exception:
+                pass
+            self.texture_id = None
+            self.tex_size = (0, 0)
+
 
 
 def generate_postproc_code(Sprites):
@@ -1495,6 +1547,30 @@ def main():
             glUniform3f(loc, float(pos[0]), float(pos[1]), float(pos[2]))
 
 
+    def bind_sprite_textures(uniforms):
+        """
+        Bind loaded sprite textures to texture units and upload the sampler uniform indices.
+        Assumes texture unit 0 may be used for accumulation/render targets, so start at unit 1.
+        """
+        base_unit = 1
+        for i, spr in enumerate(sprites_array):
+            loc = uniforms.get(spr.SprTexture, -1) if uniforms else -1
+            unit = base_unit + i
+            if spr.texture_id is not None and loc is not None and loc != -1:
+                glActiveTexture(GL_TEXTURE0 + unit)
+                glBindTexture(GL_TEXTURE_2D, spr.texture_id)
+                # Tell shader which texture unit to sample from
+                glUniform1i(loc, unit)
+            else:
+                # If texture not loaded, bind 0 to keep behavior stable
+                glActiveTexture(GL_TEXTURE0 + unit)
+                glBindTexture(GL_TEXTURE_2D, 0)
+                if loc is not None and loc != -1:
+                    glUniform1i(loc, unit)
+        # restore active texture to 0
+        glActiveTexture(GL_TEXTURE0)
+
+
     # --- Delta time --- 
     delta_time = 0.0 
 
@@ -1549,10 +1625,7 @@ def main():
     export_level = 0.0
 
     # Sprites
-    sprites_array = [
-        Sprite([0.0,0.0,0.0], [0.0,0.0,1.0], 2.0, 2.0, "Spr1", [1.0,1.0],1.0,0.0),
-        Sprite([-2.0,0.0,0.0], [0.0,1.0,0.0], 4.0, 4.0, "Spr2", [1.0,1.0],1.0,0.0)
-        ]
+    sprites_array = []
 
 
     # --- FPS tracking ---
@@ -1624,8 +1697,8 @@ def main():
             return None, None
     
     def get_uniform_locations(shader_program):
-        """Get all uniform locations for the shader program."""
-        return {
+        # Get all uniform locations for the shader program.
+        uniforms = {
             'time'                 :       glGetUniformLocation(shader_program, "time"),
             'resolution'           :       glGetUniformLocation(shader_program, "resolution"),
             'viewportOffset'       :       glGetUniformLocation(shader_program, "viewportOffset"),
@@ -1642,8 +1715,19 @@ def main():
             'move_pos'             :       glGetUniformLocation(shader_program, "MovePos"),
             'maxFrames'            :       glGetUniformLocation(shader_program, "MaxFrames"),
             'LightDir'             :       glGetUniformLocation(shader_program, "LightDir")
-        }   
+        }
 
+        # Register sprite sampler uniforms (dynamic)
+        # sprites_array is in outer scope; it's the list of Sprite objects used for postprocessing
+        try:
+            for spr in sprites_array:
+                # Use sampler name string as key, store location (may be -1 if unused)
+                uniforms[spr.SprTexture] = glGetUniformLocation(shader_program, spr.SprTexture)
+        except Exception:
+            # If sprites_array is not defined yet, skip (defensive)
+            pass
+
+        return uniforms
 
 
     @MonitorChanges
@@ -2247,7 +2331,7 @@ void main() {
                     
                     glUniform3f(uniform_locs['LightDir'], LightDir[0], LightDir[1], LightDir[2])
 
-
+                bind_sprite_textures(uniform_locs)
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
 
@@ -2263,6 +2347,7 @@ void main() {
             glActiveTexture(GL_TEXTURE0)
             glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])
             glUniform1i(glGetUniformLocation(display_shader, "renderTexture"), 0)
+            
 
             # Set isAccumulation to 1 if rendering is complete
             if frame_count >= max_frames:
@@ -2272,6 +2357,7 @@ void main() {
             #print(glGetUniformLocation(display_shader,"isAccumulation"))
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
+            bind_sprite_textures(uniform_locs)
             glBindVertexArray(display_vao)
             glDrawArrays(GL_QUADS, 0, 4)
             glBindVertexArray(0)
@@ -2304,6 +2390,7 @@ void main() {
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
             glBindVertexArray(vao)
+            bind_sprite_textures(uniform_locs)
             glDrawArrays(GL_QUADS, 0, 4)
             glViewport(0, 0, width, height)
 
@@ -2629,6 +2716,7 @@ void main() {
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
 
                 glBindVertexArray(vao)
+                bind_sprite_textures(uniform_locs)
                 glDrawArrays(GL_QUADS, 0, 4)
                 
                 # Switch back to default framebuffer
@@ -2644,6 +2732,7 @@ void main() {
                 # Set viewport to the rendering area (accounting for menu bar)
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(display_vao)
+                bind_sprite_textures(uniform_locs)
                 glDrawArrays(GL_QUADS, 0, 4)
                 glBindVertexArray(0)
                 
@@ -2666,6 +2755,7 @@ void main() {
 
                     glViewport(panel_width, menu_bar_height, scaled_rendering_width, scaled_rendering_height)
                     glBindVertexArray(vao)
+                    bind_sprite_textures(uniform_locs)
                     glDrawArrays(GL_QUADS, 0, 4)
                     glViewport(0, 0, width, height)
         else:
@@ -2687,6 +2777,7 @@ void main() {
 
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(vao)
+                bind_sprite_textures(uniform_locs)
                 glDrawArrays(GL_QUADS, 0, 4)
                 glViewport(0, 0, width, height)
         
@@ -3086,6 +3177,60 @@ You can also support the project by reporting an error, or by suggesting an impr
                         imgui.text(f"Type: {primitive.primitive_type}")
                     
                         
+                        if primitive.primitive_type == "sprite":
+                            # sprite_index is stored in primitive.kwargs at creation time
+                            sprite_idx = primitive.kwargs.get('sprite_index', None)
+                            if sprite_idx is None or sprite_idx >= len(sprites_array):
+                                imgui.text_colored("Sprite data missing or corrupted", 1.0, 0.0, 0.0, 1.0)
+                            else:
+                                spr = sprites_array[sprite_idx]
+                                imgui.text("Sprite - Plane parameters:")
+                                changed, spr.planePoint = input_vec3("Plane Point", spr.planePoint, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                                changed2, spr.planeNormal = input_vec3("Plane Normal", spr.planeNormal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                                changed3, spr.planeWidth = input_float("Plane Width", spr.planeWidth, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                                changed4, spr.planeHeight = input_float("Plane Height", spr.planeHeight, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                                if changed or changed2 or changed3 or changed4:
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+
+                                imgui.separator()
+                                imgui.text("Texture + mapping:")
+                                # uvSize is vec2, use input_vec3 but only first two components
+                                uv2 = [spr.uvSize[0], spr.uvSize[1], 0.0]
+                                changed_uv, uv2 = input_vec3("UV Size (u,v)", uv2, 0.1, panel_elem_width_vec3)
+                                spr.uvSize[0], spr.uvSize[1] = uv2[0], uv2[1]
+                                changed_alpha, spr.Alpha = input_float("Alpha", spr.Alpha, 0.01, panel_elem_width_float)
+                                changed_lod, spr.LOD = input_float("LOD", spr.LOD, 0.0, panel_elem_width_float)
+
+                                if changed_uv or changed_alpha or changed_lod:
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+
+                                # Show texture status and "Load Texture" button
+                                if spr.texture_id:
+                                    imgui.text(f"Texture loaded: {spr.tex_size[0]}x{spr.tex_size[1]}")
+                                else:
+                                    imgui.text_colored("No texture loaded", 0.9, 0.3, 0.3, 1.0)
+
+                                imgui.same_line()
+                                if imgui.button("Load Texture", -1):
+                                    # Use tkinter filedialog (as in other parts of the code)
+                                    root = tk.Tk()
+                                    root.withdraw()
+                                    filetypes = [("Image files", ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tga")), ("All files", "*.*")]
+                                    filepath = filedialog.askopenfilename(filetypes=filetypes)
+                                    root.destroy()
+                                    if filepath:
+                                        ok = spr.load_texture_from_file(filepath)
+                                        if ok:
+                                            # Ensure sampler name is unique and recompile so the sampler uniform is declared/located
+                                            spr.SprTexture = f"sprTex{sprite_idx}"
+                                            success, new_uniforms = recompile_shader()
+                                            if success:
+                                                uniform_locs = new_uniforms
+
                         # Size/Radius - varies by primitive type
                         # I have python 3.8, "match", get out.
                         if primitive.primitive_type == "sphere":
@@ -3437,7 +3582,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                 ("Vertical Capsule", "vertical_capsule", (1.0, 0.3)),
                 ("Capped Cylinder", "capped_cylinder", (0.3, 1.0)),
                 ("Rounded Cylinder", "rounded_cylinder", (0.3, 0.1)),
-                ("Pointer", "pointer", None),  # <-- new
+                ("Pointer", "pointer", None),
+                ("Sprite", "sprite", None)
             ]
 
             for label, prim_type, size_radius in primitives_list:
@@ -3463,6 +3609,23 @@ You can also support the project by reporting an error, or by suggesting an impr
                     elif prim_type == "pointer":
                         # default pointer function
                         new_id = scene_builder.add_pointer((0.0, 0.0, 0.0), func='pointer_identity', ui_name=label)
+                    elif prim_type == "sprite":
+                        # Create a Sprite object and append to the global sprites_array.
+                        # Default plane is centered in front of camera/origin; uvSize default 1x1.
+                        new_spr = Sprite(
+                        planePoint=(0.0, 0.0, 0.0),
+                        planeNormal=(0.0, 0.0, 1.0),
+                        planeWidth=2.0,
+                        planeHeight=2.0,
+                        SprTexture=f"sprTex{len(sprites_array)}",
+                        uvSize=(1.0, 1.0),
+                        Alpha=1.0,
+                        LOD=0.0
+                        )
+                        sprites_array.append(new_spr)
+                        # Create a SDF primitive that references the sprite index so it shows in the tree
+                        new_id = scene_builder.add_primitive("sprite", (0.0, 0.0, 0.0), [0.0,0.0,0.0], ui_name=label, color=[1.0,1.0,1.0], sprite_index=len(sprites_array)-1)
+                    
                     else:
                         new_id = scene_builder.add_box((0.0, 0.0, 0.0), size_radius, ui_name=label)
                     
