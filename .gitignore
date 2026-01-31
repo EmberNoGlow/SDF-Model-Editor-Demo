@@ -209,3 +209,4 @@ __marimo__/
 # Imgui
 imgui.ini
 /ReleaseBuild
+sdf_texture.bin

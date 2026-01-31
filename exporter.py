@@ -237,7 +237,7 @@ def save_3d_texture(array, filename="sdf_texture.bin"):
     print(f"Size: {array.nbytes / 1024:.2f} KB")
 
 
-def export_to_obj(sdf_array: np.ndarray, filename: str, level: float = 0.0, scale: float = 1.0, offset: tuple = (0.0, 0.0, 0.0)):
+def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP = True, level: float = 0.0, scale: float = 1.0, offset: tuple = (0.0, 0.0, 0.0)):
 
     if sdf_array.dtype != np.float32:
         print(f"Warning: Input array is not float32. Converting from {sdf_array.dtype}.")
