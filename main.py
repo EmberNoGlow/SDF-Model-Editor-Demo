@@ -301,6 +301,7 @@ class SDFPrimitive:
         else:
             raise ValueError(f"Unknown primitive type: {self.primitive_type}")
 
+
     def to_dict(self):
         """Convert primitive to a dictionary for JSON serialization."""
         return {
@@ -314,6 +315,65 @@ class SDFPrimitive:
             "ui_name": self.ui_name,
             "kwargs": self.kwargs
         }
+
+
+
+class Sprite:
+    """
+    A structure to hold the parameters defining a sprite, 
+    including its projection plane and texture information.
+    """
+    def __init__(self,
+        # Plane
+        planePoint, planeNormal, 
+        planeWidth: float, planeHeight: float,
+
+        # Texture
+        SprTexture, uvSize,
+        Alpha: float = 1.0, LOD: float = 0.0
+    ):
+        # Store the data as instance attributes
+        self.planePoint = planePoint
+        self.planeNormal = planeNormal
+        self.planeWidth = planeWidth
+        self.planeHeight = planeHeight
+
+        self.SprTexture = SprTexture
+        self.uvSize = uvSize
+        self.Alpha = Alpha
+        self.LOD = LOD
+
+
+    def generate_spr_code(self):
+        code = (
+            f"col = Sprite("
+            f"ro,rd,"
+            f"vec3({self.planePoint[0]},{self.planePoint[1]},{self.planePoint[2]}),"
+            f"vec3({self.planeNormal[0]},{self.planeNormal[1]},{self.planeNormal[2]}),"
+            f"{self.planeWidth},"
+            f"{self.planeHeight},"
+            f"col, d,"
+            f"{self.SprTexture},"
+            f"vec2({self.uvSize[0]},{self.uvSize[1]}),"
+            f"{self.Alpha},"
+            f"{self.LOD}"
+            f");\n"
+        )
+
+        return code
+
+    def generate_uniforms_code(self):
+        return f"uniform sampler2D {self.SprTexture};\n"
+
+
+def generate_postproc_code(Sprites):
+    uni_code = ""
+    code = ""
+    for spr in Sprites:
+        code += spr.generate_spr_code()
+        uni_code += spr.generate_uniforms_code()
+    return code, uni_code
+
 
 
 
@@ -1488,12 +1548,18 @@ def main():
     export_z_up = True
     export_level = 0.0
 
+    # Sprites
+    sprites_array = [
+        Sprite([0.0,0.0,0.0], [0.0,0.0,1.0], 2.0, 2.0, "Spr1", [1.0,1.0],1.0,0.0),
+        Sprite([-2.0,0.0,0.0], [0.0,1.0,0.0], 4.0, 4.0, "Spr2", [1.0,1.0],1.0,0.0)
+        ]
 
 
     # --- FPS tracking ---
     fps_clock = time.time()
     fps_frames = 0
     fps_value = 0
+
 
     # --- Shader compilation and error tracking ---
     shader_compile_error = None
@@ -1502,14 +1568,17 @@ def main():
     def get_shader_hash():
         """Generate a hash of the current shader code for caching."""
         scene_code = scene_builder.generate_raymarch_code()
+        postproc_code = generate_postproc_code(sprites_array)
         selected_fragment_shader = load_shader_code(shader_names[shader_choice])
         fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
         fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
         fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
+        fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
+        fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
         
         # Create hash of the complete shader code (including shader choice)
-        shader_code = vertex_shader + fragment_shader + shader_names[shader_choice]
-        return hashlib.md5(shader_code.encode()).hexdigest()
+        shader_code = f"{vertex_shader}\n{fragment_shader}\n{shader_names[shader_choice]}"
+        return hashlib.md5(shader_code.encode('utf-8')).hexdigest()
     
 
 
@@ -1528,10 +1597,13 @@ def main():
         try:
             scene_code = scene_builder.generate_raymarch_code()
             # Use selected shader
+            postproc_code = generate_postproc_code(sprites_array)
             selected_fragment_shader = load_shader_code(shader_names[shader_choice])
             fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
             fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
             fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
+            fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
+            fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
             
             shader_program = compileProgram(
                 compileShader(vertex_shader, GL_VERTEX_SHADER),

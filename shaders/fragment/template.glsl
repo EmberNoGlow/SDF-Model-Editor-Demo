@@ -13,8 +13,9 @@ uniform vec3 SkyColorBottom =  vec3(0.05, 0.05, 0.1);
 uniform bool GridEnabled = true;
 
 uniform vec3 LightDir = vec3(0.5, 0.5, -1.0);
-
 uniform vec3 MovePos;
+
+{ADDITIONAL_UNIFORMS}
 
 
 // Assuming these are replaced by your external code
@@ -137,6 +138,137 @@ vec3 add_grid(vec3 color, vec3 ro, vec3 rd, float depth) {
     return color;
 }
 
+
+
+// Struct to hold the results of the intersection test
+struct IntersectionResult {
+    bool intersects;
+    vec2 uv;
+    float t; // Distance along the ray
+};
+
+// Helper function to build an orthonormal basis for a given normal vector
+void buildOrthonormalBasis(vec3 N, out vec3 U, out vec3 V) {
+    // Robust method to find a vector not parallel to N
+    vec3 T = abs(N.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    
+    // U is perpendicular to N
+    U = normalize(cross(T, N));
+    
+    // V is perpendicular to both N and U
+    V = cross(N, U);
+    // Since N and U are orthonormal, V is already normalized.
+}
+
+
+IntersectionResult intersectRayPlane(
+    vec3 rayOrigin, 
+    vec3 rayDirection, 
+    vec3 planePoint, 
+    vec3 planeNormal, 
+    float planeWidth,
+    float planeHeight
+) {
+    IntersectionResult result = IntersectionResult(false, vec2(0.0), 0.0);
+
+    // 1. Calculate denominator (N dot D)
+    float N_dot_D = dot(planeNormal, rayDirection);
+
+    // Check for parallelism (near zero)
+    if (abs(N_dot_D) < 1e-6) {
+        return result; // Parallel or coplanar
+    }
+
+    // 2. Calculate t (distance along ray)
+    vec3 P0_minus_O = planePoint - rayOrigin;
+    float numerator = dot(planeNormal, P0_minus_O);
+    
+    float t = numerator / N_dot_D;
+
+    // 3. Check if intersection is in front of the ray origin (t >= 0)
+    if (t < 0.0) {
+        return result; // Intersection is behind the ray origin
+    }
+    
+    result.t = t;
+    
+    // 4. Calculate Intersection Point I
+    vec3 I = rayOrigin + t * rayDirection;
+    
+    // 5. Calculate UV Mapping
+    
+    // Vector from the plane's reference point (P0) to the intersection point (I)
+    vec3 V_rel = I - planePoint;
+    
+    vec3 U, V;
+    buildOrthonormalBasis(planeNormal, U, V);
+
+    // Project V_rel onto the basis vectors to get UV coordinates
+    float u_raw = dot(V_rel, U);
+    float v_raw = dot(V_rel, V);
+    
+    // Normalize UV by the size parameters to get texture coordinates [0, 1]
+    float u_norm = u_raw / planeWidth;
+    float v_norm = v_raw / planeHeight;
+
+    // 6. Check Size Constraints (Is the intersection within the defined quad?)
+    if (u_norm >= 0.0 && u_norm <= 1.0 && 
+        v_norm >= 0.0 && v_norm <= 1.0) 
+    {
+        result.intersects = true;
+        result.uv = vec2(u_norm, v_norm);
+    }
+
+    return result;
+}
+
+
+
+
+vec3 Sprite(
+    // Plane
+    vec3 rayOrigin, 
+    vec3 rayDirection, 
+    vec3 planePoint, 
+    vec3 planeNormal, 
+    float planeWidth,
+    float planeHeight,
+
+    // Scene
+    vec3 SceneColor,
+    float SceneDepth,
+
+    // Texture
+    sampler2D SprTexture,
+    vec2 uvSize,
+    float Alpha,
+    float LOD
+){
+
+    vec3 col = SceneColor;
+
+    IntersectionResult plane = intersectRayPlane(
+        rayOrigin, rayDirection,
+        planePoint, planeNormal,
+        planeWidth, planeHeight
+    );
+
+    if( plane.intersects ){
+        if(plane.t < SceneDepth){
+            vec2 uv = plane.uv*uvSize;
+            vec4 spr_col = texture2DLod(SprTexture, uv, LOD);
+            col = mix(col, spr_col.rgb, spr_col.a*Alpha);
+        }
+    }
+
+    return col;
+}
+
+
+
+
+
+
 // Main image function
 void mainImage(out vec4 fragColor, in vec2 fragCoord) {
     // convert fragCoord to viewport-local coordinates (fragCoord is window coords)
@@ -168,6 +300,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     // --- Raymarching ---
     vec4 rayResult = rayMarchWithColor(ro, rd);
+
     float d = rayResult.w;
     vec3 surfaceColor = rayResult.xyz;
 
@@ -198,6 +331,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     if(GridEnabled == true) col = add_grid(col,ro,rd,d);
 
+    {POSTPROC}
 
     fragColor = vec4(col, 1.0);
 }
