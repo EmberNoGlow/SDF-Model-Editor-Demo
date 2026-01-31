@@ -77,7 +77,42 @@ def load_scene_dialog(scene_builder, parent_window=None):
     return False, "Load cancelled"
 
 
+def save_sdfvol_dialog(data, parent_window=None):
+    """Open a save dialog and save the scene to JSON."""
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    
+    filepath = filedialog.asksaveasfilename(
+        defaultextension=".bin",
+        filetypes=[("binary files", "*.bin"), ("All files", "*.*")],
+        initialfile="scene.bin"
+    )
+    
+    root.destroy()
+    
+    if filepath:
+        sdfexp.save_3d_texture(data, filepath)
+        return True
+    return False
 
+
+def save_sdfobj_dialog(data, export_z_up, parent_window=None):
+    """Open a save dialog and save the scene to JSON."""
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    
+    filepath = filedialog.asksaveasfilename(
+        defaultextension=".obj",
+        filetypes=[("wavefront obj", "*.obj"), ("All files", "*.*")],
+        initialfile="scene.obj"
+    )
+    
+    root.destroy()
+    
+    if filepath:
+        sdfexp.export_to_obj(data, filepath, export_z_up)
+        return True
+    return False
 
 
 
@@ -168,6 +203,7 @@ glob_history = History()
 
 start_drag = False
 end_drag = False
+
 
 class SDFPrimitive:
     def __init__(self, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
@@ -1380,6 +1416,7 @@ def main():
     drag_start_pos = None           # original primitive position at drag start (copied list)
     drag_accum = [0.0, 0.0, 0.0]    # accumulated world-space movement since drag start
     DRAG_SENSITIVITY = 0.01         # adjust for speed; consider scaling with cam_radius for consistent feel
+    
     # Helper: safely set MovePos uniform (call this wherever you were directly doing glUniform3f for MovePos)
     def set_move_pos_uniform(shader_program, uniform_locs, pos):
         """
@@ -1439,12 +1476,16 @@ def main():
     # Grid (template)
     GridEnabled = True
 
+    # Light
+    LightDir = [0.5, 0.5, -1.0]
+
     # --- Settings ---
     resolution_scale = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
 
     # Export Config
     grid_size = 16
     vox_quality = 1.0
+    export_z_up = True
 
 
 
@@ -1469,6 +1510,8 @@ def main():
         shader_code = vertex_shader + fragment_shader + shader_names[shader_choice]
         return hashlib.md5(shader_code.encode()).hexdigest()
     
+
+
     def compile_shader():
         """Compile the shader program from the current scene.  Uses caching."""
         nonlocal shader_compile_error
@@ -1524,7 +1567,8 @@ def main():
             'col_sky_bottom'       :       glGetUniformLocation(shader_program, "SkyColorBottom"),
             'grid_enabled'         :       glGetUniformLocation(shader_program, "GridEnabled"),
             'move_pos'             :       glGetUniformLocation(shader_program, "MovePos"),
-            'maxFrames'           :       glGetUniformLocation(shader_program, "MaxFrames")
+            'maxFrames'            :       glGetUniformLocation(shader_program, "MaxFrames"),
+            'LightDir'             :       glGetUniformLocation(shader_program, "LightDir")
         }   
 
 
@@ -2127,6 +2171,9 @@ void main() {
 
                     glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
                     glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+                    
+                    glUniform3f(uniform_locs['LightDir'], LightDir[0], LightDir[1], LightDir[2])
+
 
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
@@ -2180,6 +2227,7 @@ void main() {
                 glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
 
                 glUniform1i(uniform_locs['grid_enabled'], GridEnabled)
+                glUniform3f(uniform_locs['LightDir'], LightDir[0], LightDir[1], LightDir[2])
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
             glBindVertexArray(vao)
@@ -2655,6 +2703,17 @@ void main() {
 
                 imgui.spacing()
                 imgui.separator()
+            
+
+            imgui.text("Sun:")
+            changed, LightDir = input_vec3("Sun Direction", LightDir)
+            if changed:
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+
+            imgui.spacing()
+            imgui.separator()
 
 
             # Calculate scaled size for display
@@ -2710,12 +2769,52 @@ void main() {
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
                 comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, window)
+                save_sdfvol_dialog(comp_bin)
 
                 show_export_vol_window = False
 
             imgui.end()
 
+        if show_export_obj_window:
+            imgui.set_next_window_position(width // 2 - 150, height // 2 - 130)
+            imgui.set_next_window_size(300, 260)
+            is_open, show_export_obj_window = imgui.begin("Export to OBJ", True, imgui.WINDOW_NO_COLLAPSE)
 
+            if not is_open:
+                show_export_obj_window = False
+
+            imgui.text("Grid Size:")
+            changed, grid_size = imgui.input_int("##GridSize", grid_size, 8)
+            imgui.text_colored(
+                "Note that its dimensions range \nfrom -GridSize/2 to +GridSize/2.",
+                0.56, 0.93, 0.56
+            )
+
+            imgui.spacing()
+
+            changed, vox_quality = input_float("Voxelization Quality", vox_quality, 0.25, 100)
+
+            imgui.separator()
+            imgui.spacing() 
+
+            changed, export_z_up = imgui.checkbox("Z up", export_z_up)
+
+            imgui.separator()
+            imgui.spacing()
+
+            if imgui.button("Cancel", 135,30):
+                show_export_obj_window = False
+
+            imgui.same_line(150)
+
+            if imgui.button("Export", 135,30):
+                code = scene_builder.generate_raymarch_code()
+                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, window)
+                save_sdfobj_dialog(comp_bin, export_z_up)
+
+                show_export_obj_window = False
+
+            imgui.end()
 
 
         if show_about_window:

@@ -12,6 +12,8 @@ uniform vec3 SkyColorTop = vec3(0.1, 0.15, 0.25);
 uniform vec3 SkyColorBottom =  vec3(0.05, 0.05, 0.1);
 uniform bool GridEnabled = true;
 
+uniform vec3 LightDir = vec3(0.5, 0.5, -1.0);
+
 uniform vec3 MovePos;
 
 
@@ -178,8 +180,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
         vec3 n = calcNormal(p);
 
         // Simple directional light
-        vec3 lightDir = normalize(vec3(0.5, 0.8, 0.5));
-        float diff = max(dot(n, lightDir), 0.0);
+        float diff = max(dot(n, normalize(LightDir)), 0.0);
 
         // Ambient + Diffuse
         col = surfaceColor * diff + surfaceColor * vec3(0.15);  

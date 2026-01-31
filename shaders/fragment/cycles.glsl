@@ -13,6 +13,8 @@ uniform sampler2D accumulationTexture;
 uniform int useAccumulation; // 0 = no accumulation, 1 = with accumulation
 uniform vec3 SkyColorTop;
 uniform vec3 SkyColorBottom;
+uniform vec3 LightColor = vec3(0.7);
+uniform vec3 LightDir = vec3(0.5, 0.5, -1.0);
 
 uniform vec3 MovePos;
 uniform int MaxFrames = 0;
@@ -83,6 +85,26 @@ vec3 calcNormal(vec3 p) {
 }
 
 // --- PATH TRACING CORE ---
+float traceShadowRay(vec3 origin, vec3 dir, float maxDist) {
+    float dO = 0.015; // Start slightly away from the surface to avoid self-intersection
+    
+    for(int i = 0; i < 64; i++) {
+        vec3 p = origin + dir * dO;
+        vec4 res = map(p);
+        
+        // If we hit any geometry (res.w > 0.001) before maxDist, it's occluded.
+        if(res.w < 0.001 && dO < maxDist) {
+            return 0.0; // Shadowed
+        }
+        
+        dO += res.w;
+        if(dO > maxDist) break;
+    }
+    
+    return 1.0; // Not shadowed (visible to the light source)
+}
+
+
 vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
     vec3 throughput = vec3(1.0);
     vec3 totalLight = vec3(0.0);
@@ -92,6 +114,7 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
         vec4 res;
         bool hit = false;
         
+        // --- Scene Intersection ---
         for(int i = 0; i < 80; i++) {
             vec3 p = ro + rd * dO;
             res = map(p);
@@ -105,18 +128,39 @@ vec3 tracePath(vec3 ro, vec3 rd, vec2 seed) {
             vec3 n = calcNormal(p);
             vec3 albedo = res.xyz;
             
-            ro = p + n * 0.01;
+            // 1. DIRECT SUN ILLUMINATION CALCULATION
+            float maxDist = 100.0; // Assuming the sun is far away
+            float visibility = traceShadowRay(p, normalize(LightDir), maxDist);
+            
+            if (visibility > 0.001) {
+                // Calculate diffuse contribution (Lambertian scattering)
+                float NdotL = max(0.0, dot(n, normalize(LightDir)));
+                
+                vec3 sunLight = LightColor * NdotL * visibility;
+                
+                // Add direct light contribution, scaled by throughput (what reached this point)
+                totalLight += throughput * albedo * sunLight;
+            }
+            
+            // 2. INDIRECT LIGHT SAMPLING (Bounce)
+            ro = p + n * 0.001;
+            // Note: The seed for hemisphere sampling should ideally use a different mechanism 
+            // or careful modification to ensure correct uncorrelated sampling across bounces.
             rd = getCosHemisphereSample(n, seed + float(bounce) + float(frameIndex), frameIndex, MaxFrames);
             
             throughput *= albedo;
         } else {
+            // --- Sky/Atmosphere (Ambient Light) ---
             float t = 0.5 * (rd.y + 1.0);
             t = smoothstep(0.35, 0.5, t);
             vec3 skyColor = mix(SkyColorBottom, SkyColorTop, t);
+            
+            // Add sky contribution (which is multiplied by the current throughput)
             totalLight += throughput * skyColor;
             break;
         }
         
+        // Russian Roulette (Path Termination)
         float p = max(throughput.r, max(throughput.g, throughput.b));
         if (hash12(seed + float(bounce)) > p) break;
         throughput /= p;
