@@ -3315,7 +3315,10 @@ You can also support the project by reporting an error, or by suggesting an impr
                 flags |= imgui.TREE_NODE_SELECTED
 
             # Create the buttons
-            if imgui.button(f"^##up_{op_id}", wbn, hbn):
+            # Thanks to Omar for the tip about the arrow button:
+            # https://bsky.app/profile/ocornut.bsky.social/post/3mdsgm36xm226
+            imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
+            if imgui.arrow_button(f"##up_{op_id}", 2):
                 idx = scene_builder.id_to_index[op_id][1]
                 if idx > 0:
                     scene_builder.move_item(op_id, idx - 1)
@@ -3325,13 +3328,14 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             imgui.same_line()
 
-            if imgui.button(f"v##down_{op_id}", wbn, hbn):
+            if imgui.arrow_button(f"##down_{op_id}", 3):
                 idx = scene_builder.id_to_index[op_id][1]
                 if idx < len(scene_builder.primitives) - 1:
                     scene_builder.move_item(op_id, idx + 1)
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
+            imgui.pop_style_var(1)
 
             imgui.same_line()
 
@@ -3361,23 +3365,26 @@ You can also support the project by reporting an error, or by suggesting an impr
                 flags |= imgui.TREE_NODE_SELECTED
 
             # First create the buttons (they'll appear on the left)
-            if imgui.button(f"^##upop_{op_id}", wbn, hbn):
+            imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
+            if imgui.arrow_button(f"##upop_{op_id}", 2):
                 idx = scene_builder.id_to_index[op_id][1]
                 if idx > 0:
                     scene_builder.move_item(op_id, idx - 1)
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
+            
 
             imgui.same_line()  # Keep buttons on the same line
 
-            if imgui.button(f"v##downop_{op_id}", wbn, hbn):
+            if imgui.arrow_button(f"##downop_{op_id}", 3):
                 idx = scene_builder.id_to_index[op_id][1]
                 if idx < len(scene_builder.operations) - 1:
                     scene_builder.move_item(op_id, idx + 1)
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
+            imgui.pop_style_var(1)
 
             imgui.same_line()  # Keep label on the same line as buttons
 
