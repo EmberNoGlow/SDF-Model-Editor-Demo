@@ -1062,6 +1062,60 @@ class SDFSceneBuilder:
         """Reapply operation parameter change (without creating history)."""
         self._set_operation_parameter(op_id, param_name, new_value)
 
+
+
+    def _move_item_no_history(self, op_id, new_index):
+        """Move an existing item to new_index within its list without creating a history entry."""
+        if op_id not in self.id_to_index:
+            return False
+
+        item_type, old_index = self.id_to_index[op_id]
+
+        if item_type == 'primitive':
+            item = self.primitives.pop(old_index)
+            # clamp
+            new_index = max(0, min(new_index, len(self.primitives)))
+            self.primitives.insert(new_index, item)
+            # update indices
+            for i, (pid, _) in enumerate(self.primitives):
+                self.id_to_index[pid] = ('primitive', i)
+        else:
+            item = self.operations.pop(old_index)
+            new_index = max(0, min(new_index, len(self.operations)))
+            self.operations.insert(new_index, item)
+            for i, (oid, _) in enumerate(self.operations):
+                self.id_to_index[oid] = ('operation', i)
+
+        return True
+
+    def move_item(self, op_id, new_index):
+        """
+        Public API to move an item within its section (primitives or operations).
+        Records undo/redo so the action can be reverted.
+        """
+        if op_id not in self.id_to_index:
+            return False
+
+        item_type, old_index = self.id_to_index[op_id]
+
+        # Record undo/redo entries that call the same low-level move (no-history).
+        glob_history.add(
+            self._move_item_no_history,  # undo: move back
+            self._move_item_no_history,  # redo: move to new_index again
+            (op_id, old_index),
+            (op_id, new_index),
+            {},
+            {}
+        )
+
+        # Apply the move
+        return self._move_item_no_history(op_id, new_index)
+
+
+
+
+
+
     # --- Remaining methods unchanged (but included for completeness) ---
     def get_all_items(self):
         """Get all items in order: primitives then operations."""
@@ -1131,7 +1185,8 @@ class SDFSceneBuilder:
         """Convert the entire scene to a dictionary for JSON serialization."""
         scene_dict = {
             "primitives": [],
-            "operations": []
+            "operations": [],
+            "sprites": []
         }
 
         # Serialize primitives
@@ -1146,7 +1201,24 @@ class SDFSceneBuilder:
             op_dict["op_id"] = op_id
             scene_dict["operations"].append(op_dict)
 
+        # Serialize sprites if the global sprites_array exists
+        # (we keep texture_id out of the JSON; textures must be reloaded by the user)
+        sprs = globals().get("sprites_array", None)
+        if sprs:
+            for spr in sprs:
+                scene_dict["sprites"].append({
+                    "planePoint": spr.planePoint,
+                    "planeNormal": spr.planeNormal,
+                    "planeWidth": spr.planeWidth,
+                    "planeHeight": spr.planeHeight,
+                    "SprTexture": spr.SprTexture,
+                    "uvSize": spr.uvSize,
+                    "Alpha": spr.Alpha,
+                    "LOD": spr.LOD
+                })
+
         return scene_dict
+
 
     def from_dict(self, scene_dict):
         """Load a scene from a dictionary (inverse of to_dict)."""
@@ -1155,6 +1227,24 @@ class SDFSceneBuilder:
         self.operations.clear()
         self.id_to_index.clear()
         self.next_id = 0
+
+        # Rebuild sprites_array first so sprite_index references in primitives are valid
+        # This creates module-level sprites_array used by the rest of the application/UI
+        global sprites_array
+        sprites_array = []
+        for s in scene_dict.get("sprites", []):
+            spr = Sprite(
+                planePoint=tuple(s.get("planePoint", (0.0, 0.0, 0.0))),
+                planeNormal=tuple(s.get("planeNormal", (0.0, 0.0, 1.0))),
+                planeWidth=float(s.get("planeWidth", 1.0)),
+                planeHeight=float(s.get("planeHeight", 1.0)),
+                SprTexture=s.get("SprTexture", f"sprTex{len(sprites_array)}"),
+                uvSize=tuple(s.get("uvSize", (1.0, 1.0))),
+                Alpha=float(s.get("Alpha", 1.0)),
+                LOD=float(s.get("LOD", 0.0))
+            )
+            # Note: texture_id remains None — user must load textures again (that's expected)
+            sprites_array.append(spr)
 
         # Load primitives
         for prim_dict in scene_dict.get("primitives", []):
@@ -1436,6 +1526,22 @@ def input_vec3(name, vector, value_step=0.1, item_width=60):
         c, vector[i] = HSpinner(vector[i], value_step, f"{name}_{axis}", item_width)
         changed = changed or c
         if i < 2:
+            imgui.same_line()
+    imgui.end_group()
+
+    imgui.same_line()
+    imgui.text(name)
+    return changed, vector
+
+
+def input_vec2(name, vector, value_step=0.1, item_width=60):
+    # Handles a 3D vector input with separate HSpinners for each component
+    imgui.begin_group()
+    changed = False
+    for i, axis in enumerate(['x', 'y']):
+        c, vector[i] = HSpinner(vector[i], value_step, f"{name}_{axis}", item_width)
+        changed = changed or c
+        if i < 1:
             imgui.same_line()
     imgui.end_group()
 
@@ -3088,22 +3194,43 @@ You can also support the project by reporting an error, or by suggesting an impr
             flags = imgui.TREE_NODE_LEAF
             if selected_item_id == op_id:
                 flags |= imgui.TREE_NODE_SELECTED
-            
-            imgui.tree_node(label, flags)
-            
-            # Left-click for selection
+
+            # Capture the return value of tree_node
+            node_open = imgui.tree_node(label, flags)
+
+            # Handle selection when the node is clicked
             if imgui.is_item_clicked():
                 selected_item_id = op_id
                 selection_mode = 'primitive'
                 renaming_item_id = None
 
-                # Recompile so the shader is regenerated with the correct selected_item_id
-                # (this prevents MovePos from being associated with a different primitive)
+                # Recompile shader
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
-            
-            imgui.tree_pop()
+
+            # Only show buttons if the node is "open" (though for leaf nodes, this is always true)
+            if node_open:
+                # Move buttons
+                imgui.same_line()
+                if imgui.button(f"^##up_{op_id}", 24, 18):
+                    idx = scene_builder.id_to_index[op_id][1]
+                    if idx > 0:
+                        scene_builder.move_item(op_id, idx - 1)
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+                imgui.same_line()
+                if imgui.button(f"v##down_{op_id}", 24, 18):
+                    idx = scene_builder.id_to_index[op_id][1]
+                    if idx < len(scene_builder.primitives) - 1:
+                        scene_builder.move_item(op_id, idx + 1)
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+                imgui.tree_pop()
 
         imgui.spacing()
         imgui.text("Operations:")
@@ -3112,21 +3239,38 @@ You can also support the project by reporting an error, or by suggesting an impr
             flags = imgui.TREE_NODE_LEAF
             if selected_item_id == op_id:
                 flags |= imgui.TREE_NODE_SELECTED
-            
-            imgui.tree_node(label, flags)
-            
-            # Left-click for selection
+
+            node_open = imgui.tree_node(label, flags)
+
             if imgui.is_item_clicked():
                 selected_item_id = op_id
                 selection_mode = 'operation'
                 renaming_item_id = None
 
-                # Recompile so the shader is regenerated with the correct selected_item_id
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
-            
-            imgui.tree_pop()
+
+            if node_open:
+                imgui.same_line()
+                if imgui.button(f"^##upop_{op_id}", 24, 18):
+                    idx = scene_builder.id_to_index[op_id][1]
+                    if idx > 0:
+                        scene_builder.move_item(op_id, idx - 1)
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+                imgui.same_line()
+                if imgui.button(f"v##downop_{op_id}", 24, 18):
+                    idx = scene_builder.id_to_index[op_id][1]
+                    if idx < len(scene_builder.operations) - 1:
+                        scene_builder.move_item(op_id, idx + 1)
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+                imgui.tree_pop()
 
         imgui.spacing()
         if imgui.button("Add (Ctrl+A)", -1):
@@ -3184,24 +3328,24 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 imgui.text_colored("Sprite data missing or corrupted", 1.0, 0.0, 0.0, 1.0)
                             else:
                                 spr = sprites_array[sprite_idx]
-                                imgui.text("Sprite - Plane parameters:")
-                                changed, spr.planePoint = input_vec3("Plane Point", spr.planePoint, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                                changed2, spr.planeNormal = input_vec3("Plane Normal", spr.planeNormal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                                changed3, spr.planeWidth = input_float("Plane Width", spr.planeWidth, STEP_VARIABLE_FLOAT, panel_elem_width_float)
-                                changed4, spr.planeHeight = input_float("Plane Height", spr.planeHeight, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                                imgui.text("Plane parameters:")
+                                changed, primitive.position = input_vec3("Point", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                                changed2, spr.planeNormal = input_vec3("Normal", spr.planeNormal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                                changed3, spr.planeWidth = input_float("Width", spr.planeWidth, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                                changed4, spr.planeHeight = input_float("Height", spr.planeHeight, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                                spr.planePoint = primitive.position
                                 if changed or changed2 or changed3 or changed4:
                                     success, new_uniforms = recompile_shader()
                                     if success:
                                         uniform_locs = new_uniforms
 
                                 imgui.separator()
-                                imgui.text("Texture + mapping:")
-                                # uvSize is vec2, use input_vec3 but only first two components
-                                uv2 = [spr.uvSize[0], spr.uvSize[1], 0.0]
-                                changed_uv, uv2 = input_vec3("UV Size (u,v)", uv2, 0.1, panel_elem_width_vec3)
+                                imgui.text("Mapping:")
+                                uv2 = spr.uvSize
+                                changed_uv, uv2 = input_vec2("UV Size", uv2, 0.1, panel_elem_width_vec3)
                                 spr.uvSize[0], spr.uvSize[1] = uv2[0], uv2[1]
                                 changed_alpha, spr.Alpha = input_float("Alpha", spr.Alpha, 0.01, panel_elem_width_float)
-                                changed_lod, spr.LOD = input_float("LOD", spr.LOD, 0.0, panel_elem_width_float)
+                                changed_lod, spr.LOD = input_float("LOD", spr.LOD, 0.1, panel_elem_width_float)
 
                                 if changed_uv or changed_alpha or changed_lod:
                                     success, new_uniforms = recompile_shader()
@@ -3214,7 +3358,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 else:
                                     imgui.text_colored("No texture loaded", 0.9, 0.3, 0.3, 1.0)
 
-                                imgui.same_line()
+                                imgui.spacing()
                                 if imgui.button("Load Texture", -1):
                                     # Use tkinter filedialog (as in other parts of the code)
                                     root = tk.Tk()
@@ -3289,11 +3433,11 @@ You can also support the project by reporting an error, or by suggesting an impr
                             )
                             changed = changed1 or changed2
                         else:
-                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer"]:
+                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer", "sprite"]:
                                 changed, primitive.size_or_radius = input_vec3(
                                     "Size", primitive.size_or_radius, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
                                 )
-                        if primitive.primitive_type != "pointer": # HACK
+                        if primitive.primitive_type not in ["pointer", "sprite"]: # HACK
                             if changed:
                                 success, new_uniforms = recompile_shader()
                                 if success:
@@ -3388,6 +3532,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                             imgui.text("Pointer functions mutate \nthe raymarch point `p` \nfor subsequent primitives.")
                             imgui.text_colored("Place a pointer earlier in \nthe tree to affect later objects.", 0.9, 0.8, 0.2, 1.0)
 
+                        elif primitive.primitive_type == "sprite":
+                            pass # Skip Transforms and Color
 
                         else:
                             # Special parameters for specific primitives
