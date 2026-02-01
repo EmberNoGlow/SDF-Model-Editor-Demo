@@ -2635,6 +2635,35 @@ void main() {
                 imgui.end_menu()
 
 
+            # --- Fast Change Rendering mode ---
+            cursor_pos = imgui.get_cursor_pos()
+            window_width = imgui.get_window_width()
+            remaining_width = window_width - cursor_pos.x
+
+            # Calculate positions for centered buttons
+            button_width = 100
+            spacing = 20
+            total_buttons_width = 2 * button_width + spacing
+            start_x = (cursor_pos.x + (remaining_width - total_buttons_width)) / 2
+
+
+            imgui.set_cursor_pos_x(start_x)
+            if imgui.button("Template", button_width):
+                shader_choice = 0
+                # Recompile with new shader
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+
+            imgui.set_cursor_pos_x(start_x + button_width + spacing)
+            if imgui.button("Cycles", button_width):
+                shader_choice = 1
+                # Recompile with new shader
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+
+
 
             imgui.end_main_menu_bar()
         
@@ -3139,7 +3168,7 @@ void main() {
             imgui.separator()
             imgui.spacing() 
 
-            changed, export_level = input_float("Level", export_level, 0.05)
+            changed, export_level = input_float("Level", export_level, 0.05, 100)
 
             imgui.spacing()
 
