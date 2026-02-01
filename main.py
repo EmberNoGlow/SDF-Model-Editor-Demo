@@ -1065,7 +1065,18 @@ class SDFSceneBuilder:
 
 
     def _move_item_no_history(self, op_id, new_index):
-        """Move an existing item to new_index within its list without creating a history entry."""
+        """Move an existing item to new_index within its list without creating a history entry.
+
+        For primitives the behavior is unchanged.
+
+        For operations we allow the move but then sanitize operation arguments:
+        - After the move we ensure every operation's operand references only items
+        that come earlier in the combined order (primitives then operations).
+        - If an operand would refer to an item that comes later (i.e. becomes invalid),
+        we replace it with the nearest higher-level item (the nearest item that
+        appears before the operation in the combined ordering). If none exists we
+        leave the argument unchanged (usually only happens in degenerate scenes).
+        """
         if op_id not in self.id_to_index:
             return False
 
@@ -1079,13 +1090,74 @@ class SDFSceneBuilder:
             # update indices
             for i, (pid, _) in enumerate(self.primitives):
                 self.id_to_index[pid] = ('primitive', i)
-        else:
-            item = self.operations.pop(old_index)
-            new_index = max(0, min(new_index, len(self.operations)))
-            self.operations.insert(new_index, item)
-            for i, (oid, _) in enumerate(self.operations):
-                self.id_to_index[oid] = ('operation', i)
+            return True
 
+        # --- Operation move ---
+        # Allow insertion positions from 0..len(self.operations)
+        desired_new_index = max(0, min(new_index, len(self.operations)))
+
+        # Remove the item from the list
+        item = self.operations.pop(old_index)
+
+        # Adjust insertion index because the list is now shorter if removing an earlier element
+        insert_index = desired_new_index
+        if insert_index > old_index:
+            insert_index -= 1
+
+        # Clamp final insertion index
+        insert_index = max(0, min(insert_index, len(self.operations)))
+        # Insert
+        self.operations.insert(insert_index, item)
+
+        # Update id mapping for operations (and keep primitives mapping as-is)
+        for i, (oid, _) in enumerate(self.operations):
+            self.id_to_index[oid] = ('operation', i)
+
+        # --- Sanitize operands so every operation only references items declared earlier ---
+        # Build combined order: primitives first, then operations (their current order)
+        combined = []
+        for pid, _ in self.primitives:
+            combined.append(pid)
+        for oid, _ in self.operations:
+            combined.append(oid)
+
+        combined_index = {opid: idx for idx, opid in enumerate(combined)}
+
+        # Helper: find nearest valid prior item id (< limit_idx), returns None if none
+        def find_nearest_prior(limit_idx):
+            for k in range(limit_idx - 1, -1, -1):
+                return combined[k]
+            return None
+
+        # Iterate through operations and fix arguments that point to items that come
+        # at or after the operation itself (invalid).
+        for op_idx, (cur_op_id, cur_op) in enumerate(self.operations):
+            # compute combined index of this operation
+            if cur_op_id not in combined_index:
+                continue
+            cur_combined_idx = combined_index[cur_op_id]
+
+            new_args = []
+            changed = False
+            for arg in cur_op.args:
+                # Only adjust string references that exist in combined_index
+                if isinstance(arg, str) and arg in combined_index:
+                    arg_combined_idx = combined_index[arg]
+                    if arg_combined_idx >= cur_combined_idx:
+                        # invalid reference: pick the nearest prior item
+                        replacement = find_nearest_prior(cur_combined_idx)
+                        if replacement is not None and replacement != arg:
+                            new_args.append(replacement)
+                            changed = True
+                            continue
+                        # if no valid prior found, fall through and keep original arg (degenerate case)
+                new_args.append(arg)
+
+            if changed:
+                # apply sanitized args (no history recorded here)
+                cur_op.args = new_args
+
+        # After possibly changing args, done. id_to_index already updated.
         return True
 
     def move_item(self, op_id, new_index):
