@@ -110,9 +110,9 @@ def save_sdfobj_dialog(data, export_z_up, export_level = 0.0, parent_window=None
     root.destroy()
     
     if filepath:
-        sdfexp.export_to_obj(data, filepath, export_z_up, export_level)
-        return True
-    return False
+        success, message = sdfexp.export_to_obj(data, filepath, export_z_up, export_level)
+        return success, message
+    return False, "Filepath is not valid"
 
 
 
@@ -1672,9 +1672,10 @@ def main():
     last_pan_x, last_pan_y = 0.0, 0.0  # Separate tracking for panning
     cam_radius = 5.0
     cam_orbit = [0.0, 0.0, 0.0]
+    last_x, last_y = 0.0, 0.0
+
     PAN_SENSITIVITY = 0.01  # Adjust this to control pan speed
     DRAG_SENSITIVITY = 0.01 # Adjust this to control drag (primitive) speed
-    last_x, last_y = 0.0, 0.0
 
     is_mmb_pressed = False
     is_shift_mmb_pressed = False
@@ -1682,6 +1683,8 @@ def main():
     # --- SaveLoad ---
     save_load_message = None
     save_load_message_time = None
+    export_obj_message = None
+    export_obj_message_time = None
 
     # --- Keys ---
     last_key_s_pressed = False
@@ -3074,6 +3077,7 @@ void main() {
             elif shader_choice == 1:
                 imgui.text("Max Samples count:")
                 changed, max_frames = imgui.input_int("", max_frames)
+                max_frames = max(max_frames, 8)
                 if changed:
                     success, new_uniforms = recompile_shader()
                     if success:
@@ -3176,6 +3180,7 @@ void main() {
             imgui.spacing() 
 
             changed, export_level = input_float("Level", export_level, 0.05, 100)
+            export_level = np.clip(export_level, 0.0, 1.0)
 
             imgui.spacing()
 
@@ -3193,7 +3198,9 @@ void main() {
                 code = scene_builder.generate_raymarch_code()
                 comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, window)
                 elvl = np.interp(export_level, [0,1], [comp_bin.min(), comp_bin.max()])
-                save_sdfobj_dialog(comp_bin, export_z_up, elvl)
+                success, message = save_sdfobj_dialog(comp_bin, export_z_up, elvl)
+                export_obj_message = [success, message]
+                export_obj_message_time = time.time()
 
                 show_export_obj_window = False
 
@@ -3276,6 +3283,23 @@ You can also support the project by reporting an error, or by suggesting an impr
                 imgui.end()
             else:
                 save_load_message = None
+
+
+        if export_obj_message is not None:
+            # Show message for 3 seconds
+            if time.time() - export_obj_message_time < 3.0:
+                imgui.set_next_window_position(width // 2 - 150, 100)
+                imgui.begin("Status", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE)
+
+                # Color based on success
+                is_success = export_obj_message[0]
+                color = (0.0, 1.0, 0.0, 1.0) if is_success else (1.0, 0.0, 0.0, 1.0)
+                imgui.text_colored(export_obj_message[1], *color)
+
+                imgui.end()
+            else:
+                export_obj_message[1] = None
+
 
 
         # --- Error Display (if shader compilation failed) ---

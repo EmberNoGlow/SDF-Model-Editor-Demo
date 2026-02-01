@@ -255,13 +255,14 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP: bool = True, level
         )
 
         print(f"Marching cubes generated {len(vertices)} vertices and {len(faces)} faces.")
+        return True, f"File saved successfully! Generated {len(vertices)} vertices and {len(faces)} faces."
 
     except ValueError as e:
         print(f"Error during marching cubes execution: {e}")
         min_val = sdf_array.min()
         max_val = sdf_array.max()
         print(f"volume data min: {min_val}, max: {max_val}")
-        return
+        return False, f"Error: {e}"
 
     # --- Apply transformations ---
 
