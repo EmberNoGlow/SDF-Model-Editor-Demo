@@ -4022,8 +4022,6 @@ You can also support the project by reporting an error, or by suggesting an impr
     impl.shutdown()
     glDeleteVertexArrays(1, [vao])
     glDeleteBuffers(1, [vbo])
-    if shader is not None:
-        glDeleteProgram(shader)
     glfw.terminate()
 
 
