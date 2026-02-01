@@ -2566,10 +2566,14 @@ void main() {
                 glUniform1i(uniform_locs['grid_enabled'], GridEnabled)
                 glUniform3f(uniform_locs['LightDir'], LightDir[0], LightDir[1], LightDir[2])
 
-            glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
-            glBindVertexArray(vao)
-            bind_sprite_textures(uniform_locs)
-            glDrawArrays(GL_QUADS, 0, 4)
+
+            # Check if viewport is minimized
+            if rendering_width > 0 and rendering_height > 0:
+                glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
+                glBindVertexArray(vao)
+                bind_sprite_textures(uniform_locs)
+                glDrawArrays(GL_QUADS, 0, 4)
+
             glViewport(0, 0, width, height)
 
 
@@ -2982,10 +2986,13 @@ void main() {
                     glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
 
-                glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
-                glBindVertexArray(vao)
-                bind_sprite_textures(uniform_locs)
-                glDrawArrays(GL_QUADS, 0, 4)
+                # Check if viewport is minimized
+                if rendering_width > 0 and rendering_height > 0:
+                    glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
+                    glBindVertexArray(vao)
+                    bind_sprite_textures(uniform_locs)
+                    glDrawArrays(GL_QUADS, 0, 4)
+
                 glViewport(0, 0, width, height)
         
 
