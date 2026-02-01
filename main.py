@@ -2946,7 +2946,7 @@ void main() {
                 # Set viewport to the rendering area (accounting for menu bar)
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(display_vao)
-                bind_sprite_textures(uniform_locs)
+                if shader != None: bind_sprite_textures(uniform_locs)
                 glDrawArrays(GL_QUADS, 0, 4)
                 glBindVertexArray(0)
                 
