@@ -9,7 +9,7 @@
 ## **🌟 Overview**
 This project is a **work-in-progress** editor for designing 3D models using **Signed Distance Fields (SDFs)**. Built with `Python`, `GLSL`, `ImGui`, `GLFW`, and `PyOpenGL`, it allows real-time rendering and interaction with SDF primitives.
 
-While the current version is a **demo with limited functionality**, it serves as a foundation for a more powerful tool. The goal? To simplify 3D modeling by combining primitives into stylized characters or objects—**no sculpting required!**
+While the current version is a **demo with limited functionality**, it serves as a foundation for a more powerful tool. The goal? To simplify 3D modeling by combining primitives into stylized characters or objects – **no sculpting required!**
 
 > *I’m happy with the result, but there’s so much more to build!*
 
@@ -37,7 +37,7 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **🚀 Features**
 ✅ **Real-time SDF rendering** (GLSL shaders)
 
-✅ **Cycles Additional rendering mode - Realistic Ray Tracing algorithm**
+✅ **Cycles Additional rendering mode – Realistic Ray Tracing algorithm**
 
 ✅ **Smooth logic operations** (substract, intersect, union, etc.)
 
@@ -46,6 +46,8 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ✅ **ImGui-based UI** for intuitive controls
 
 ✅ **Save & Load** functions (using tkinter)
+
+✅ **Export to 3d** using scikit-image
 
 ---
 
@@ -56,20 +58,20 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 - **〽 Found and Fix** bugs
 - **⏱ Optimize**
 - **🧷 Integrate [marching cubes](https://github.com/EmberNoGlow/Rust-Marching-Cubes-Generator) written in Rust** for export into 3D format (example, obj)
-- **📝 Creating a gizmo** - Preparation
+- **📝 Creating a gizmo** – Preparation
 
 ### **Core Functionality (MVP Goals)**
-- [x] **Free movement of the camera in 3d space** - Done!
-- [x] **Translation operations for primitives** - rotation, scale, and position - can be changed in real time in the inspector.
-- [x] **Save/Load projects** (JSON or custom format)
+- [x] **Free movement of the camera in 3d space**
+- [x] **Translation operations for primitives** – rotation, scale, and position – can be changed in real time in the inspector.
+- [x] **Save/Load** using JSON
 - [x] **Undo/Redo support**
-- [ ] **Export to 3D formats** (OBJ, GLTF) via voxelization/[marching cubes](https://github.com/EmberNoGlow/Rust-Marching-Cubes-Generator)
+- [x] **Export to 3D formats** (OBJ)
 - [ ] **Gizmo-based manipulation** (drag, rotate, scale primitives)
-- [ ] **Add AABB** - optimization
 - [ ] **Write Docs!**
 
 ### **User Experience (Future Improvements)**
-- [ ] **Themes & customization**
+- [x] **Themes**
+- [ ] **Customization**
 - [ ] **Localization (i18n)**
 - [ ] **Performance optimizations**
 
@@ -81,7 +83,7 @@ Contributions are **highly encouraged**! Here’s how you can help:
 2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions/).
 3. **Submit code** → Fork the repo and create a [Pull Request](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
 
-> **Note:** This project is a learning experience - expect refactoring and experimentation!
+> **Note:** This project is a learning experience – expect refactoring and experimentation!
 
 ---
 
@@ -91,17 +93,17 @@ It all started with [this article](https://iquilezles.org/articles/smin/) on SDF
 
 ### **The Journey**
 - **Phase 1:** Built an MVP using AI tools (ChatGPT, Copilot, Cursor).
-- **Phase 2:** Hit limitations - free chat limits, code complexity, and bugs.
+- **Phase 2:** Hit limitations – free chat limits, code complexity, and bugs.
 - **Phase 3:** Spent **2 months** refactoring, learning, and improving.
 
-> *AI isn’t a magic solution—it’s a tool. The real work is in understanding and refining the code.*
+> *AI isn’t a magic solution – it’s a tool. The real work is in understanding and refining the code.*
 
 ### **Lessons Learned**
 ✔ **AI accelerates prototyping** but requires deep debugging.
 
-✔ **Refactoring is part of the process**—embrace it!
+✔ **Refactoring is part of the process** – embrace it!
 
-✔ **Small steps lead to big results**—this is just the beginning.
+✔ **Small steps lead to big results** – this is just the beginning.
 
 ---
 
@@ -143,10 +145,23 @@ pip install -r requirements.txt
 python main.py
 ```
 
-> *NOTE:* To install the imgui package you will need a c++ compiler. My advice is to use **[mingw](https://sourceforge.net/projects/mingw/)** - if you **only** need a compiler for this task. **[Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools)** will do for this task too, but it **weighs more**.
+> *NOTE:* To install the imgui package you will need a c++ compiler. My advice is to use **[mingw](https://sourceforge.net/projects/mingw/)** – if you **only** need a compiler for this task. **[Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools)** will do for this task too, but it **weighs more**.
 
 
 ### Compilation
+You have several options for compilation: automatic and manual. Automatic compilation is **highly recommended** as it will save a lot of time.
+
+#### Automatic
+The automated process is as simple as possible:
+1. Make sure you are in the directory where the project is located.
+2. Run the PowerShell script:
+➤ `.\build.ps1`
+3. Wait for the compilation to complete (the console should display **BUILD COMPLETED SUCCESSFULLY!**). You now have an executable file in the ReleaseBuild folder.
+
+This method has been **tested on Windows**.
+
+
+#### Manually
 
 1. **First, install pyinstaller.**
 
@@ -167,6 +182,9 @@ pyinstaller --onefile --name sdfeditor --windowed --add-binary ".venv\Lib\site-p
 ```
 
 root directory
+├── gui/fonts
+│    └── *.ttf files
+│
 ├── shaders
 │    ├── fragment
 │    │    ├── cycles.glsl
@@ -184,7 +202,7 @@ root directory
 ---
 
 ### **Final Thoughts**
-This project is a **testament to experimentation** - imperfect, evolving, but full of potential. Whether you’re here to **learn, contribute, or build**, I’m excited to see where it goes next!
+This project is a **testament to experimentation** – imperfect, evolving, but full of potential. Whether you’re here to **learn, contribute, or build**, I’m excited to see where it goes next!
 
 **Let’s create something amazing together.** 🚀
 
@@ -197,4 +215,4 @@ Your support helps development! Help by leaving a review, reporting an error, su
 
 ## Follow me
 
-<a href="https://dev.to/embernoglow" target="_blank"><img src="https://img.shields.io/badge/Dev.to-black?style=flat-square&logo=dev.to&logoColor=white" alt="Dev.to" width="15%" /></a><a href="https://bsky.app/profile/embernoglow.bsky.social" target="_blank"><img src="https://img.shields.io/badge/Blue_Sky-1DA1F2?style=flat-square&logo=bluesky&logoColor=white" alt="Blue Sky" width="15%" /></a><a href="https://github.com/EmberNoGlow" target="_blank"><img src="https://img.shields.io/badge/GitHub-black?style=flat-square&logo=github&logoColor=white" alt="GitHub" width="15%" /></a>
+<a href="https://dev.to/embernoglow" target="_blank"><img src="https://img.shields.io/badge/Dev.to-black?style=flat-square&logo=dev.to&logoColor=white" alt="Dev.to" width="13%" /></a><a href="https://bsky.app/profile/embernoglow.bsky.social" target="_blank"><img src="https://img.shields.io/badge/Blue_Sky-1DA1F2?style=flat-square&logo=bluesky&logoColor=white" alt="Blue Sky" width="13%" /></a><a href="https://github.com/EmberNoGlow" target="_blank"><img src="https://img.shields.io/badge/GitHub-black?style=flat-square&logo=github&logoColor=white" alt="GitHub" width="13%" /></a>
