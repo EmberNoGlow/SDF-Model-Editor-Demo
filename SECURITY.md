@@ -19,7 +19,8 @@ If you discover a security vulnerability in **SDF Editor**, please follow the pr
 
 Please report all security vulnerabilities privately by **emailing** the security team at:
 
-*Email* -> eng-SDF@protonmail.com
+- *Email* -> eng-SDF@protonmail.com
+- *Blue Sky PM* -> [EmberNoGlow.bsky.social](https://bsky.app/profile/embernoglow.bsky.social)
 
 ### 2. What to Include in Your Report
 
@@ -68,7 +69,7 @@ Issues that are **out of scope** include:
 *   Issues in third-party libraries that we do not control.
 *   Denial of Service (DoS) vulnerabilities that require physical access or massive network resources.
 *   Social engineering or physical attacks against maintainers.
-*   Vulnerabilities in infrastructure (e.g., GitHub/GitLab configuration, build services) managed by the platform provider.
+*   Vulnerabilities in infrastructure managed by the platform provider.
 
 
 ### Legal Notes
