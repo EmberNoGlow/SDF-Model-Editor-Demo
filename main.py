@@ -3187,15 +3187,47 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.set_next_window_position(0, menu_bar_height)
         imgui.set_next_window_size(panel_width, height - menu_bar_height)
         imgui.begin("Scene Tree", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
+        
+        wbn = 16
+        hbn = 20
 
+        def format_label(name, op_id, max_chars=16):
+            # Truncate name to max_chars, preserving full ID
+            if len(name) > max_chars:
+                truncated_name = name[:max_chars - 3] + "..."
+            else:
+                truncated_name = name
+            return f"{truncated_name} ({op_id})"
+        
         imgui.text("Primitives:")
         for op_id, primitive in scene_builder.primitives:
-            label = f"{primitive.ui_name} ({op_id})"
+            label = format_label(primitive.ui_name, op_id)
             flags = imgui.TREE_NODE_LEAF
             if selected_item_id == op_id:
                 flags |= imgui.TREE_NODE_SELECTED
 
-            # Capture the return value of tree_node
+            # Create the buttons
+            if imgui.button(f"^##up_{op_id}", wbn, hbn):
+                idx = scene_builder.id_to_index[op_id][1]
+                if idx > 0:
+                    scene_builder.move_item(op_id, idx - 1)
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+
+            imgui.same_line()
+
+            if imgui.button(f"v##down_{op_id}", wbn, hbn):
+                idx = scene_builder.id_to_index[op_id][1]
+                if idx < len(scene_builder.primitives) - 1:
+                    scene_builder.move_item(op_id, idx + 1)
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+
+            imgui.same_line()
+
+            # Then create the tree node (label will appear after buttons)
             node_open = imgui.tree_node(label, flags)
 
             # Handle selection when the node is clicked
@@ -3209,39 +3241,42 @@ You can also support the project by reporting an error, or by suggesting an impr
                 if success:
                     uniform_locs = new_uniforms
 
-            # Only show buttons if the node is "open" (though for leaf nodes, this is always true)
             if node_open:
-                # Move buttons
-                imgui.same_line()
-                if imgui.button(f"^##up_{op_id}", 24, 18):
-                    idx = scene_builder.id_to_index[op_id][1]
-                    if idx > 0:
-                        scene_builder.move_item(op_id, idx - 1)
-                        success, new_uniforms = recompile_shader()
-                        if success:
-                            uniform_locs = new_uniforms
-
-                imgui.same_line()
-                if imgui.button(f"v##down_{op_id}", 24, 18):
-                    idx = scene_builder.id_to_index[op_id][1]
-                    if idx < len(scene_builder.primitives) - 1:
-                        scene_builder.move_item(op_id, idx + 1)
-                        success, new_uniforms = recompile_shader()
-                        if success:
-                            uniform_locs = new_uniforms
-
                 imgui.tree_pop()
 
         imgui.spacing()
         imgui.text("Operations:")
         for op_id, operation in scene_builder.operations:
-            label = f"{operation.ui_name} ({op_id})"
+            label = format_label(operation.ui_name, op_id)
             flags = imgui.TREE_NODE_LEAF
             if selected_item_id == op_id:
                 flags |= imgui.TREE_NODE_SELECTED
 
+            # First create the buttons (they'll appear on the left)
+            if imgui.button(f"^##upop_{op_id}", wbn, hbn):
+                idx = scene_builder.id_to_index[op_id][1]
+                if idx > 0:
+                    scene_builder.move_item(op_id, idx - 1)
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+
+            imgui.same_line()  # Keep buttons on the same line
+
+            if imgui.button(f"v##downop_{op_id}", wbn, hbn):
+                idx = scene_builder.id_to_index[op_id][1]
+                if idx < len(scene_builder.operations) - 1:
+                    scene_builder.move_item(op_id, idx + 1)
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+
+            imgui.same_line()  # Keep label on the same line as buttons
+
+            # Then create the tree node (label will appear after buttons)
             node_open = imgui.tree_node(label, flags)
 
+            # Handle selection when the node is clicked
             if imgui.is_item_clicked():
                 selected_item_id = op_id
                 selection_mode = 'operation'
@@ -3252,24 +3287,6 @@ You can also support the project by reporting an error, or by suggesting an impr
                     uniform_locs = new_uniforms
 
             if node_open:
-                imgui.same_line()
-                if imgui.button(f"^##upop_{op_id}", 24, 18):
-                    idx = scene_builder.id_to_index[op_id][1]
-                    if idx > 0:
-                        scene_builder.move_item(op_id, idx - 1)
-                        success, new_uniforms = recompile_shader()
-                        if success:
-                            uniform_locs = new_uniforms
-
-                imgui.same_line()
-                if imgui.button(f"v##downop_{op_id}", 24, 18):
-                    idx = scene_builder.id_to_index[op_id][1]
-                    if idx < len(scene_builder.operations) - 1:
-                        scene_builder.move_item(op_id, idx + 1)
-                        success, new_uniforms = recompile_shader()
-                        if success:
-                            uniform_locs = new_uniforms
-
                 imgui.tree_pop()
 
         imgui.spacing()
