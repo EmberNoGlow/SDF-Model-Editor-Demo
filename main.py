@@ -116,6 +116,39 @@ def save_sdfobj_dialog(data, export_z_up, export_level = 0.0, parent_window=None
 
 
 
+def take_screenshot(window):
+    # Get window dimensions
+    width, height = glfw.get_framebuffer_size(window)
+
+    # Read pixels from the framebuffer
+    glReadBuffer(GL_FRONT)  # Read from the front buffer
+    pixels = glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE)
+
+    image = np.frombuffer(pixels, dtype=np.uint8).reshape(height, width, 3)
+    image = np.flipud(image)
+
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+    
+    filepath = filedialog.asksaveasfilename(
+        defaultextension=".png",
+        filetypes=[("Image", "*.png"), ("All files", "*.*")],
+        initialfile="Screenshot.png"
+    )
+
+    root.destroy()
+
+    # Save using Pillow
+    if filepath:
+        img = Image.fromarray(image, 'RGB')
+        img.save(filepath)
+
+
+
+
+
+
+
 # --- Configuration ---
 SCREEN_SIZE = (1200, 720)
 FOV_ANGLE = math.radians(75)  # Field of View - Used for ray direction calculation
@@ -2285,6 +2318,10 @@ void main() {
                 last_key_compile_pressed = True
         else:
             last_key_compile_pressed = False
+
+
+        if glfw.get_key(window, glfw.KEY_F12) == glfw.PRESS:
+            take_screenshot(window)
 
 
 
