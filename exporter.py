@@ -38,11 +38,11 @@ vec3 mixColorSmooth(vec3 colA, vec3 colB, float dA, float dB, float k) {
 {SDF_LIBRARY}
 
 
-vec4 map(vec3 p) {{
+vec4 map(vec3 p) {
 {SCENE_CODE}
-}}
+}
 
-void main() {{
+void main() {
     // Normalize screen coordinates to [0,1]
     vec2 uv = gl_FragCoord.xy / viewportSize;
     
@@ -50,7 +50,7 @@ void main() {{
     vec3 p = mix(worldMin, worldMax, vec3(uv.x, uv.y, zCoord));
     
     fragDistance = map(p).w;
-}}
+}
 """
 
 def initialize_headless_context(width, height):
@@ -237,24 +237,23 @@ def save_3d_texture(array, filename="sdf_texture.bin"):
     print(f"Size: {array.nbytes / 1024:.2f} KB")
 
 
-def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP = True, level: float = 0.0, scale: float = 1.0, offset: tuple = (0.0, 0.0, 0.0)):
-
+def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP: bool = True, level: float = 0.0, scale: float = 1.0, offset: tuple = (0.0, 0.0, 0.0)):
     if sdf_array.dtype != np.float32:
         print(f"Warning: Input array is not float32. Converting from {sdf_array.dtype}.")
         sdf_array = sdf_array.astype(np.float32)
 
     grid_size = sdf_array.shape[0]
-    
+
     print(f"Starting marching cubes extraction on array shape: {sdf_array.shape} at level {level}...")
 
     try:
         # Extract vertices and faces using marching cubes
         vertices, faces, normals, values = measure.marching_cubes(
-            sdf_array, 
-            level=level, 
+            sdf_array,
+            level=level,
             spacing=(1.0, 1.0, 1.0)
         )
-        
+
         print(f"Marching cubes generated {len(vertices)} vertices and {len(faces)} faces.")
 
     except ValueError as e:
@@ -276,28 +275,42 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP = True, level: floa
     if scale != 1.0:
         vertices *= scale
 
-    # 3. Apply final offset
+    # 3. Apply Z_UP reorientation if needed
+    if not Z_UP:
+        # This converts Z-Up (GPU) to Y-Up (OBJ)
+        # Array Axes (0, 1, 2) -> (Y, X, Z) World
+        # Swap Y (Array 0) and Z (Array 2) to get (Z, X, Y) -> (X, Z, Y) World
+        vertices = vertices[:, [2, 1, 0]]  # x, y, z -> z, x, y (If we treat array axes as X,Y,Z)
+        normals = normals[:, [2, 1, 0]]    # Apply same swap to normals
+    else:
+        # If Z_UP=True, the OBJ should be Z-Up.
+        # We assume the GPU generated data where Z is the depth axis used for slicing.
+        # We need to map the array axes (0, 1, 2) back to the Z-Up (X, Y, Z) world:
+        # Array 1 (X), Array 0 (Y), Array 2 (Z)
+        # We swap the positions of Array 0 (Y) and Array 1 (X) to match the standard (X, Y, Z) OBJ order.
+        vertices = vertices[:, [1, 0, 2]] # (Y, X, Z) -> (X, Y, Z)
+        normals = normals[:, [1, 0, 2]]
+
+
+    # 4. Apply final offset
     if offset != (0.0, 0.0, 0.0):
         offset_array = np.array(offset, dtype=np.float32)
         vertices += offset_array
 
     # --- Write to OBJ File ---
-    
-    # Ensure the directory exists
     os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
-    
+
     with open(filename, 'w') as f:
         f.write("# OBJ file generated from SDF marching cubes\n")
-        
+
         # Write Vertices (v)
         for v in vertices:
-            # OBJ format: v x y z
             f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
 
         # Write Normals (vn)
         for n in normals:
             f.write(f"vn {n[0]:.6f} {n[1]:.6f} {n[2]:.6f}\n")
-            
+
         # Write Faces (f)
         for face in faces:
             v1_idx, v2_idx, v3_idx = face + 1
