@@ -5,3 +5,6 @@ numpy>=1.22.0
 
 imgui[glfw]>=2.0.0
 imgui>=2.0.0
+
+scikit-image>=0.19.0
+Pillow>=9.0.0 
