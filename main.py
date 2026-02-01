@@ -131,9 +131,9 @@ def take_screenshot(window):
     root.withdraw()  # Hide the root window
     
     filepath = filedialog.asksaveasfilename(
-        defaultextension=".png",
-        filetypes=[("Image", "*.png"), ("All files", "*.*")],
-        initialfile="Screenshot.png"
+        defaultextension=".jpg",
+        filetypes=[("Image files", ("*.png", "*.jpg", "*.jpeg", "*.bmp")), ("All files", "*.*")],
+        initialfile="Screenshot.jpg"
     )
 
     root.destroy()
