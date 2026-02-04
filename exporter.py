@@ -113,7 +113,6 @@ def cleanup_context(VAO, shader, VBO, window):
     # Destroy the context window
     glfw.destroy_window(window)
     
-    # WARNING: Do NOT call glfw.terminate() here, as the main application relies on it.
 
 def compute_sdf_3d(grid_size=32, quality = 1.0, scene_code="return vec4(vec3(0.0), 100.0);", 
                    main_window_handle=None, sdf_library_path="shaders/sdf_library.glsl"):
@@ -255,7 +254,7 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP: bool = True, level
         )
 
         print(f"Marching cubes generated {len(vertices)} vertices and {len(faces)} faces.")
-        return True, f"File saved successfully! Generated {len(vertices)} vertices and {len(faces)} faces."
+        print(f"Generated {len(vertices)} vertices and {len(faces)} faces.")
 
     except ValueError as e:
         print(f"Error during marching cubes execution: {e}")
@@ -318,6 +317,7 @@ def export_to_obj(sdf_array: np.ndarray, filename: str, Z_UP: bool = True, level
             f.write(f"f {v1_idx}//{v1_idx} {v2_idx}//{v2_idx} {v3_idx}//{v3_idx}\n")
 
     print(f"Successfully exported mesh to {filename}")
+    return True, f"File saved successfully!"
 
 
 # Helper function for previewing the size of the resulting bin file
