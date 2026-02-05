@@ -46,18 +46,6 @@ vec4 map(vec3 p) {
 
 float FOV_ANGLE = {FOV_ANGLE_VAL}; 
 
-// Raymarching function - returns distance
-float rayMarch(vec3 ro, vec3 rd) {
-    float dO = 0.0;
-    for(int i = 0; i < 128; i++) {
-        vec3 p = ro + rd * dO;
-        vec4 res = map(p);
-        float dS = res.w; 
-        dO += dS;
-        if(dS < 0.001 || dO > 100.0) break;
-    }
-    return dO;
-}
 
 // Raymarching function that also returns color
 vec4 rayMarchWithColor(vec3 ro, vec3 rd) {
