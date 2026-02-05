@@ -128,6 +128,50 @@ vec3 add_grid(vec3 color, vec3 ro, vec3 rd, float depth) {
 }
 
 
+// infinite cylinder with base point "cb", normalized axis "ca" and radius "cr"
+vec2 cylIntersect( vec3 ro, vec3 rd, vec3 cb, vec3 ca, float cr )
+{
+    vec3  oc = ro - cb;
+    float card = dot(ca,rd);
+    float caoc = dot(ca,oc);
+    float a = 1.0 - card*card;
+    float b = dot( oc, rd) - caoc*card;
+    float c = dot( oc, oc) - caoc*caoc - cr*cr;
+    float h = b*b - a*c;
+    if( h<0.0 ) return vec2(-1.0); //no intersection
+    h = sqrt(h);
+    return vec2(-b-h,-b+h)/a;
+}
+
+vec3 Axes( vec3 ro, vec3 rd, vec3 cb, float cr, vec3 col, float d ){
+    vec2 ax = cylIntersect(ro, rd, cb, vec3(1.0, 0.0, 0.0), cr);
+    vec2 ay = cylIntersect(ro, rd, cb, vec3(0.0, 1.0, 0.0), cr);
+    vec2 az = cylIntersect(ro, rd, cb, vec3(0.0, 0.0, 1.0), cr);
+
+    float t_min = d;
+    vec3 final_color = col;
+
+    // Check X hit
+    if( ax.x > 0.0 && ax.x < t_min){
+        t_min = ax.x;
+        final_color = vec3(1.0, 0.0, 0.0); // Red
+    }
+
+    // Check Y hit, only if closer than current closest (t_min)
+    if( ay.x > 0.0 && ay.x < t_min){
+        t_min = ay.x;
+        final_color = vec3(0.0, 1.0, 0.0); // Green
+    }
+    
+    // Check Z hit, only if closer than current closest (t_min)
+    if( az.x > 0.0 && az.x < t_min){
+        // Since we updated t_min in the previous step, this Z hit is now the definitive closest.
+        final_color = vec3(0.0, 0.0, 1.0); // Blue
+    }
+    
+    return final_color;
+}
+
 
 // Struct to hold the results of the intersection test
 struct IntersectionResult {
@@ -324,7 +368,8 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     {POSTPROC}
 
-    fragColor = vec4(col, 1.0);
+    fragColor = vec4(Axes(ro, rd, vec3(0.0), 0.1, col, d), 1.0);
+
 }
 
 void main() {
