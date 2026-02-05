@@ -14,6 +14,7 @@ uniform bool GridEnabled = true;
 
 uniform vec3 LightDir = vec3(0.5, 0.5, -1.0);
 uniform vec3 MovePos;
+uniform vec3 MoveRot;
 
 {ADDITIONAL_UNIFORMS}
 

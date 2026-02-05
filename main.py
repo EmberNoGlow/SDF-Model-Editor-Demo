@@ -174,6 +174,7 @@ MAX_PITCH = math.radians(90)
 
 # Moved variables
 drag_position = [0,0,0] # Track calculation result
+drag_rot_position = [0,0,0]
 selected_item_id = None  # Track which item is selected in the tree
 
 
@@ -237,6 +238,9 @@ glob_history = History()
 start_drag = False
 end_drag = False
 
+R_start_drag = False
+R_end_drag = False
+
 
 class SDFPrimitive:
     def __init__(self, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
@@ -263,11 +267,15 @@ class SDFPrimitive:
         global selected_item_id
 
         # If the selected item is this primitive, use the MovePos uniform in GLSL.
+        # If the selected item is this primitive, use the MovePos uniform in GLSL.
         if selected_item_id is not None and selected_item_id == op_id:
             new_position = ["MovePos.x", "MovePos.y", "MovePos.z"]
+            # Use MoveRot.z (was incorrect MoveRot.y twice)
+            new_rotation = ["MoveRot.x", "MoveRot.y", "MoveRot.z"]
         else:
             # Use literal numeric components
             new_position = [self.position[0], self.position[1], self.position[2]]
+            new_rotation = [self.rotation[0], self.rotation[1], self.rotation[2]]
 
         # Pointer primitives mutate the global `p` and do NOT create p{op_id}
         if self.primitive_type == "pointer":
@@ -283,7 +291,7 @@ class SDFPrimitive:
         transform_code += f"\n    p{op_id} -= vec3({new_position[0]}, {new_position[1]}, {new_position[2]});"
 
         if self.rotation:
-            transform_code += f"\n    p{op_id} = rotateZ({self.rotation[2]}) * rotateX({self.rotation[0]}) * rotateY({self.rotation[1]}) * p{op_id};"
+            transform_code += f"\n    p{op_id} = rotateZ({new_rotation[2]}) * rotateX({new_rotation[0]}) * rotateY({new_rotation[1]}) * p{op_id};"
 
         if self.scale:
             transform_code += f"\n    p{op_id} = scale(p{op_id}, vec3({self.scale[0]}, {self.scale[1]}, {self.scale[2]}));"
@@ -1670,7 +1678,7 @@ def input_float(name, value, value_step=0.1, item_width=60):
 
 def main():
     # Globals
-    global start_drag, end_drag, dragging, selected_item_id, drag_position
+    global start_drag, end_drag, dragging, selected_item_id, drag_position, drag_rot_position
 
     # Initialize GLFW
     if not glfw.init():
@@ -1731,6 +1739,14 @@ def main():
     last_key_gx_pressed = False
     last_key_gy_pressed = False
     last_key_gz_pressed = False
+    last_key_r_pressed = False
+   # Rotation-specific axis toggles and key debounces (separate from move G-toggles)
+    axis_toggled_rx = False
+    axis_toggled_ry = False
+    axis_toggled_rz = False
+    last_key_rx_pressed = False
+    last_key_ry_pressed = False
+    last_key_rz_pressed = False
 
     last_key_f10_pressed = False  # Add this if not present
 
@@ -1743,6 +1759,15 @@ def main():
     drag_accum = [0.0, 0.0, 0.0]    # accumulated world-space movement since drag start
     DRAG_SENSITIVITY = 0.01         # adjust for speed; consider scaling with cam_radius for consistent feel
     
+    # --- Rotate ---
+    R_dragging = False
+    R_dragging_op_id = None           # op_id of the item currently being dragged
+    R_drag_last_x = 0.0               # last mouse x while dragging (separate from camera last_x/last_y)
+    R_drag_last_y = 0.0
+    R_drag_start_pos = None           # original primitive position at drag start (copied list)
+    R_drag_accum = [0.0, 0.0, 0.0]    # accumulated world-space movement since drag start
+
+
     # Helper: safely set MovePos uniform (call this wherever you were directly doing glUniform3f for MovePos)
     def set_move_pos_uniform(shader_program, uniform_locs, pos):
         """
@@ -1759,6 +1784,24 @@ def main():
             uniform_locs[move_key] = loc
         if loc != -1:
             glUniform3f(loc, float(pos[0]), float(pos[1]), float(pos[2]))
+
+
+    def set_move_rot_uniform(shader_program, uniform_locs, rot):
+        """
+        Safely set the MoveRot uniform. If the cached uniform location is missing (-1 or None),
+        query it dynamically and cache it. Only call glUniform if the location exists.
+        """
+        if uniform_locs is None or shader_program is None:
+            return
+        move_key = 'move_rot'
+        loc = uniform_locs.get(move_key, None)
+        if loc is None or loc == -1:
+            # Query the active program for the location (this is safe and will return -1 if not declared)
+            loc = glGetUniformLocation(shader_program, "MoveRot")
+            uniform_locs[move_key] = loc
+        if loc != -1:
+            glUniform3f(loc, float(rot[0]), float(rot[1]), float(rot[2]))
+
 
 
     def bind_sprite_textures(uniforms):
@@ -1927,6 +1970,7 @@ def main():
             'col_sky_bottom'       :       glGetUniformLocation(shader_program, "SkyColorBottom"),
             'grid_enabled'         :       glGetUniformLocation(shader_program, "GridEnabled"),
             'move_pos'             :       glGetUniformLocation(shader_program, "MovePos"),
+            'move_rot'             :       glGetUniformLocation(shader_program, "MoveRot"),
             'maxFrames'            :       glGetUniformLocation(shader_program, "MaxFrames"),
             'LightDir'             :       glGetUniformLocation(shader_program, "LightDir")
         }
@@ -2389,7 +2433,7 @@ void main() {
                 is_mmb_pressed = False
                 is_shift_mmb_pressed = False
 
-        if is_mmb_pressed or dragging:
+        if is_mmb_pressed or dragging or R_dragging:
             glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
         else:
             glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
@@ -2537,6 +2581,7 @@ void main() {
                     glUniform1i(uniform_locs['frameIndex'], frame_count)
                     glUniform1i(uniform_locs['maxFrames'], max_frames)
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
+                    set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
                     # Bind accumulation texture for reading
                     glActiveTexture(GL_TEXTURE0)
@@ -2599,6 +2644,7 @@ void main() {
                 glUniform1i(uniform_locs['frameIndex'], 0)
                 glUniform1i(uniform_locs['useAccumulation'], 0)
                 set_move_pos_uniform(shader, uniform_locs, drag_position)
+                set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
                 glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
                 glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
@@ -2931,6 +2977,169 @@ void main() {
                 drag_position = [0.0, 0.0, 0.0]
 
 
+
+
+        # ---- Rotate (MoveRot) using R key ----
+        # Read raw key states using GLFW (reuse names for readability)
+        key_r_is_down = glfw.get_key(window, glfw.KEY_R) == glfw.PRESS
+        key_x_is_down = glfw.get_key(window, glfw.KEY_X) == glfw.PRESS
+        key_y_is_down = glfw.get_key(window, glfw.KEY_Y) == glfw.PRESS
+        key_z_is_down = glfw.get_key(window, glfw.KEY_Z) == glfw.PRESS
+
+        # Edge-detect R press to toggle rotation mode
+        if key_r_is_down and not last_key_r_pressed:
+            R_dragging = not R_dragging
+
+            if R_dragging:
+                # Start rotation: capture selected item and initialize rotation state
+                R_dragging_op_id = selected_item_id
+
+                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_index:
+                    item_type, idx = scene_builder.id_to_index[R_dragging_op_id]
+                    if item_type == 'primitive':
+                        prim = scene_builder.primitives[idx][1]
+                        # Save starting rotation (copy)
+                        R_drag_start_pos = prim.rotation.copy()
+                        R_drag_accum = [0.0, 0.0, 0.0]
+                        # Save last mouse position for delta
+                        R_drag_last_x, R_drag_last_y = glfw.get_cursor_pos(window)
+                    else:
+                        # nothing valid to rotate
+                        R_dragging_op_id = None
+                        R_drag_start_pos = None
+                        R_drag_accum = [0.0, 0.0, 0.0]
+                else:
+                    R_dragging_op_id = None
+                    R_drag_start_pos = None
+                    R_drag_accum = [0.0, 0.0, 0.0]
+
+                # Reset rotation-specific axis toggles when starting a new rotate
+                axis_toggled_rx = axis_toggled_ry = axis_toggled_rz = False
+
+            else:
+                # Stop rotation: commit final rotation (register undo/redo)
+                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_index:
+                    item_type, idx = scene_builder.id_to_index[R_dragging_op_id]
+                    if item_type == 'primitive':
+                        prim = scene_builder.primitives[idx][1]
+                        final_rot = prim.rotation
+                        # Register only if changed
+                        if R_drag_start_pos is not None and final_rot != R_drag_start_pos:
+                            scene_builder.modify_primitive_property(R_dragging_op_id, 'rotation', R_drag_start_pos, final_rot)
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+
+                # clear rotation state
+                R_dragging_op_id = None
+                R_drag_start_pos = None
+                R_drag_accum = [0.0, 0.0, 0.0]
+                axis_toggled_rx = axis_toggled_ry = axis_toggled_rz = False
+
+        # Update the R debounce flag
+        last_key_r_pressed = key_r_is_down
+
+        # Rotation axis toggles (Blender-style) — use rotation-specific debounced keys
+        if R_dragging:
+            if key_x_is_down and not last_key_rx_pressed:
+                state = not axis_toggled_rx
+                axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = state, False, False
+
+            if key_y_is_down and not last_key_ry_pressed:
+                state = not axis_toggled_ry
+                axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = False, state, False
+
+            if key_z_is_down and not last_key_rz_pressed:
+                state = not axis_toggled_rz
+                axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = False, False, state
+
+        # Update per-key last flags for rotation keys so we toggle once per press
+        last_key_rx_pressed = key_x_is_down
+        last_key_ry_pressed = key_y_is_down
+        last_key_rz_pressed = key_z_is_down
+
+        # Determine active rotation axis (None => free rotation mapping: vertical->X, horizontal->Y)
+        active_rot_axis = None
+        if axis_toggled_rx:
+            active_rot_axis = 0
+        elif axis_toggled_ry:
+            active_rot_axis = 1
+        elif axis_toggled_rz:
+            active_rot_axis = 2
+
+        # Per-frame rotation update while R_dragging is active
+        if R_dragging and R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_index:
+            current_x, current_y = glfw.get_cursor_pos(window)
+            dx = current_x - R_drag_last_x
+            dy = current_y - R_drag_last_y
+            R_drag_last_x, R_drag_last_y = current_x, current_y
+
+            # Sensitivity in radians per pixel
+            R_ROT_SENSITIVITY = 0.005
+
+            # Default free-rotation mapping
+            rot_delta_x = -dy * R_ROT_SENSITIVITY   # vertical mouse -> rotation around X
+            rot_delta_y = -dx * R_ROT_SENSITIVITY   # horizontal mouse -> rotation around Y
+            rot_delta_z = 0.0
+
+            # If axis-locked, map mouse motion to rotation around that world axis only
+            if active_rot_axis is not None:
+                if active_rot_axis == 0:
+                    # X-axis lock: use vertical mouse movement for X rotation only
+                    rot_delta_x = -dy * R_ROT_SENSITIVITY
+                    rot_delta_y = 0.0
+                    rot_delta_z = 0.0
+                elif active_rot_axis == 1:
+                    # Y-axis lock: use horizontal mouse movement for Y rotation only
+                    rot_delta_x = 0.0
+                    rot_delta_y = -dx * R_ROT_SENSITIVITY
+                    rot_delta_z = 0.0
+                elif active_rot_axis == 2:
+                    # Z-axis lock: use horizontal mouse movement for Z rotation
+                    rot_delta_x = 0.0
+                    rot_delta_y = 0.0
+                    rot_delta_z = -dx * R_ROT_SENSITIVITY
+
+            # reset accumulation if movement is non-trivial (so accumulation-based renderer refreshes)
+            if abs(rot_delta_x) + abs(rot_delta_y) + abs(rot_delta_z) > 1e-5:
+                frame_count = 0
+                clear_accumulation_fbos(accumulation_fbos, scaled_rendering_width, scaled_rendering_height)
+
+            # accumulate
+            R_drag_accum[0] += rot_delta_x
+            R_drag_accum[1] += rot_delta_y
+            R_drag_accum[2] += rot_delta_z
+
+            # Apply live rotation to primitive (no history until release)
+            item_type, idx = scene_builder.id_to_index[R_dragging_op_id]
+            prim = scene_builder.primitives[idx][1]
+            if R_drag_start_pos is None:
+                R_drag_start_pos = prim.rotation.copy()
+
+            new_rot = [
+                R_drag_start_pos[0] + R_drag_accum[0],
+                R_drag_start_pos[1] + R_drag_accum[1],
+                R_drag_start_pos[2] + R_drag_accum[2],
+            ]
+
+            prim.rotation = new_rot
+            # Keep shader MoveRot uniform in sync for live interaction
+            drag_rot_position = new_rot.copy()
+
+        else:
+            # When not rotating keep shader MoveRot aligned with selection (or zero)
+            if selected_item_id and selected_item_id in scene_builder.id_to_index:
+                itype, idx = scene_builder.id_to_index[selected_item_id]
+                if itype == 'primitive':
+                    prim = scene_builder.primitives[idx][1]
+                    drag_rot_position = prim.rotation
+            else:
+                drag_rot_position = [0.0, 0.0, 0.0]
+
+
+
+
+
         # Check F10 for settings (with debouncing)
         if io.keys_down[glfw.KEY_F10]:
             if not last_key_f10_pressed:
@@ -2965,6 +3174,7 @@ void main() {
                     glUniform1f(uniform_locs['radius'], cam_radius)
                     glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
+                    set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
                 glBindVertexArray(vao)
                 bind_sprite_textures(uniform_locs)
@@ -3003,6 +3213,7 @@ void main() {
                         glUniform1f(uniform_locs['radius'], cam_radius)
                         glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
                         set_move_pos_uniform(shader, uniform_locs, drag_position)
+                        set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
                     glViewport(panel_width, menu_bar_height, scaled_rendering_width, scaled_rendering_height)
                     glBindVertexArray(vao)
@@ -3025,6 +3236,7 @@ void main() {
                     glUniform1f(uniform_locs['radius'], cam_radius)
                     glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
+                    set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
                 # Check if viewport is minimized
                 if rendering_width > 0 and rendering_height > 0:

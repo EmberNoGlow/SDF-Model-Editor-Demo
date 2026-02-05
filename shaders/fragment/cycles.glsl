@@ -17,6 +17,8 @@ uniform vec3 LightColor = vec3(0.7);
 uniform vec3 LightDir = vec3(0.5, 0.5, -1.0);
 
 uniform vec3 MovePos;
+uniform vec3 MoveRot;
+
 uniform int MaxFrames = 0;
 
 {SDF_LIBRARY}
