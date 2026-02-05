@@ -368,7 +368,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
 
     {POSTPROC}
 
-    fragColor = vec4(Axes(ro, rd, vec3(0.0), 0.1, col, d), 1.0);
+    fragColor = vec4(Axes(ro, rd, MovePos, 0.025, col, d), 1.0);
 
 }
 
