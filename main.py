@@ -267,7 +267,6 @@ class SDFPrimitive:
         global selected_item_id
 
         # If the selected item is this primitive, use the MovePos uniform in GLSL.
-        # If the selected item is this primitive, use the MovePos uniform in GLSL.
         if selected_item_id is not None and selected_item_id == op_id:
             new_position = ["MovePos.x", "MovePos.y", "MovePos.z"]
             # Use MoveRot.z (was incorrect MoveRot.y twice)
@@ -2937,12 +2936,12 @@ void main() {
             if active_axis is not None:
                 if active_axis == 0:
                     move_delta_y = 0.0
-                    move_delta_z = 0.0
+                    move_delta_x = 0.0
                 elif active_axis == 1:
                     move_delta_x = 0.0
                     move_delta_z = 0.0
                 elif active_axis == 2:
-                    move_delta_x = 0.0
+                    move_delta_z = 0.0
                     move_delta_y = 0.0
 
             # accumulate world movement since drag started
