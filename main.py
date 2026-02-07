@@ -2357,12 +2357,18 @@ void main() {
 
     # Load User Config
     # I use JSON format with data extension to avoid confusion with one extension
-    default_uconfig = {"Themes": theme}
+    default_uconfig = {"Theme": theme}
     UConfig = load_user_config("UserData/User.data")
-    if not UConfig or not isinstance(UConfig, Dict): # If the file does not exist or is empty, create it based on the default config
+
+    if not UConfig or not isinstance(UConfig, dict):
         save_user_config("UserData/User.data", default_uconfig)
         UConfig = default_uconfig
-
+    else:
+        theme = UConfig["Theme"]
+        for label, color in list(theme.items()):
+                # Update the dictionary key with the new list/tuple value
+                setattr(gui.themes, label, theme[label])
+                gui.themes.setup_theme()
 
 
 
@@ -3707,6 +3713,11 @@ You can also support the project by reporting an error, or by suggesting an impr
                 show_exit_window = False
             imgui.same_line(0,15)
             if imgui.button("YES", 130,30):
+                # Save Data
+                config = {"Theme": theme}
+                save_user_config("UserData/User.data", config)
+
+
                 glfw.set_window_should_close(window, True)
 
             imgui.end()
