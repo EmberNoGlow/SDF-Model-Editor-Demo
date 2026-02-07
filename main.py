@@ -132,7 +132,12 @@ def take_screenshot(window):
     
     filepath = filedialog.asksaveasfilename(
         defaultextension=".jpg",
-        filetypes=[("Image files", ("*.png", "*.jpg", "*.jpeg", "*.bmp")), ("All files", "*.*")],
+        filetypes=[
+            ("PNG Images", "*.png"),
+            ("JPEG Images", "*.jpg;*.jpeg"),
+            ("BMP Images", "*.bmp"),
+            ("All Files", "*.*")
+        ],
         initialfile="Screenshot.jpg"
     )
 
@@ -142,6 +147,9 @@ def take_screenshot(window):
     if filepath:
         img = Image.fromarray(image, 'RGB')
         img.save(filepath)
+
+
+
 
 
 
@@ -2312,7 +2320,6 @@ void main() {
 
     def on_window_close(window):
         nonlocal show_exit_window
-        print("Exit")
         glfw.set_window_should_close(window, False)
         show_exit_window = True
         
@@ -3663,7 +3670,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.spacing()
 
             if imgui.button("Cancel", 130,30):
-                pass
+                show_exit_window = False
             imgui.same_line(0,15)
             if imgui.button("YES", 130,30):
                 glfw.set_window_should_close(window, True)
