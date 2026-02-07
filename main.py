@@ -12,7 +12,10 @@ import exporter as sdfexp
 
 from imgui.integrations.glfw import GlfwRenderer
 from PIL import Image
+from typing import Dict, List, Any
 
+import os
+import json
 import numpy as np
 import math
 import copy
@@ -44,7 +47,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 def save_scene_dialog(scene_builder, parent_window=None):
-    """Open a save dialog and save the scene to JSON."""
+    # Open a save dialog and save the scene to JSON.
     root = tk.Tk()
     root.withdraw()  # Hide the root window
     
@@ -62,7 +65,7 @@ def save_scene_dialog(scene_builder, parent_window=None):
 
 
 def load_scene_dialog(scene_builder, parent_window=None):
-    """Open a load dialog and load a scene from JSON."""
+    # Open a load dialog and load a scene from JSON.
     root = tk.Tk()
     root.withdraw()  # Hide the root window
     
@@ -78,7 +81,7 @@ def load_scene_dialog(scene_builder, parent_window=None):
 
 
 def save_sdfvol_dialog(data, parent_window=None):
-    """Open a save dialog and save the scene to JSON."""
+    # Open a save dialog and save the scene to JSON.
     root = tk.Tk()
     root.withdraw()  # Hide the root window
     
@@ -97,7 +100,7 @@ def save_sdfvol_dialog(data, parent_window=None):
 
 
 def save_sdfobj_dialog(data, export_z_up, export_level = 0.0, parent_window=None):
-    """Open a save dialog and save the scene to JSON."""
+    # Open a save dialog and save the scene to JSON.
     root = tk.Tk()
     root.withdraw()  # Hide the root window
     
@@ -150,7 +153,29 @@ def take_screenshot(window):
 
 
 
+def save_user_config(file_path: str, config_data: Dict[str, Any]) -> None:
+    # Save configuration data to a JSON file.
+    try:
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w', encoding='utf-8') as file:
+            json.dump(config_data, file, indent=2)  # Pretty-print with 2-space indent
+    except IOError as e:
+        raise IOError(f"Error writing config file {file_path}: {e}")
 
+
+def load_user_config(file_path: str) -> Dict[str, Any]:
+    # Load user configuration from a JSON file into a Python dictionary.
+    try:
+        if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
+            return {}  # Return empty dict for new/empty files
+
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return json.load(file)
+
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in config file {file_path}: {e}")
+    except IOError as e:
+        raise IOError(f"Error reading config file {file_path}: {e}")
 
 
 
@@ -1416,8 +1441,7 @@ class SDFSceneBuilder:
                 pass
 
     def save_to_json(self, filepath):
-        """Save the scene to a JSON file."""
-        import json
+        # Save the scene to a JSON file.
         try:
             with open(filepath, 'w') as f:
                 json.dump(self.to_dict(), f, indent=2)
@@ -1426,8 +1450,7 @@ class SDFSceneBuilder:
             return False, f"Error saving scene: {str(e)}"
 
     def load_from_json(self, filepath):
-        """Load a scene from a JSON file."""
-        import json
+        # Load a scene from a JSON file.
         try:
             with open(filepath, 'r') as f:
                 scene_dict = json.load(f)
@@ -1679,7 +1702,6 @@ def input_float(name, value, value_step=0.1, item_width=60):
     imgui.same_line()
     imgui.text(name)
     return changed, value
-
 
 
 
@@ -2329,8 +2351,20 @@ void main() {
     start_time = time.time()
     prev_time = time.time() 
 
-
     glfw.set_window_close_callback(window, on_window_close)
+
+
+
+    # Load User Config
+    # I use JSON format with data extension to avoid confusion with one extension
+    default_uconfig = {"Themes": theme}
+    UConfig = load_user_config("UserData/User.data")
+    if not UConfig or not isinstance(UConfig, Dict): # If the file does not exist or is empty, create it based on the default config
+        save_user_config("UserData/User.data", default_uconfig)
+        UConfig = default_uconfig
+
+
+
 
     while not glfw.window_should_close(window):
         # calc Delta time 
