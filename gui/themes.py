@@ -1,19 +1,25 @@
 import imgui
 
-def setup_dark_red_theme():
+# --- Defined Palette ---
+bg_dark = (0.12, 0.11, 0.09, 1.0)        # Very dark background
+panel_dark = (0.18, 0.16, 0.13, 1.0)     # Slightly lighter panel/frame
+accent = (0.608, 0.067, 0.118, 1.0)      # Primary Dark Red/Crimson (Buttons, Active Header)
+hover = (0.902, 0.125, 0.125, 1.0)       # Bright Red/Scarlet (Hover/Active State)
+text_light = (0.92, 0.90, 0.80, 1.0)     # Off-white text
+
+muted_accent = (0.4, 0.04, 0.08, 1.0) 
+child_bg = (0.20, 0.18, 0.15, 1.0)
+dim_background = (0.0, 0.0, 0.0, 0.7) 
+border_color = (0.25, 0.23, 0.20, 1.0)
+
+
+
+
+def setup_theme():
     style = imgui.get_style()
 
     # --- Defined Palette ---
-    bg_dark = (0.12, 0.11, 0.09, 1.0)        # Very dark background
-    panel_dark = (0.18, 0.16, 0.13, 1.0)     # Slightly lighter panel/frame
-    accent = (0.608, 0.067, 0.118, 1.0)      # Primary Dark Red/Crimson (Buttons, Active Header)
-    hover = (0.902, 0.125, 0.125, 1.0)       # Bright Red/Scarlet (Hover/Active State)
-    text_light = (0.92, 0.90, 0.80, 1.0)     # Off-white text
-
-    muted_accent = (0.4, 0.04, 0.08, 1.0) 
-    child_bg = (0.20, 0.18, 0.15, 1.0)
-    dim_background = (0.0, 0.0, 0.0, 0.7) 
-    border_color = (0.25, 0.23, 0.20, 1.0)
+    global bg_dark, panel_dark, accent, hover, text_light, muted_accent, child_bg, dim_background, border_color
 
     # ---------------------------------------------
     # Set key colors based on the defined palette

@@ -1846,6 +1846,8 @@ def main():
     # --- UI State ---
     show_selection_window = False
     show_settings_window = False
+    show_editor_settings_window = False
+    current_settings_tab = "Themes"  # State to track which tab is active
     show_export_vol_window = False
     show_export_obj_window = False
     show_about_window = False
@@ -1857,6 +1859,23 @@ def main():
     last_key_delete_pressed = False  # Track if Delete was pressed
     last_key_compile_pressed = False  # Track if Ctrl+B was pressed
     
+
+    # --- Defined Palette ---
+    theme = {
+        "bg_dark" : [0.12, 0.11, 0.09, 1.0],        # Very dark background
+        "panel_dark" : [0.18, 0.16, 0.13, 1.0],     # Slightly lighter panel/frame
+        "accent" : [0.608, 0.067, 0.118, 1.0],      # Primary Dark Red/Crimson (Buttons, Active Header)
+        "hover" : [0.902, 0.125, 0.125, 1.0],       # Bright Red/Scarlet (Hover/Active State)
+        "text_light" : [0.92, 0.90, 0.80, 1.0],     # Off-white text
+
+        "muted_accent" : [0.4, 0.04, 0.08, 1.0], 
+        "child_bg" : [0.20, 0.18, 0.15, 1.0],
+        "dim_background" : [0.0, 0.0, 0.0, 0.7], 
+        "border_color" : [0.25, 0.23, 0.20, 1.0]
+    }
+
+
+
     # Shader selection
     shader_choice = 0  # 0 = template, 1 = cycles
     shader_names = ["shaders/fragment/template.glsl", "shaders/fragment/cycles.glsl"]
@@ -2307,7 +2326,7 @@ void main() {
         glfw.poll_events()
         impl.process_inputs()
         imgui.new_frame()
-        gui.themes.setup_dark_red_theme()
+        gui.themes.setup_theme()
 
 
 
@@ -2716,6 +2735,11 @@ void main() {
             if imgui.begin_menu("View", True):
                 if imgui.menu_item("Settings", "F10")[0]:
                     show_settings_window = True
+                imgui.end_menu()
+
+            if imgui.begin_menu("Editor", True):
+                if imgui.menu_item("Settings")[0]:
+                    show_editor_settings_window = True
                 imgui.end_menu()
     
             if imgui.begin_menu("About", True):
@@ -3358,6 +3382,106 @@ void main() {
             
             
             imgui.end()
+
+
+
+
+        # --- Editor Settings Window ---
+        # --- Content Functions (Placeholders) ---
+        def render_themes_tab():
+            for label, color in list(theme.items()):
+                changed, color_rgba = imgui.color_edit4(label, *color)
+                
+                if changed:
+                    # Update the dictionary key with the new list/tuple value
+                    theme[label] = list(color_rgba) 
+                    setattr(gui.themes, label, theme[label])
+                    gui.themes.setup_theme()
+
+            
+
+        def render_user_tab():
+            imgui.text("User Profile Settings Content Here... WIP")
+
+        def render_shortcuts_tab():
+            imgui.text("Keyboard Shortcut Mapping Content Here... WIP")
+
+
+        if show_editor_settings_window:
+            # Set initial positioning and size for the main window container
+            imgui.set_next_window_position(width // 2 - 400, height // 2 - 300)
+            imgui.set_next_window_size(800, 600)
+            
+            is_open, show_editor_settings_window = imgui.begin("Editor Settings", True, imgui.WINDOW_NO_COLLAPSE)
+            
+            if is_open:
+                # 1. Setup two columns: one narrow for navigation, one wide for content
+                # We use a fixed width ratio or absolute width if preferred.
+                # Here, we use the available space divided by 5 (1/5 for sidebar, 4/5 for content)
+                if imgui.begin_child("SettingsTabs", 0, 0, border=False):
+                    
+                    # Sidebar Width (e.g., 150 pixels wide)
+                    sidebar_width = 150
+                    
+                    # --- Left Panel: Navigation Buttons ---
+                    imgui.begin_group()
+                    
+                    # Button 1: Themes
+                    if imgui.button("Themes", width=sidebar_width):
+                        current_settings_tab = "Themes"
+                    
+                    imgui.separator()
+
+                    # Button 2: User
+                    if imgui.button("User", width=sidebar_width):
+                        current_settings_tab = "User"
+                        
+                    imgui.separator()
+
+                    # Button 3: Shortcuts
+                    if imgui.button("Shortcuts", width=sidebar_width):
+                        current_settings_tab = "Shortcuts"
+                        
+                    imgui.end_group()
+                    
+                    # --- Content Separator (Visual separation if columns aren't perfect) ---
+                    # Move cursor over to where the content panel should start
+                    imgui.set_cursor_pos_x(sidebar_width + 10)
+                    imgui.same_line()
+
+                    # --- Right Panel: Content Area ---
+                    # We use a child window/group to hold the content that changes based on the selection.
+                    
+                    # Calculate remaining width for content area
+                    window_width = imgui.get_window_width()
+                    content_width = window_width - sidebar_width - 30 # Subtract sidebar + padding/separator
+
+                    # Start the content rendering block
+                    if imgui.begin_child("SettingsContent", content_width, 400, border=False):
+                        
+                        if current_settings_tab == "Themes":
+                            render_themes_tab()
+                        elif current_settings_tab == "User":
+                            render_user_tab()
+                        elif current_settings_tab == "Shortcuts":
+                            render_shortcuts_tab()
+
+                        imgui.end_child() # End SettingsContent
+
+                    imgui.end_child()
+                    
+            if not is_open:
+                show_editor_settings_window = False
+
+            imgui.end()
+
+
+
+
+
+
+
+
 
 
         if show_export_vol_window:
