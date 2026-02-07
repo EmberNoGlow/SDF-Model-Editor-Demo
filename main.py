@@ -1851,6 +1851,7 @@ def main():
     show_export_vol_window = False
     show_export_obj_window = False
     show_about_window = False
+    show_exit_window = False
     selection_mode = None  # 'primitive' or 'operation'
     renaming_item_id = None  # Item being renamed
     rename_text = ""
@@ -2309,13 +2310,20 @@ void main() {
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
         return True
 
-
+    def on_window_close(window):
+        nonlocal show_exit_window
+        print("Exit")
+        glfw.set_window_should_close(window, False)
+        show_exit_window = True
+        
 
 
     # --- Main Loop ---
     start_time = time.time()
     prev_time = time.time() 
 
+
+    glfw.set_window_close_callback(window, on_window_close)
 
     while not glfw.window_should_close(window):
         # calc Delta time 
@@ -2719,7 +2727,7 @@ void main() {
                 imgui.separator()
                 imgui.spacing()
                 if imgui.menu_item("Exit", "Alt+F4")[0]:
-                    glfw.set_window_should_close(window, True)
+                    on_window_close(window)
 
                 imgui.end_menu()
 
@@ -3639,6 +3647,29 @@ You can also support the project by reporting an error, or by suggesting an impr
 
         imgui.end()
         
+
+        if show_exit_window:
+            imgui.set_next_window_position(width // 2 - 150, height // 2 - 65)
+            imgui.set_next_window_size(300, 130)  # Increased height
+            is_open, show_exit_window = imgui.begin("Confirm Exit", True, imgui.WINDOW_NO_COLLAPSE)
+            
+            if not is_open:
+                show_exit_window = False
+            
+            imgui.spacing()
+            imgui.text(f"Are you sure you want to exit?\nUnsaved data may be lost.")
+            imgui.spacing()
+            imgui.separator()
+            imgui.spacing()
+
+            if imgui.button("Cancel", 130,30):
+                pass
+            imgui.same_line(0,15)
+            if imgui.button("YES", 130,30):
+                glfw.set_window_should_close(window, True)
+
+            imgui.end()
+
 
         # Display save/load status message
         if save_load_message is not None:
