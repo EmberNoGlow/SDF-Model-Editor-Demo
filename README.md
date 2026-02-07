@@ -23,11 +23,7 @@ While the current version is a **demo with limited functionality**, it serves as
 ---
 
 ## **⚠️ Current Status**
-This is an **early-stage prototype** with known bugs and missing features. Check the **[Roadmap](#-roadmap)** for planned improvements.
-
-### **Known Issues**
-- Redo/Undo bugs
-- Small bugs
+This is a late-stage prototype. I'm on the cusp of a major transition: the MVP is progressing well, and **[Roadmap](#-roadmap)** is nearing completion. Next, I'll move on to building the full product. Once the MVP is complete, I'll immediately focus on promoting the project on social media—and your support can make this launch truly meaningful!
 
 
 > **Your feedback and contributions are welcome!** Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues) or submit a [PR](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
@@ -54,11 +50,10 @@ This is an **early-stage prototype** with known bugs and missing features. Check
 ## **🎯 Roadmap**
 
 ### *Current Progress*
-- **🐜 Fix Undo/Redo** bugs
-- **〽 Found and Fix** bugs
-- **⏱ Optimize**
-- **🧷 Integrate [marching cubes](https://github.com/EmberNoGlow/Rust-Marching-Cubes-Generator) written in Rust** for export into 3D format (example, obj)
-- **📝 Creating a gizmo** – Preparation
+- 📝 **Customization**
+- 🧷 **UX improvements**
+- 🐛 **Fix bugs**
+- 🌐 **Localization** - Preparation
 
 ### **Core Functionality (MVP Goals)**
 - [x] **Free movement of the camera in 3d space**
