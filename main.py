@@ -134,7 +134,7 @@ def take_screenshot(window):
     root.withdraw()  # Hide the root window
     
     filepath = filedialog.asksaveasfilename(
-        defaultextension=".jpg",
+        defaultextension=".png",
         filetypes=[
             ("PNG Images", "*.png"),
             ("JPEG Images", "*.jpg;*.jpeg"),
@@ -1889,7 +1889,10 @@ def main():
     last_key_f2_pressed = False  # Track if F2 was pressed
     last_key_delete_pressed = False  # Track if Delete was pressed
     last_key_compile_pressed = False  # Track if Ctrl+B was pressed
-    
+
+
+
+
 
     # --- Defined Palette ---
     theme = {
@@ -2395,9 +2398,85 @@ void main() {
 
         # --- Handle keyboard input ---
         io = imgui.get_io()
-        
-        # Check Ctrl+A for add window (with debouncing)
-        if io.keys_down[glfw.KEY_A] and io.key_ctrl:
+
+        ShortCuts = {
+            "Rename" : (glfw.KEY_F2,),
+            "Add" : (glfw.KEY_A, "CTRL"), 
+            "Delete" : (glfw.KEY_DELETE),
+            "Compile" : (glfw.KEY_B, "CTRL"),
+            "Undo" : (glfw.KEY_Z, "CTRL"),
+            "Redo" : (glfw.KEY_Z, "CTRL", "SHIFT"),
+            "Redo2" : (glfw.KEY_Y, "CTRL"),
+            "Move" : (glfw.KEY_G),
+            "Rotate" : (glfw.KEY_R),
+            "X" : (glfw.KEY_X),
+            "Y" : (glfw.KEY_Y),
+            "Z" : (glfw.KEY_Z),
+            "Open" : (glfw.KEY_O, "CTRL"),
+            "Save" : (glfw.KEY_S, "CTRL"),
+        }
+
+
+        def input_handle(action : str) -> bool:
+            # Helper function to get the live state of a modifier ID
+            def get_live_modifier_state(modifier_id):
+                if modifier_id == "CTRL":
+                    return io.key_ctrl
+                if modifier_id == "SHIFT":
+                    return io.key_shift
+                return False
+            
+            keys_required = ShortCuts.get(action)
+            
+            if keys_required is None:
+                return False
+
+            # Ensure keys_required is always iterable (a tuple)
+            if not isinstance(keys_required, tuple):
+                keys_required = (keys_required,)
+
+            # --- STEP 1: Check if ALL conditions are met (Is the combination currently held?) ---
+            all_keys_down_this_frame = True
+            main_key_code = None # Store the main key code for debouncing later
+
+            for key_check in keys_required:
+                
+                if isinstance(key_check, int):
+                    # Standard key code: Must be currently down
+                    if not io.keys_down[key_check]:
+                        all_keys_down_this_frame = False
+                        break
+                    # Store this as the potential main key to check for initial press
+                    main_key_code = key_check
+                        
+                elif isinstance(key_check, str):
+                    # Modifier: Must be currently down
+                    if not get_live_modifier_state(key_check):
+                        all_keys_down_this_frame = False
+                        break
+
+            if not all_keys_down_this_frame:
+                return False # Combo is not active right now
+
+            # --- STEP 2: Debounce (Did the key press START this frame?) ---
+            
+            # Case A: Single Key (like F2)
+            if len(keys_required) == 1 and main_key_code is not None:
+                if io.keys_down[main_key_code]:
+                    return True
+            
+            # Case B: Combination Key (like Ctrl+A)
+            elif len(keys_required) > 1 and main_key_code is not None:
+                if io.keys_down[main_key_code]:
+                    return True
+                    
+            # If we reach here, the combination is held, but the trigger key wasn't *newly* pressed this frame.
+            return False
+
+
+                
+        # Check Ctrl+A for add window 
+        if input_handle("Add"):
             if not last_key_a_pressed:
                 show_selection_window = True
                 last_key_a_pressed = True
@@ -2405,7 +2484,7 @@ void main() {
             last_key_a_pressed = False
         
         # Check F2 for rename (with debouncing)
-        if io.keys_down[glfw.KEY_F2] and selected_item_id is not None and renaming_item_id is None:
+        if input_handle("Rename") and selected_item_id is not None and renaming_item_id is None:
             if not last_key_f2_pressed:
                 renaming_item_id = selected_item_id
                 rename_text = scene_builder.get_item_name(selected_item_id)
@@ -2414,7 +2493,7 @@ void main() {
             last_key_f2_pressed = False
         
         # Check Delete key for deletion (with debouncing)
-        if io.keys_down[glfw.KEY_DELETE] and selected_item_id is not None:
+        if input_handle("Delete") and selected_item_id is not None:
             if not last_key_delete_pressed:
                 if scene_builder.delete_item(selected_item_id):
                     success, new_uniforms = recompile_shader()
@@ -2427,7 +2506,7 @@ void main() {
             last_key_delete_pressed = False
         
         # Check Ctrl+B for compile (with debouncing)
-        if io.keys_down[glfw.KEY_B] and io.key_ctrl:
+        if input_handle("Compile"):
             if not last_key_compile_pressed:
                 success, new_uniforms = recompile_shader()
                 if success:
@@ -2837,7 +2916,7 @@ void main() {
         
 
         # Check Ctrl + S/O
-        if io.keys_down[glfw.KEY_O] and io.key_ctrl:
+        if input_handle("Open"):
             if not last_key_o_pressed: 
                 success, message = load_scene_dialog(scene_builder)
                 save_load_message = message
@@ -2854,7 +2933,7 @@ void main() {
 
         #####
 
-        if io.keys_down[glfw.KEY_S] and io.key_ctrl:
+        if input_handle("Save"):
             if not last_key_s_pressed: 
                 success, message = save_scene_dialog(scene_builder)
                 save_load_message = message
@@ -2871,7 +2950,7 @@ void main() {
 
 
         # Check Undo/Redo keys Ctrl+Z/Y
-        if io.keys_down[glfw.KEY_Z] and io.key_ctrl and not io.key_shift:
+        if input_handle("Undo") and io.key_ctrl and not io.key_shift:
             if not last_key_z_pressed: 
                 undo_success = glob_history.undo()
                 if undo_success:
@@ -2883,8 +2962,7 @@ void main() {
             last_key_z_pressed = False
 
 
-        if (io.keys_down[glfw.KEY_Y] and io.key_ctrl) or \
-           (io.keys_down[glfw.KEY_Z] and io.key_ctrl and io.key_shift):
+        if input_handle("Redo") or input_handle("Redo2"):
             if not last_key_y_pressed: 
                 undo_success = glob_history.redo()
                 if undo_success:
@@ -2898,11 +2976,10 @@ void main() {
 
 
         # Drag on G
-        # Read raw key states using GLFW so ImGui doesn't interfere with toggles
-        key_g_is_down = glfw.get_key(window, glfw.KEY_G) == glfw.PRESS
-        key_x_is_down = glfw.get_key(window, glfw.KEY_X) == glfw.PRESS
-        key_y_is_down = glfw.get_key(window, glfw.KEY_Y) == glfw.PRESS
-        key_z_is_down = glfw.get_key(window, glfw.KEY_Z) == glfw.PRESS
+        key_g_is_down = input_handle("Move")
+        key_x_is_down = input_handle("X")
+        key_y_is_down = input_handle("Y")
+        key_z_is_down = input_handle("Z")
 
         # Toggle dragging on G press (edge detect)
         if key_g_is_down and not last_key_g_pressed:
@@ -3058,11 +3135,10 @@ void main() {
 
 
         # ---- Rotate (MoveRot) using R key ----
-        # Read raw key states using GLFW (reuse names for readability)
-        key_r_is_down = glfw.get_key(window, glfw.KEY_R) == glfw.PRESS
-        key_x_is_down = glfw.get_key(window, glfw.KEY_X) == glfw.PRESS
-        key_y_is_down = glfw.get_key(window, glfw.KEY_Y) == glfw.PRESS
-        key_z_is_down = glfw.get_key(window, glfw.KEY_Z) == glfw.PRESS
+        key_r_is_down = input_handle("Rotate")
+        key_x_is_down = input_handle("X")
+        key_y_is_down = input_handle("Y")
+        key_z_is_down = input_handle("Z")
 
         # Edge-detect R press to toggle rotation mode
         if key_r_is_down and not last_key_r_pressed:
@@ -3218,7 +3294,7 @@ void main() {
 
 
 
-        # Check F10 for settings (with debouncing)
+        # Check F10 for settings
         if io.keys_down[glfw.KEY_F10]:
             if not last_key_f10_pressed:
                 show_settings_window = True
