@@ -224,6 +224,16 @@ void main()
         self.text.bind("<Tab>", self._handle_tab)
         self.text.bind("<Return>", self._handle_return)
 
+        # Add these new bindings for copy, paste, and select all
+        self.text.bind("<Control-a>", self._select_all)
+        self.text.bind("<Control-A>", self._select_all)
+        self.text.bind("<Control-c>", self._copy)
+        self.text.bind("<Control-C>", self._copy)
+        self.text.bind("<Control-v>", self._paste)
+        self.text.bind("<Control-V>", self._paste)
+        self.text.bind("<Control-x>", self._cut)
+        self.text.bind("<Control-X>", self._cut)
+
     # -------------------- SCROLLING --------------------
 
     def _on_textscroll(self, *args):
@@ -308,6 +318,45 @@ void main()
         text.insert("insert", "\n" + indent)
         return "break"
 
+
+
+    def _select_all(self, event=None):
+        """Select all text in the editor."""
+        self.text.tag_add("sel", "1.0", "end")
+        return "break"
+
+    def _copy(self, event=None):
+        """Copy selected text to clipboard."""
+        try:
+            selected_text = self.text.get("sel.first", "sel.last")
+            self.clipboard_clear()
+            self.clipboard_append(selected_text)
+        except tk.TclError:
+            pass  # No text selected
+        return "break"
+
+    def _cut(self, event=None):
+        """Cut selected text to clipboard."""
+        try:
+            selected_text = self.text.get("sel.first", "sel.last")
+            self.clipboard_clear()
+            self.clipboard_append(selected_text)
+            self.text.delete("sel.first", "sel.last")
+        except tk.TclError:
+            pass  # No text selected
+        return "break"
+
+    def _paste(self, event=None):
+        """Paste text from clipboard."""
+        try:
+            clipboard_text = self.clipboard_get()
+            self.text.insert("insert", clipboard_text)
+        except tk.TclError:
+            pass  # Clipboard empty or unavailable
+        return "break"
+
+
+
     # -------------------- LINE NUMBERS --------------------
 
     def update_line_numbers(self, event=None):
@@ -346,8 +395,3 @@ void main()
                 start_index = f"1.0+{start}c"
                 end_index = f"1.0+{end}c"
                 text.tag_add(tag, start_index, end_index)
-
-
-if __name__ == "__main__":
-    app = GLSLEditor()
-    app.mainloop()
