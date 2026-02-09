@@ -9,6 +9,7 @@ import imgui
 import imgui.core
 import gui.themes
 import exporter as sdfexp
+import CodeEditor as CodeEdit
 
 from imgui.integrations.glfw import GlfwRenderer
 from PIL import Image
@@ -1703,11 +1704,13 @@ def input_float(name, value, value_step=0.1, item_width=60):
     imgui.text(name)
     return changed, value
 
-
+CE_app = None
+tkinter_thread = None
 
 def main():
     # Globals
     global start_drag, end_drag, dragging, selected_item_id, drag_position, drag_rot_position
+
 
     # Initialize GLFW
     if not glfw.init():
@@ -2400,7 +2403,7 @@ void main() {
         io = imgui.get_io()
 
         ShortCuts = {
-            "Rename" : (glfw.KEY_F2,),
+            "Rename" : (glfw.KEY_F2),
             "Add" : (glfw.KEY_A, "CTRL"), 
             "Delete" : (glfw.KEY_DELETE),
             "Compile" : (glfw.KEY_B, "CTRL"),
@@ -2890,9 +2893,8 @@ void main() {
             # Calculate positions for centered buttons
             button_width = 100
             spacing = 20
-            total_buttons_width = 2 * button_width + spacing
+            total_buttons_width = 3 * button_width + 2 * spacing 
             start_x = (cursor_pos.x + (remaining_width - total_buttons_width)) / 2
-
 
             imgui.set_cursor_pos_x(start_x)
             if imgui.button("Template", button_width):
@@ -2910,8 +2912,27 @@ void main() {
                 if success:
                     uniform_locs = new_uniforms
 
+            imgui.set_cursor_pos_x(start_x + 2 * (button_width + spacing))
+            import threading
 
+            if imgui.button("Script", button_width):
+                def run_tkinter_app():
+                    global CE_app, tkinter_thread
+                    if CE_app is None:
+                        CE_app = CodeEdit.GLSLEditor()
 
+                        def on_close():
+                            global CE_app
+                            CE_app.destroy()
+                            CE_app = None
+
+                        CE_app.protocol("WM_DELETE_WINDOW", on_close)
+                        CE_app.mainloop()
+
+                # Start Tkinter in a new thread (non-blocking)
+                tkinter_thread = threading.Thread(target=run_tkinter_app, daemon=True)
+                tkinter_thread.start()
+                
             imgui.end_main_menu_bar()
         
 
@@ -3535,7 +3556,15 @@ void main() {
             imgui.text("User Profile Settings Content Here... WIP")
 
         def render_shortcuts_tab():
-            imgui.text("Keyboard Shortcut Mapping Content Here... WIP")
+            for name, keys in ShortCuts.items():
+                imgui.text(name)
+                imgui.same_line()
+
+                for key in (keys,):
+                    imgui.text(io.keys_down[key])
+                    imgui.same_line()
+
+                imgui.spacing()
 
 
         if show_editor_settings_window:
