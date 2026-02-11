@@ -10,6 +10,20 @@ $PipPath = Join-Path $VenvName "Scripts\pip.exe"
 $MainScript = "main.py"
 $GlfwDllSource = Join-Path $VenvName "Lib\site-packages\glfw\glfw3.dll"
 $DistExecutable = "sdfeditor" # Name used by PyInstaller --name
+$IconFile = "icon.ico" # Checking if there's an icon to use
+
+# Start a timer to see how long we take
+$BuildTimer = [System.Diagnostics.Stopwatch]::StartNew()
+
+# --- Step 0: Cleanup ---
+# We wipe the old build and dist folders first so we don't end up with 
+# leftover junk from previous attempts.
+Write-Host "0. Cleaning up old build files..." -ForegroundColor Gray
+foreach ($folder in $ReleaseDir, "dist", "build") {
+    if (Test-Path $folder) { 
+        Remove-Item -Path $folder -Recurse -Force 
+    }
+}
 
 # --- Step 1: Create Release Directory ---
 Write-Host "1. Creating release directory: $ReleaseDir..." -ForegroundColor Cyan
@@ -44,14 +58,20 @@ Write-Host "5. Ensuring PyInstaller is installed..."
 # --- Step 6: Execute PyInstaller Build ---
 Write-Host "6. Running PyInstaller build..."
 
+# We prepare the command arguments here. If an icon.ico exists, we use it automatically.
 $PyCommand = @(
     "--onefile",
     "--name", $DistExecutable,
     "--windowed",
-    # Explicitly add DLL, copying it to the root of the distribution folder ('.')
-    "--add-binary", "$GlfwDllSource;.",
-    $MainScript
+    "--add-binary", "$GlfwDllSource;."
 )
+
+if (Test-Path $IconFile) {
+    Write-Host "Found icon.ico, applying to executable..." -ForegroundColor DarkCyan
+    $PyCommand += "--icon", $IconFile
+}
+
+$PyCommand += $MainScript
 
 & $PyInstallerPath @PyCommand
 
@@ -72,7 +92,7 @@ if (Test-Path $CompiledFile) {
     Write-Warning "Could not find compiled executable in 'dist'."
 }
 
-# --- Step 8 (NEW): Explicitly Copy GLFW DLL ---
+# --- Step 8: Explicitly Copy GLFW DLL ---
 Write-Host "8. Explicitly copying glfw3.dll to $ReleaseDir root..."
 if (Test-Path $GlfwDllSource) {
     Copy-Item -Path $GlfwDllSource -Destination $ReleaseDir -Force
@@ -81,7 +101,7 @@ if (Test-Path $GlfwDllSource) {
     Write-Warning "GLFW DLL not found at source path. Skipping explicit copy."
 }
 
-# --- Step 9 (was 8): Copy Shaders Folder ---
+# --- Step 9: Copy Shaders Folder ---
 Write-Host "9. Copying 'shaders' folder to $ReleaseDir..."
 if (Test-Path ".\shaders") {
     Copy-Item -Path ".\shaders" -Destination $ReleaseDir -Recurse -Force
@@ -90,10 +110,9 @@ if (Test-Path ".\shaders") {
     Write-Warning "Folder 'shaders' not found. Skipping."
 }
 
-# --- Step 10 (NEW): Copy Fonts Folder ---
+# --- Step 10: Copy Fonts Folder ---
 Write-Host "10. Copying 'gui/fonts' to $ReleaseDir/gui/..."
 if (Test-Path ".\gui\fonts") {
-    # Ensure the parent directory for fonts exists in ReleaseBuild
     New-Item -Name "gui" -Path $ReleaseDir -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
     Copy-Item -Path ".\gui\fonts" -Destination "$ReleaseDir\gui\" -Recurse -Force
     Write-Host "gui/fonts folder copied."
@@ -111,4 +130,25 @@ URL=https://github.com/EmberNoGlow/SDF-Model-Editor-Demo
 
 Set-Content -Path $UrlFilePath -Value $UrlContent -Encoding UTF8
 
-Write-Host "`nBUILD COMPLETED SUCCESSFULLY!" -ForegroundColor Green
+# --- Step 12: Copy Extras (README/LICENSE) ---
+# Most people want the license and readme in the release so users know what they're looking at.
+Write-Host "12. Searching for Documentation/License files..."
+foreach ($doc in "README.md", "LICENSE", "LICENSE.txt") {
+    if (Test-Path $doc) {
+        Copy-Item -Path $doc -Destination $ReleaseDir -Force
+        Write-Host "Copied $doc." -ForegroundColor DarkGray
+    }
+}
+
+# --- Step 13: Zip it up ---
+# This makes it much easier to upload the release to GitHub or send it to friends.
+Write-Host "13. Creating a ZIP archive of the build..." -ForegroundColor Cyan
+$ZipPath = "$ReleaseDir.zip"
+if (Test-Path $ZipPath) { Remove-Item $ZipPath }
+Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $ZipPath
+Write-Host "Archive created: $ZipPath"
+
+# Finish up and show the total time
+$BuildTimer.Stop()
+$Time = $BuildTimer.Elapsed
+Write-Host ("`nBUILD COMPLETED SUCCESSFULLY in {0:mm}m {0:ss}s!" -f $Time) -ForegroundColor Green
