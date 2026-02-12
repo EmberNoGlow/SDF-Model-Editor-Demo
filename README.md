@@ -6,7 +6,7 @@
 
 ---
 
-![](Screenshots/cover.png)
+![](Screenshots/Cover.png)
 
 ---
 
