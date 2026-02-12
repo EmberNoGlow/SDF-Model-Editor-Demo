@@ -3,7 +3,7 @@
 # -----------------------------
 
 # --- Configuration ---
-$ReleaseDir = "ReleaseBuild"
+$ReleaseDir = "ReleaseBuild\SDFEditor"
 $VenvName = ".venv"
 $PyInstallerPath = Join-Path $VenvName "Scripts\pyinstaller.exe"
 $PipPath = Join-Path $VenvName "Scripts\pip.exe"
@@ -141,12 +141,24 @@ foreach ($doc in "README.md", "LICENSE", "LICENSE.txt") {
 }
 
 # --- Step 13: Zip it up ---
-# This makes it much easier to upload the release to GitHub or send it to friends.
 Write-Host "13. Creating a ZIP archive of the build..." -ForegroundColor Cyan
-$ZipPath = "$ReleaseDir.zip"
-if (Test-Path $ZipPath) { Remove-Item $ZipPath }
-Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $ZipPath
-Write-Host "Archive created: $ZipPath"
+
+$ZipFile = "SDFEditor.zip"
+
+$TempFolder = Join-Path -Path (Get-Location) -ChildPath "TempZipRoot"
+$TargetFolderInZip = Join-Path -Path $TempFolder -ChildPath "SDFEditor"
+
+if (Test-Path $TempFolder) { Remove-Item $TempFolder -Recurse -Force }
+New-Item -Path $TargetFolderInZip -ItemType Directory | Out-Null
+
+Copy-Item -Path "$ReleaseDir\*" -Destination $TargetFolderInZip -Recurse
+
+if (Test-Path $ZipFile) { Remove-Item $ZipFile }
+Compress-Archive -Path "$TempFolder\*" -DestinationPath $ZipFile -CompressionLevel Optimal
+
+Remove-Item $TempFolder -Recurse -Force
+
+Write-Host "Archive created: $ZipFile"
 
 # Finish up and show the total time
 $BuildTimer.Stop()
