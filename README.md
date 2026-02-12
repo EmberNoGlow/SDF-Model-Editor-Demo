@@ -6,6 +6,11 @@
 
 ---
 
+![](Screenshots/cover.png)
+
+---
+
+
 ## **🌟 Overview**
 This project is a **work-in-progress** editor for designing 3D models using **Signed Distance Fields (SDFs)**. Built with `Python`, `GLSL`, `ImGui`, `GLFW`, and `PyOpenGL`, it allows real-time rendering and interaction with SDF primitives.
 
@@ -45,6 +50,8 @@ This is a late-stage prototype. I'm on the cusp of a major transition: the MVP i
 
 ✅ **Export to 3d** using scikit-image
 
+✅ **Built-in real-time scene code editor in GLSL** using Tkinter
+
 ---
 
 ## **🎯 Roadmap**
@@ -53,6 +60,7 @@ This is a late-stage prototype. I'm on the cusp of a major transition: the MVP i
 - 📝 **Customization**
 - 🧷 **UX improvements**
 - 🐛 **Fix bugs**
+- 🔨 Making an **GLSL code editor**
 - 🌐 **Localization** - Preparation
 
 ### **Core Functionality (MVP Goals)**
