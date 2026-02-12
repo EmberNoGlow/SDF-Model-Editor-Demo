@@ -1949,6 +1949,8 @@ def main():
     # --- Shader compilation and error tracking ---
     shader_compile_error = None
     shader_cache = {}  # Cache for compiled shaders: {hash: (shader_program, uniforms)}
+
+    additional_scene_code = ""
     
     def get_shader_hash():
         """Generate a hash of the current shader code for caching."""
@@ -1960,6 +1962,7 @@ def main():
         fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
         fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
         fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
+        fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
         
         # Create hash of the complete shader code (including shader choice)
         shader_code = f"{vertex_shader}\n{fragment_shader}\n{shader_names[shader_choice]}"
@@ -1989,6 +1992,7 @@ def main():
             fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
             fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
             fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
+            fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
             
             shader_program = compileProgram(
                 compileShader(vertex_shader, GL_VERTEX_SHADER),
@@ -2933,6 +2937,11 @@ void main() {
                 tkinter_thread = threading.Thread(target=run_tkinter_app, daemon=True)
                 tkinter_thread.start()
                 
+            if CE_app != None:
+                if CE_app.rec == True: # I don't think it's reliable, but oh well!
+                    additional_scene_code = CE_app.get_plain_text()
+                    recompile_shader()
+                    CE_app.rec = False
             imgui.end_main_menu_bar()
         
 
@@ -3541,6 +3550,7 @@ void main() {
         # --- Editor Settings Window ---
         # --- Content Functions (Placeholders) ---
         def render_themes_tab():
+            nonlocal theme
             for label, color in list(theme.items()):
                 changed, color_rgba = imgui.color_edit4(label, *color)
                 
@@ -3549,6 +3559,13 @@ void main() {
                     theme[label] = list(color_rgba) 
                     setattr(gui.themes, label, theme[label])
                     gui.themes.setup_theme()
+            
+            imgui.spacing()
+            if imgui.button("Reset Theme", -1):
+                theme = copy.deepcopy( default_uconfig["Theme"] )
+                for label, color in list(theme.items()):
+                    setattr(gui.themes, label, theme[label])
+                    gui.themes.setup_theme() 
 
             
 
@@ -3561,7 +3578,7 @@ void main() {
                 imgui.same_line()
 
                 for key in (keys,):
-                    imgui.text(io.keys_down[key])
+                    imgui.text(str(key))
                     imgui.same_line()
 
                 imgui.spacing()

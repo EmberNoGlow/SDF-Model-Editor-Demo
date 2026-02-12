@@ -72,7 +72,9 @@ vec4 getSceneDist(vec3 p) {
 }
 
 vec4 map(vec3 p) {
-    return getSceneDist(p);
+    vec4 sceneRes = getSceneDist(p);
+    {ADDITIONAL_SCENE_CODE}
+    return sceneRes;
 }
 
 float FOV_ANGLE = {FOV_ANGLE_VAL}; 
