@@ -49,75 +49,105 @@ from tkinter import filedialog, messagebox
 
 def save_scene_dialog(scene_builder, parent_window=None):
     # Open a save dialog and save the scene to JSON.
-    root = tk.Tk()
-    root.withdraw()  # Hide the root window
-    
-    filepath = filedialog.asksaveasfilename(
-        defaultextension=".json",
-        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-        initialfile="scene.json"
-    )
-    
-    root.destroy()
-    
-    if filepath:
-        return scene_builder.save_to_json(filepath)
-    return False, "Save cancelled"
+    try:
+        root = tk.Tk()
+        root.withdraw()  # Hide the root window
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            initialfile="scene.json",
+        )
+
+        if not filepath:
+            return False, "Save cancelled"
+        
+        success, message = scene_builder.save_to_json(filepath)
+        if not success:
+            return False, f"Failed to save: {message}"
+        return True, f"Scene saved to {filepath}"
+
+    except Exception as e:
+        error_msg = f"Error during save: {e}"
+        return False, error_msg
+    finally:
+        root.destroy()
 
 
 def load_scene_dialog(scene_builder, parent_window=None):
     # Open a load dialog and load a scene from JSON.
-    root = tk.Tk()
-    root.withdraw()  # Hide the root window
-    
-    filepath = filedialog.askopenfilename(
-        filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-    )
-    
-    root.destroy()
-    
-    if filepath:
-        return scene_builder.load_from_json(filepath)
-    return False, "Load cancelled"
+    try:
+        root = tk.Tk()
+        root.withdraw()
+
+        filepath = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            parent=parent_window
+        )
+
+        if not filepath:
+            return False, "Load cancelled"
+
+        success, message = scene_builder.load_from_json(filepath)
+        if not success:
+            return False, f"Failed to load: {message}"
+        return True, f"Scene loaded from {filepath}"
+
+    except Exception as e:
+        error_msg = f"Error during load: {e}"
+        return False, error_msg
+    finally:
+        root.destroy()
 
 
 def save_sdfvol_dialog(data, parent_window=None):
     # Open a save dialog and save the scene to JSON.
-    root = tk.Tk()
-    root.withdraw()  # Hide the root window
-    
-    filepath = filedialog.asksaveasfilename(
-        defaultextension=".bin",
-        filetypes=[("binary files", "*.bin"), ("All files", "*.*")],
-        initialfile="scene.bin"
-    )
-    
-    root.destroy()
-    
-    if filepath:
+    try:
+        root = tk.Tk()
+        root.withdraw()  # Hide the root window
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".bin",
+            filetypes=[("binary files", "*.bin"), ("All files", "*.*")],
+            initialfile="scene.bin",
+        )
+        
+        if not filepath:
+            return False, "Save cancelled"
+        
         sdfexp.save_3d_texture(data, filepath)
         return True
-    return False
+    except Exception as e:
+        error_msg = f"Error during saving: {e}"
+        return False, error_msg
+    finally:
+        root.destroy()
 
 
 def save_sdfobj_dialog(data, export_z_up, export_level = 0.0, parent_window=None):
     # Open a save dialog and save the scene to JSON.
-    root = tk.Tk()
-    root.withdraw()  # Hide the root window
-    
-    filepath = filedialog.asksaveasfilename(
-        defaultextension=".obj",
-        filetypes=[("wavefront obj", "*.obj"), ("All files", "*.*")],
-        initialfile="scene.obj"
-    )
-    
-    root.destroy()
-    
-    if filepath:
+    try:
+        root = tk.Tk()
+        root.withdraw()  # Hide the root window
+        
+        filepath = filedialog.asksaveasfilename(
+            defaultextension=".obj",
+            filetypes=[("wavefront obj", "*.obj"), ("All files", "*.*")],
+            initialfile="scene.obj",
+        )
+        
+        
+        if not filepath:
+            return False, "Filepath is not valid"
+        
         success, message = sdfexp.export_to_obj(data, filepath, export_z_up, export_level)
         return success, message
-    return False, "Filepath is not valid"
 
+    except Exception as e:
+        error_msg = f"Error during saving: {e}"
+        return False, error_msg
+    finally:
+        root.destroy()
 
 
 def take_screenshot(window):
@@ -1717,10 +1747,16 @@ def main():
         return
 
     # Create a windowed mode window and its OpenGL context
-    window = glfw.create_window(SCREEN_SIZE[0], SCREEN_SIZE[1], "Viewport", None, None)
-    if not window:
+    try:
+        window = glfw.create_window(SCREEN_SIZE[0], SCREEN_SIZE[1], "Viewport", None, None)
+        if not window:
+            glfw.terminate()
+            return
+
+    except Exception as e:
         glfw.terminate()
         return
+
 
     # Make the window's context current
     glfw.make_context_current(window)
@@ -2368,7 +2404,10 @@ void main() {
     # Load User Config
     # I use JSON format with data extension to avoid confusion with one extension
     default_uconfig = {"Theme": theme}
-    UConfig = load_user_config("UserData/User.data")
+    try:
+        UConfig = load_user_config("UserData/User.data")
+    except:
+        UConfig = default_uconfig
 
     if not UConfig or not isinstance(UConfig, dict):
         save_user_config("UserData/User.data", default_uconfig)
@@ -2828,13 +2867,13 @@ void main() {
             if imgui.begin_menu("File", True):
                 if imgui.menu_item("Save Scene", "Ctrl+S")[0]:
                     # Trigger save dialog
-                    success, message = save_scene_dialog(scene_builder)
+                    success, message = save_scene_dialog(scene_builder, window)
                     save_load_message = message
                     save_load_message_time = time.time()
         
                 if imgui.menu_item("Load Scene", "Ctrl+O")[0]:
                     # Trigger load dialog
-                    success, message = load_scene_dialog(scene_builder)
+                    success, message = load_scene_dialog(scene_builder, window)
                     save_load_message = message
                     save_load_message_time = time.time()
                     if success:
@@ -2917,6 +2956,7 @@ void main() {
                     uniform_locs = new_uniforms
 
             imgui.set_cursor_pos_x(start_x + 2 * (button_width + spacing))
+
             import threading
 
             if imgui.button("Script", button_width):
@@ -2942,6 +2982,8 @@ void main() {
                     additional_scene_code = CE_app.get_plain_text()
                     recompile_shader()
                     CE_app.rec = False
+
+
             imgui.end_main_menu_bar()
         
 
@@ -2965,7 +3007,7 @@ void main() {
 
         if input_handle("Save"):
             if not last_key_s_pressed: 
-                success, message = save_scene_dialog(scene_builder)
+                success, message = save_scene_dialog(scene_builder, window)
                 save_load_message = message
                 save_load_message_time = time.time()
                 if success:
@@ -3846,6 +3888,8 @@ You can also support the project by reporting an error, or by suggesting an impr
 
 
         # Display save/load status message
+        import pyperclip
+
         if save_load_message is not None:
             # Show message for 3 seconds
             if time.time() - save_load_message_time < 3.0:
@@ -3856,6 +3900,11 @@ You can also support the project by reporting an error, or by suggesting an impr
                 is_success = "saved" in save_load_message.lower() or "loaded" in save_load_message.lower()
                 color = (0.0, 1.0, 0.0, 1.0) if is_success else (1.0, 0.0, 0.0, 1.0)
                 imgui.text_colored(save_load_message, *color)
+
+                imgui.same_line(350, 0)
+
+                if imgui.button("copy"):
+                    pyperclip.copy(save_load_message)
 
                 imgui.end()
             else:
@@ -3872,7 +3921,12 @@ You can also support the project by reporting an error, or by suggesting an impr
                 is_success = export_obj_message[0]
                 color = (0.0, 1.0, 0.0, 1.0) if is_success else (1.0, 0.0, 0.0, 1.0)
                 imgui.text_colored(export_obj_message[1], *color)
+                
+                imgui.same_line(350, 0)
 
+                if imgui.button("copy"):
+                    pyperclip.copy(save_load_message)
+                
                 imgui.end()
             else:
                 export_obj_message[1] = None
