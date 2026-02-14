@@ -3741,7 +3741,7 @@ void main() {
 
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
-                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, window)
+                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, window)
                 save_sdfvol_dialog(comp_bin)
 
                 show_export_vol_window = False
@@ -3787,7 +3787,7 @@ void main() {
 
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
-                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, window)
+                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, window)
                 elvl = np.interp(export_level, [0,1], [comp_bin.min(), comp_bin.max()])
                 success, message = save_sdfobj_dialog(comp_bin, export_z_up, elvl)
                 export_obj_message = [success, message]

@@ -37,9 +37,15 @@ vec3 mixColorSmooth(vec3 colA, vec3 colB, float dA, float dB, float k) {
 
 {SDF_LIBRARY}
 
+vec4 getSceneDist(vec3 p)
+{
+    {SCENE_CODE}
+}
 
 vec4 map(vec3 p) {
-{SCENE_CODE}
+    vec4 sceneRes = getSceneDist(p);
+    {ADDITIONAL_SCENE_CODE}
+    return sceneRes;
 }
 
 void main() {
@@ -114,8 +120,11 @@ def cleanup_context(VAO, shader, VBO, window):
     glfw.destroy_window(window)
     
 
-def compute_sdf_3d(grid_size=32, quality = 1.0, scene_code="return vec4(vec3(0.0), 100.0);", 
-                   main_window_handle=None, sdf_library_path="shaders/sdf_library.glsl"):
+def compute_sdf_3d(
+    grid_size=32, quality = 1.0,
+    scene_code="return vec4(vec3(0.0), 100.0);", 
+    additional_scene_code="",
+    main_window_handle=None, sdf_library_path="shaders/sdf_library.glsl"):
     
     # 1. Load Library Code (Assuming external file reading is acceptable here)
     try:
@@ -128,6 +137,7 @@ def compute_sdf_3d(grid_size=32, quality = 1.0, scene_code="return vec4(vec3(0.0
     # Inject scene code into the template
     final_fragment_shader = fragment_shader_template.replace("{SDF_LIBRARY}", sdf_library_code)
     final_fragment_shader = final_fragment_shader.replace("{SCENE_CODE}", scene_code)
+    final_fragment_shader = final_fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
 
     # World bounds setup (Context Independent)
     hgs_base = grid_size // 2
