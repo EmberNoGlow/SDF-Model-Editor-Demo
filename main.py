@@ -241,6 +241,8 @@ drag_position = [0,0,0] # Track calculation result
 drag_rot_position = [0,0,0]
 selected_item_id = None  # Track which item is selected in the tree
 
+# Multi-selection support (CTRL+click to toggle)
+selected_items = set()
 
 
 # Load shader files with error handling
@@ -543,7 +545,7 @@ class SDFOperation:
         if operation_type in ['sunion', 'ssub', 'sinter', 'mix']:
             self.smooth_k = args[2] if len(args) > 2 else (0.5 if operation_type == 'mix' else 0.05)
         # For single-operand operations with a float parameter (round, onion)
-        elif operation_type in ['round', 'onion']:
+        elif operation_type in ['round', 'onion', 'snoiseDisp']:
             self.float_param = args[1] if len(args) > 1 else (0.1 if operation_type == 'round' else 0.05)
             self.smooth_k = None
         else:
@@ -606,6 +608,11 @@ class SDFOperation:
             },
             "onion": {
                 "dist_template": "float {op_id} = Onion({d_a}, {param});",
+                "color_template": "vec3 col{op_id} = {col_a_name};",
+                "unpack": lambda args: (args[0], args[1]),
+            },
+            "snoiseDisp": {
+                "dist_template": "float {op_id} = snoiseDisplace({d_a}, {param}, p);",
                 "color_template": "vec3 col{op_id} = {col_a_name};",
                 "unpack": lambda args: (args[0], args[1]),
             },
@@ -773,6 +780,190 @@ class SDFSceneBuilder:
     def add_rounded_cylinder(self, position, radius_a, radius_b, height, rotation=None, scale=None, ui_name=None, color=None):
         return self.add_primitive("rounded_cylinder", position, [radius_a, radius_b], rotation, scale, ui_name, color, height=height)
 
+
+    def add_group(self, member_ids: List[str], position=(0.0,0.0,0.0), rotation=None, scale=None, ui_name=None, color=None, forced_op_id=None):
+        """
+        Create a logical group primitive that contains member_ids (list of primitive op_ids).
+        The grouped primitives are marked (kwargs['grouped'] = group_op_id) so they won't be emitted
+        separately; the group primitive will emit their SDF as a union.
+        """
+        op_id = forced_op_id or f"d{self.next_id}"
+        self._ensure_op_id_unique(op_id)
+
+        # Create group primitive (size_or_radius left empty)
+        primitive = SDFPrimitive("group", list(position), [0.0,0.0,0.0], rotation=rotation, scale=scale, ui_name=ui_name or "Group", color=color, members=list(member_ids))
+        primitive.kwargs['members'] = list(member_ids)
+        self.primitives.append((op_id, primitive))
+        self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
+
+        # Mark members as grouped (so the generator will skip them)
+        for mid in member_ids:
+            if mid in self.id_to_index:
+                itype, midx = self.id_to_index[mid]
+                if itype == 'primitive':
+                    self.primitives[midx][1].kwargs['grouped'] = op_id
+
+        if not forced_op_id:
+            self.next_id += 1
+
+        # Undo/redo: create group -> delete_group on undo; re-add on redo
+        glob_history.add(
+            self._undo_delete_with_dependents, # easiest reuse of undo helper by saving state
+            self._redo_operation_add,          # dummy redo: we'll just re-add (handled below)
+            (self._save_item_state(op_id), []),
+            (op_id,),
+            {},
+            {}
+        )
+        return op_id
+
+    def apply_group_transform(self, group_op_id, new_pos, new_rot, new_scale):
+        """
+        Apply a transform (position, rotation, scale) to members of group `group_op_id`.
+        This mutates member primitives' position/rotation/scale so the shader sees the change.
+        Records an undo/redo entry for the whole group transform operation.
+        """
+        if group_op_id not in self.id_to_index:
+            return False
+
+        item_type, idx = self.id_to_index[group_op_id]
+        if item_type != 'primitive':
+            return False
+
+        group = self.primitives[idx][1]
+        if group.primitive_type != 'group':
+            return False
+
+        old_group_pos = copy.deepcopy(group.position)
+        old_group_rot = copy.deepcopy(group.rotation)
+        old_group_scale = copy.deepcopy(group.scale)
+
+        members = list(group.kwargs.get('members', []))
+        # Save old member states
+        old_states = []
+        new_states = []
+
+        for mid in members:
+            if mid not in self.id_to_index:
+                continue
+            mtype, midx = self.id_to_index[mid]
+            if mtype != 'primitive':
+                continue
+            mem = self.primitives[midx][1]
+            old_states.append((mid, copy.deepcopy(mem.position), copy.deepcopy(mem.rotation), copy.deepcopy(mem.scale)))
+
+        # Apply transform to members (position rotation scale change around group's origin)
+        # Compute deltas
+        old_pos = np.array(old_group_pos, dtype=float)
+        new_pos_arr = np.array(new_pos, dtype=float)
+        delta_pos = new_pos_arr - old_pos
+
+        old_rot = np.array(old_group_rot, dtype=float)
+        new_rot_arr = np.array(new_rot, dtype=float)
+        delta_rot = new_rot_arr - old_rot  # radians
+
+        old_s = np.array(old_group_scale, dtype=float)
+        new_s = np.array(new_scale, dtype=float)
+        # avoid division by zero
+        scale_ratio = np.where(old_s == 0.0, 1.0, new_s / old_s)
+
+        # Build rotation matrices for delta_rot (apply in X, Y, Z order)
+        def rotation_matrix_from_euler(rx, ry, rz):
+            cx, sx = math.cos(rx), math.sin(rx)
+            cy, sy = math.cos(ry), math.sin(ry)
+            cz, sz = math.cos(rz), math.sin(rz)
+            Rx = np.array([[1,0,0],[0,cx,-sx],[0,sx,cx]])
+            Ry = np.array([[cy,0,sy],[0,1,0],[-sy,0,cy]])
+            Rz = np.array([[cz,-sz,0],[sz,cz,0],[0,0,1]])
+            return Rz @ Rx @ Ry
+
+        R = rotation_matrix_from_euler(delta_rot[0], delta_rot[1], delta_rot[2])
+
+        for mid in members:
+            if mid not in self.id_to_index:
+                continue
+            mtype, midx = self.id_to_index[mid]
+            if mtype != 'primitive':
+                continue
+            mem = self.primitives[midx][1]
+
+            # relative vector from group's origin to member
+            rel = np.array(mem.position, dtype=float) - old_pos
+            # scale about group origin
+            rel = rel * scale_ratio
+            # rotate about group origin
+            rel = R.dot(rel)
+            # translate by delta_pos
+            new_world = new_pos_arr + rel
+
+            # Update member attributes
+            old_pos_mem = copy.deepcopy(mem.position)
+            old_rot_mem = copy.deepcopy(mem.rotation)
+            old_scale_mem = copy.deepcopy(mem.scale)
+
+            mem.position = [float(x) for x in new_world]
+            # add delta rotation to member rotation
+            mem.rotation = [float(old_rot_mem[i] + delta_rot[i]) for i in range(3)]
+            # multiply member scale by ratio
+            mem.scale = [float(old_scale_mem[i] * scale_ratio[i]) for i in range(3)]
+
+            new_states.append((mid, copy.deepcopy(mem.position), copy.deepcopy(mem.rotation), copy.deepcopy(mem.scale)))
+
+        # Update the group primitive's stored values (so inspector reflects the new state)
+        group.position = [float(x) for x in new_pos_arr]
+        group.rotation = [float(x) for x in new_rot_arr]
+        group.scale = [float(x) for x in new_s]
+
+        # Register history entry for undo/redo (restore all member states and group)
+        glob_history.add(
+            self._undo_group_transform,
+            self._redo_group_transform,
+            (group_op_id, old_group_pos, old_group_rot, old_group_scale, old_states),
+            (group_op_id, copy.deepcopy(group.position), copy.deepcopy(group.rotation), copy.deepcopy(group.scale), new_states),
+            {},
+            {}
+        )
+
+        return True
+
+    def _undo_group_transform(self, group_op_id, old_group_pos, old_group_rot, old_group_scale, old_states):
+        # Restore group primitive and member primitives to old states
+        if group_op_id in self.id_to_index:
+            itype, idx = self.id_to_index[group_op_id]
+            if itype == 'primitive':
+                group = self.primitives[idx][1]
+                group.position = old_group_pos
+                group.rotation = old_group_rot
+                group.scale = old_group_scale
+
+        for (mid, pos, rot, scale) in old_states:
+            if mid in self.id_to_index:
+                itype, midx = self.id_to_index[mid]
+                if itype == 'primitive':
+                    mem = self.primitives[midx][1]
+                    mem.position = pos
+                    mem.rotation = rot
+                    mem.scale = scale
+
+    def _redo_group_transform(self, group_op_id, new_group_pos, new_group_rot, new_group_scale, new_states):
+        # Reapply group transform (same format as apply_group_transform result)
+        if group_op_id in self.id_to_index:
+            itype, idx = self.id_to_index[group_op_id]
+            if itype == 'primitive':
+                group = self.primitives[idx][1]
+                group.position = new_group_pos
+                group.rotation = new_group_rot
+                group.scale = new_group_scale
+
+        for (mid, pos, rot, scale) in new_states:
+            if mid in self.id_to_index:
+                itype, midx = self.id_to_index[mid]
+                if itype == 'primitive':
+                    mem = self.primitives[midx][1]
+                    mem.position = pos
+                    mem.rotation = rot
+                    mem.scale = scale
+
     def add_operation(self, operation_type, *args, ui_name=None, forced_op_id=None):
         """
         Add an operation. Accepts forced_op_id so undo/redo can recreate the same id.
@@ -834,6 +1025,10 @@ class SDFSceneBuilder:
 
     def onion(self, d_a, thickness, ui_name=None):
         return self.add_operation("onion", d_a, thickness, ui_name=ui_name)
+    
+    def snoiseDisp(self, d_a, thickness, ui_name=None):
+        return self.add_operation("snoiseDisp", d_a, thickness, ui_name=ui_name)
+    
 
     def _ensure_op_id_unique(self, op_id):
         """Remove any duplicate op_id from primitives or operations before adding new one."""
@@ -1328,34 +1523,147 @@ class SDFSceneBuilder:
             return self.operations[index][1].ui_name
 
     def generate_raymarch_code(self):
-        scene_code = []
+        """
+        Generate the GLSL code for the entire scene.
+        Groups are expanded in-place (they union their member primitives).
+        Primitives that are marked as 'grouped' are skipped in the top-level iteration
+        because the group primitive emits them instead.
 
+        Fix: when a group replaces its members, we record replacements mapping from
+        member_id -> group_id so that later operations which reference the original
+        member ids will be remapped to reference the group's id (avoiding undeclared
+        identifier errors).
+        """
+        scene_lines = []
+
+        # replacements: original_op_id (e.g. "d3") -> replacement_op_id (usually group id "d10")
+        # This is used to remap operation operands that referenced grouped primitives.
+        replacements = {}
+
+        # Helper to append raw lines safely
+        def add_lines(s):
+            if s:
+                scene_lines.append(s)
+
+        # iterate primitives
         for op_id, primitive in self.primitives:
-            transform_code = primitive.generate_transform_code(op_id)
-            sdf_code = primitive.generate_sdf_code(op_id)
-            scene_code.append(transform_code)
-            scene_code.append(sdf_code)
+            # Skip primitives that were folded into groups (they are emitted by their group)
+            if primitive.kwargs.get('grouped', None) is not None:
+                continue
 
+            if primitive.primitive_type == 'group':
+                # Expand group: for each member, emit transform + sdf code under synthetic ids,
+                # then compute the group's final distance as the min() and take color of closest.
+                members = primitive.kwargs.get('members', [])
+                if not members:
+                    # empty group -> large distance
+                    add_lines(f"float {op_id} = 1000.0;\n    vec3 col{op_id} = vec3(0.0);")
+                    continue
+
+                member_ids = []
+                member_index = 0
+                for mid in members:
+                    # Find member primitive if present
+                    if mid not in self.id_to_index:
+                        continue
+                    mtype, midx = self.id_to_index[mid]
+                    if mtype != 'primitive':
+                        continue
+                    mem = self.primitives[midx][1]
+                    # Create synthetic id - avoid collisions
+                    synth_id = f"{op_id}_m{member_index}"
+                    member_index += 1
+                    member_ids.append(synth_id)
+
+                    # Use a temporary copy so we can inject the member's absolute transform
+                    temp_prim = SDFPrimitive(
+                        primitive_type=mem.primitive_type,
+                        position=copy.deepcopy(mem.position),
+                        size_or_radius=copy.deepcopy(mem.size_or_radius),
+                        rotation=copy.deepcopy(mem.rotation),
+                        scale=copy.deepcopy(mem.scale),
+                        ui_name=mem.ui_name,
+                        color=copy.deepcopy(mem.color),
+                        **copy.deepcopy(mem.kwargs)
+                    )
+
+                    # Emit transform & sdf for the synthetic id
+                    add_lines(temp_prim.generate_transform_code(synth_id))
+                    sdf_code = temp_prim.generate_sdf_code(synth_id)
+                    if sdf_code:
+                        add_lines(sdf_code)
+
+                    # Map the original member id (mid, e.g. "d3") to the group id (op_id).
+                    # This ensures operations that reference 'd3' will be remapped to refer to the group's final value.
+                    replacements[mid] = op_id
+
+                # Now build code that finds the minimum distance among the members and takes the corresponding color.
+                if member_ids:
+                    # Use first as initial
+                    first = member_ids[0]
+                    block = f"float d_{op_id} = {first};\n    vec3 c_{op_id} = col{first};"
+                    for mid_name in member_ids[1:]:
+                        block += f"\n    if ({mid_name} < d_{op_id}) {{ d_{op_id} = {mid_name}; c_{op_id} = col{mid_name}; }}"
+
+                    block += f"\n    float {op_id} = d_{op_id};\n    vec3 col{op_id} = c_{op_id};"
+                    add_lines(block)
+                else:
+                    add_lines(f"float {op_id} = 1000.0;\n    vec3 col{op_id} = vec3(0.0);")
+
+            else:
+                # normal primitive
+                add_lines(primitive.generate_transform_code(op_id))
+                add_lines(primitive.generate_sdf_code(op_id))
+
+        # operations - remap arguments that point to grouped primitives
         for op_id, operation in self.operations:
-            code = operation.generate_code(op_id)
-            scene_code.append(code)
+            # Build remapped args for this operation (do not mutate original operation)
+            remapped_args = []
+            for a in operation.args:
+                if isinstance(a, str) and a in replacements:
+                    remapped_args.append(replacements[a])
+                else:
+                    remapped_args.append(a)
 
-        if scene_code:
-            scene_code = "\n    ".join(scene_code)
-            # Return the last operation if there are any, otherwise the last primitive
+            # Create a transient copy of operation with remapped args so generate_code uses the remapped operands.
+            op_copy = SDFOperation(operation.operation_type, *remapped_args, ui_name=operation.ui_name)
+            # Preserve optional parameters (smooth_k/float_param) if present
+            op_copy.smooth_k = getattr(operation, "smooth_k", None)
+            op_copy.float_param = getattr(operation, "float_param", None)
+
+            code = op_copy.generate_code(op_id)
+            scene_lines.append(code)
+
+        if scene_lines:
+            scene_code = "\n    ".join(scene_lines)
+            # Determine last id
             if self.operations:
                 last_op_id = self.operations[-1][0]
                 last_col_id = f"col{last_op_id}"
+                last_id = last_op_id
             elif self.primitives:
-                last_op_id = self.primitives[-1][0]
-                last_col_id = f"col{last_op_id}"
+                # The last *emitted* primitive might be the last primitive that was not grouped; fall back to last item in combined
+                # Find last non-grouped primitive or operation
+                last_id = None
+                # prefer last operation
+                for op_id, operation in reversed(self.operations):
+                    last_id = op_id; break
+                if last_id is None:
+                    for op_id, primitive in reversed(self.primitives):
+                        if primitive.kwargs.get('grouped', None) is None:
+                            last_id = op_id
+                            break
+                if last_id is None:
+                    return "return vec4(1000.0, 0.0, 0.0, 0.0);"
+                last_col_id = f"col{last_id}"
             else:
-                return "return vec4(1000.0, 0.0, 0.0, 0.0);"
-            scene_code += f"\n    return vec4({last_col_id}, {last_op_id});"
-        else:
-            scene_code = "return vec4(0.0, 0.0, 0.0, 1000.0);"
+                return "return vec4(0.0, 0.0, 0.0, 1000.0);"
 
-        return scene_code
+            scene_code += f"\n    return vec4({last_col_id}, {last_id});"
+            return scene_code
+        else:
+            return "return vec4(0.0, 0.0, 0.0, 1000.0);"
+
 
     def to_dict(self):
         """Convert the entire scene to a dictionary for JSON serialization."""
@@ -1808,7 +2116,7 @@ def main():
     last_key_gy_pressed = False
     last_key_gz_pressed = False
     last_key_r_pressed = False
-   # Rotation-specific axis toggles and key debounces (separate from move G-toggles)
+    # Rotation-specific axis toggles and key debounces (separate from move G-toggles)
     axis_toggled_rx = False
     axis_toggled_ry = False
     axis_toggled_rz = False
@@ -1817,6 +2125,8 @@ def main():
     last_key_rz_pressed = False
 
     last_key_f10_pressed = False  # Add this if not present
+    
+    last_key_d_pressed = False # Duplicate key debounce
 
     # --- Draging ---
     dragging = False
@@ -2460,6 +2770,7 @@ void main() {
             "Z" : (glfw.KEY_Z),
             "Open" : (glfw.KEY_O, "CTRL"),
             "Save" : (glfw.KEY_S, "CTRL"),
+            "Duplicate": (glfw.KEY_D, "CTRL"),
         }
 
 
@@ -3003,7 +3314,62 @@ void main() {
         else:
             last_key_o_pressed = False
 
-        #####
+
+        # --- Duplicate (Ctrl+D) ---
+        if input_handle("Duplicate"):
+            if not last_key_d_pressed:
+                # Duplicate selected items (multi-select supported)
+                duplicated_ids = []
+                if len(selected_items) > 0:
+                    # Duplicate all selected items
+                    for sid in list(selected_items):
+                        if sid in scene_builder.id_to_index:
+                            itype, idx = scene_builder.id_to_index[sid]
+                            if itype == 'primitive':
+                                prim = scene_builder.primitives[idx][1]
+                                # Recreate with same properties (preserve kwargs)
+                                new_id = scene_builder.add_primitive(
+                                    prim.primitive_type,
+                                    copy.deepcopy(prim.position),
+                                    copy.deepcopy(prim.size_or_radius),
+                                    copy.deepcopy(prim.rotation),
+                                    copy.deepcopy(prim.scale),
+                                    prim.ui_name + " (copy)",
+                                    copy.deepcopy(prim.color),
+                                    **copy.deepcopy(prim.kwargs)
+                                )
+                                duplicated_ids.append(new_id)
+                elif selected_item_id and selected_item_id in scene_builder.id_to_index:
+                    itype, idx = scene_builder.id_to_index[selected_item_id]
+                    if itype == 'primitive':
+                        prim = scene_builder.primitives[idx][1]
+                        new_id = scene_builder.add_primitive(
+                            prim.primitive_type,
+                            copy.deepcopy(prim.position),
+                            copy.deepcopy(prim.size_or_radius),
+                            copy.deepcopy(prim.rotation),
+                            copy.deepcopy(prim.scale),
+                            prim.ui_name + " (copy)",
+                            copy.deepcopy(prim.color),
+                            **copy.deepcopy(prim.kwargs)
+                        )
+                        duplicated_ids.append(new_id)
+
+                # Select the most recent duplicated id if any
+                if duplicated_ids:
+                    selected_items.clear()
+                    selected_item_id = duplicated_ids[-1]
+                    selection_mode = 'primitive'
+                    # Recompile shader to pick up new primitives
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+
+                last_key_d_pressed = True
+        else:
+            last_key_d_pressed = False
+        
+
 
         if input_handle("Save"):
             if not last_key_s_pressed: 
@@ -3593,21 +3959,30 @@ void main() {
         # --- Content Functions (Placeholders) ---
         def render_themes_tab():
             nonlocal theme
-            for label, color in list(theme.items()):
-                changed, color_rgba = imgui.color_edit4(label, *color)
-                
-                if changed:
-                    # Update the dictionary key with the new list/tuple value
-                    theme[label] = list(color_rgba) 
-                    setattr(gui.themes, label, theme[label])
-                    gui.themes.setup_theme()
+            changes = []
+            for label in theme:
+                item = theme[label]
+                if isinstance(item, list) and len(item) == 4:
+                    changed, color_rgba = imgui.color_edit4(label, *item)
+                    if changed:
+                        changes.append((label, list(color_rgba)))
+                elif isinstance(item, list) and len(item) == 2:
+                    changed, size = input_vec2(label, item)
+                    if changed:
+                        changes.append((label, list(size)))
+
+            for label, new_value in changes:
+                theme[label] = new_value
+                setattr(gui.themes, label, new_value)
+            if changes:
+                gui.themes.setup_theme()
             
             imgui.spacing()
             if imgui.button("Reset Theme", -1):
-                theme = copy.deepcopy( default_uconfig["Theme"] )
-                for label, color in list(theme.items()):
-                    setattr(gui.themes, label, theme[label])
-                    gui.themes.setup_theme() 
+                theme = copy.deepcopy(default_uconfig["Theme"])
+                for label, item in theme.items():
+                    setattr(gui.themes, label, item)
+                gui.themes.setup_theme()
 
             
 
@@ -3963,15 +4338,14 @@ You can also support the project by reporting an error, or by suggesting an impr
             return f"{truncated_name} ({op_id})"
         
         imgui.text("Primitives:")
+        io_local = imgui.get_io()
         for op_id, primitive in scene_builder.primitives:
             label = format_label(primitive.ui_name, op_id)
             flags = imgui.TREE_NODE_LEAF
-            if selected_item_id == op_id:
+            if selected_item_id == op_id or op_id in selected_items:
                 flags |= imgui.TREE_NODE_SELECTED
 
-            # Create the buttons
-            # Thanks to Omar for the tip about the arrow button:
-            # https://bsky.app/profile/ocornut.bsky.social/post/3mdsgm36xm226
+            # arrow buttons left (unchanged)
             imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
             if imgui.arrow_button(f"##up_{op_id}", 2):
                 idx = scene_builder.id_to_index[op_id][1]
@@ -3994,19 +4368,29 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             imgui.same_line()
 
-            # Then create the tree node (label will appear after buttons)
             node_open = imgui.tree_node(label, flags)
 
-            # Handle selection when the node is clicked
             if imgui.is_item_clicked():
-                selected_item_id = op_id
-                selection_mode = 'primitive'
-                renaming_item_id = None
+                # If CTRL is held, toggle multi-select
+                if io_local.key_ctrl:
+                    if op_id in selected_items:
+                        selected_items.remove(op_id)
+                    else:
+                        selected_items.add(op_id)
+                    # clear single selection if multiple selected
+                    selected_item_id = None
+                    selection_mode = None
+                else:
+                    # regular single select
+                    selected_items.clear()
+                    selected_item_id = op_id
+                    selection_mode = 'primitive'
+                    renaming_item_id = None
 
-                # Recompile shader
-                success, new_uniforms = recompile_shader()
-                if success:
-                    uniform_locs = new_uniforms
+                    # Recompile shader for live selection-based uniforms
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
 
             if node_open:
                 imgui.tree_pop()
@@ -4067,6 +4451,25 @@ You can also support the project by reporting an error, or by suggesting an impr
             success, new_uniforms = recompile_shader()
             if success:
                 uniform_locs = new_uniforms
+        
+        # Multi-selection -> group creation UI
+        if len(selected_items) > 1:
+            imgui.separator()
+            imgui.text(f"{len(selected_items)} selected")
+            # A small buffer for the group name
+            if 'group_name_buffer' not in globals():
+                group_name_buffer = "Group"
+            changed, group_name_buffer = imgui.input_text("Group name", group_name_buffer, 128)
+            if imgui.button("Create Group", -1):
+                members = list(selected_items)
+                new_group_id = scene_builder.add_group(members, position=(0.0,0.0,0.0), ui_name=group_name_buffer)
+                # Clear multi selection and select the new group
+                selected_items.clear()
+                selected_item_id = new_group_id
+                selection_mode = 'primitive'
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
         
         imgui.spacing()
         imgui.text_colored("Press Delete to remove", 1.0, 1.0, 0.0, 1.0)
@@ -4430,7 +4833,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         valid_operands = scene_builder.get_valid_operands(selected_item_id)
                         
                         # Determine if this is a single-operand or two-operand operation
-                        is_single_operand = operation.operation_type in ['round', 'onion', 'invert']
+                        is_single_operand = operation.operation_type in ['round', 'onion', 'invert', 'snoiseDisp']
                         num_operands = 1 if is_single_operand else 2
                         
                         if len(valid_operands) == 0:
@@ -4588,12 +4991,13 @@ You can also support the project by reporting an error, or by suggesting an impr
                     ("XOR", "xor"),
                     ("Invert", "invert"),
                     ("Round", "round"),
-                    ("Onion", "onion")
+                    ("Onion", "onion"),
+                    ("snoiseDisp", "snoiseDisp")
                 ]
 
                 for label, op_type in operations_list:
                     # Single-operand operations (invert, round, onion)
-                    is_single_operand = op_type in ['invert', 'round', 'onion']
+                    is_single_operand = op_type in ['invert', 'round', 'onion', 'snoiseDisp']
                     min_operands = 1
                     available_operands = len(all_items)
                     
@@ -4607,6 +5011,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                                     new_id = scene_builder.round(all_items[-1][0], 0.1, ui_name=label)
                                 elif op_type == "onion":
                                     new_id = scene_builder.onion(all_items[-1][0], 0.05, ui_name=label)
+                                elif op_type == "snoiseDisp":
+                                    new_id = scene_builder.snoiseDisp(all_items[-1][0], 0.05, ui_name=label)
                             elif op_type in ["sunion", "ssub", "sinter", "mix"]:
                                 if len(all_items) >= 2:
                                     new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], 
