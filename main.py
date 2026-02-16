@@ -2628,48 +2628,6 @@ def main():
         print(f"Warning: Could not create display shader: {e}")
         print("Falling back to direct rendering (resolution scale may not work correctly)")
     
-    # --- Framebuffer Setup for Resolution Scaling ---
-    fbo = None
-    render_texture = None
-    fbo_width = 0
-    fbo_height = 0
-    
-    def setup_framebuffer(width, height):
-        """Create or update framebuffer for rendering at scaled resolution."""
-        nonlocal fbo, render_texture, fbo_width, fbo_height
-        
-        # Only recreate if size changed
-        if fbo is None or fbo_width != width or fbo_height != height:
-            # Delete old framebuffer if it exists
-            if fbo is not None:
-                glDeleteFramebuffers(1, [fbo])
-                glDeleteTextures(1, [render_texture])
-            
-            # Create framebuffer
-            fbo = glGenFramebuffers(1)
-            glBindFramebuffer(GL_FRAMEBUFFER, fbo)
-            
-            # Create texture to render to
-            render_texture = glGenTextures(1)
-            glBindTexture(GL_TEXTURE_2D, render_texture)
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, None)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-            
-            # Attach texture to framebuffer
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, render_texture, 0)
-            
-            # Check framebuffer completeness
-            if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
-                print("Error: Framebuffer is not complete!")
-                return False
-            
-            fbo_width = width
-            fbo_height = height
-            glBindFramebuffer(GL_FRAMEBUFFER, 0)
-            return True
-        return True
-    
     # Simple shader for displaying texture
     display_vertex_shader = """
     #version 330 core
