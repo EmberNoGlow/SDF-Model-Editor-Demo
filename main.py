@@ -423,19 +423,15 @@ class SDFPrimitive:
         }
 
 
-
 class Sprite:
     """
-    A structure to hold the parameters defining a sprite, 
+    A structure to hold the parameters defining a sprite,
     including its projection plane and texture information.
     """
     def __init__(self,
-        # Plane
-        planePoint, planeNormal, 
+        planePoint, planeNormal,
         planeWidth: float, planeHeight: float,
-
-        # Texture
-        SprTexture, uvSize,
+        SprTexture=None, uvSize=(1.0, 1.0),
         Alpha: float = 1.0, LOD: float = 0.0
     ):
         # Store the data as instance attributes
@@ -444,7 +440,8 @@ class Sprite:
         self.planeWidth = float(planeWidth)
         self.planeHeight = float(planeHeight)
 
-        # Sampler name (used in shader code). Set a default unique name if none given
+        # Sampler name (used in shader code). If none provided, use a stable fallback;
+        # the scene loader usually passes an explicit name, but this keeps things robust.
         self.SprTexture = SprTexture if SprTexture else f"sprTex_{id(self)}"
         self.uvSize = list(uvSize)
         self.Alpha = float(Alpha)
@@ -453,6 +450,29 @@ class Sprite:
         # GL texture handle (created when loading image from disk). None => not loaded
         self.texture_id = None
         self.tex_size = (0, 0)
+
+        # Optional: store path so we can restore textures on load if desired
+        self.texture_path = None
+
+    def to_dict(self):
+        """
+        Return a serializable dict representation. We avoid saving GL handles.
+        We store the sampler name (SprTexture) so the shader uniform name remains stable
+        across save/load, and also optional texture_path if available so the user can
+        reload textures on scene load.
+        """
+        return {
+            "planePoint": list(self.planePoint),
+            "planeNormal": list(self.planeNormal),
+            "planeWidth": float(self.planeWidth),
+            "planeHeight": float(self.planeHeight),
+            "SprTexture": self.SprTexture,
+            "uvSize": list(self.uvSize),
+            "Alpha": float(self.Alpha),
+            "LOD": float(self.LOD),
+            "texture_path": self.texture_path if self.texture_path else None,
+            "tex_size": [int(self.tex_size[0]), int(self.tex_size[1])]
+        }
 
     def generate_spr_code(self):
         # NOTE: This injects literal values into the shader. The sampler is passed
@@ -484,8 +504,6 @@ class Sprite:
             img = Image.open(filepath).convert("RGBA")
             w, h = img.size
             img_data = img.tobytes("raw", "RGBA", 0, -1)
-            
-
 
             tex = glGenTextures(1)
             glBindTexture(GL_TEXTURE_2D, tex)
@@ -508,6 +526,8 @@ class Sprite:
 
             self.texture_id = tex
             self.tex_size = (w, h)
+            # Persist the file path so scene saves can include it
+            self.texture_path = filepath
             return True
         except Exception as e:
             print(f"Failed to load sprite texture '{filepath}': {e}")
@@ -521,6 +541,7 @@ class Sprite:
                 pass
             self.texture_id = None
             self.tex_size = (0, 0)
+            # keep texture_path (we may want to attempt reload next time)
 
 
 
@@ -1811,23 +1832,13 @@ class SDFSceneBuilder:
             scene_dict["operations"].append(op_dict)
 
         # Serialize sprites if the global sprites_array exists
-        # (we keep texture_id out of the JSON; textures must be reloaded by the user)
         sprs = globals().get("sprites_array", None)
         if sprs:
             for spr in sprs:
-                scene_dict["sprites"].append({
-                    "planePoint": spr.planePoint,
-                    "planeNormal": spr.planeNormal,
-                    "planeWidth": spr.planeWidth,
-                    "planeHeight": spr.planeHeight,
-                    "SprTexture": spr.SprTexture,
-                    "uvSize": spr.uvSize,
-                    "Alpha": spr.Alpha,
-                    "LOD": spr.LOD
-                })
+                # Use the Sprite.to_dict so we have a single canonical representation
+                scene_dict["sprites"].append(spr.to_dict())
 
         return scene_dict
-
 
     def from_dict(self, scene_dict):
         """Load a scene from a dictionary (inverse of to_dict)."""
@@ -1838,26 +1849,48 @@ class SDFSceneBuilder:
         self.next_id = 0
 
         # Rebuild sprites_array first so sprite_index references in primitives are valid
-        # This creates module-level sprites_array used by the rest of the application/UI
         global sprites_array
         sprites_array = []
         for s in scene_dict.get("sprites", []):
+            # Preserve sampler name if present; otherwise create a stable default name
+            sampler_name = s.get("SprTexture", f"sprTex{len(sprites_array)}")
+            # Read optional texture path (may be None)
+            texture_path = s.get("texture_path", None)
+
             spr = Sprite(
                 planePoint=tuple(s.get("planePoint", (0.0, 0.0, 0.0))),
                 planeNormal=tuple(s.get("planeNormal", (0.0, 0.0, 1.0))),
                 planeWidth=float(s.get("planeWidth", 1.0)),
                 planeHeight=float(s.get("planeHeight", 1.0)),
-                SprTexture=s.get("SprTexture", f"sprTex{len(sprites_array)}"),
+                SprTexture=sampler_name,
                 uvSize=tuple(s.get("uvSize", (1.0, 1.0))),
                 Alpha=float(s.get("Alpha", 1.0)),
                 LOD=float(s.get("LOD", 0.0))
             )
-            # Note: texture_id remains None — user must load textures again (that's expected)
+            # restore optional texture path and tex size (GL texture won't be loaded here)
+            spr.texture_path = texture_path
+            tex_size = s.get("tex_size", None)
+            if tex_size:
+                try:
+                    spr.tex_size = (int(tex_size[0]), int(tex_size[1]))
+                except Exception:
+                    spr.tex_size = (0, 0)
+
             sprites_array.append(spr)
 
         # Load primitives
         for prim_dict in scene_dict.get("primitives", []):
             op_id = prim_dict["op_id"]
+
+            # Normalize kwargs and make sprite_index an int if present
+            kwargs = dict(prim_dict.get("kwargs", {}))
+            if "sprite_index" in kwargs:
+                try:
+                    # Some JSON writers may have stored this as a string; cast to int
+                    kwargs["sprite_index"] = int(kwargs["sprite_index"])
+                except Exception:
+                    # If invalid, fallback to 0 (or None if you prefer)
+                    kwargs["sprite_index"] = 0
 
             primitive = SDFPrimitive(
                 primitive_type=prim_dict["primitive_type"],
@@ -1867,8 +1900,31 @@ class SDFSceneBuilder:
                 scale=prim_dict.get("scale", [1.0, 1.0, 1.0]),
                 ui_name=prim_dict.get("ui_name"),
                 color=prim_dict.get("color", [0.8, 0.6, 0.4]),
-                **prim_dict.get("kwargs", {})
+                **kwargs
             )
+
+            # If this primitive is a sprite, ensure the sprite_index is valid (defensive)
+            if primitive.primitive_type == "sprite":
+                sprite_idx = primitive.kwargs.get("sprite_index", None)
+                if sprite_idx is None:
+                    # attempt to guess by sampler name if available (compatibility)
+                    spr_name = prim_dict.get("kwargs", {}).get("SprTexture", None)
+                    if spr_name:
+                        # find first matching sprite sampler
+                        found_idx = None
+                        for i, s in enumerate(sprites_array):
+                            if s.SprTexture == spr_name:
+                                found_idx = i
+                                break
+                        primitive.kwargs["sprite_index"] = found_idx if found_idx is not None else 0
+                    else:
+                        primitive.kwargs["sprite_index"] = 0
+                else:
+                    # clamp to valid range
+                    if not isinstance(sprite_idx, int) or sprite_idx < 0 or sprite_idx >= len(sprites_array):
+                        # out-of-range or invalid, clamp and warn
+                        primitive.kwargs["sprite_index"] = max(0, min(len(sprites_array) - 1, int(sprite_idx) if isinstance(sprite_idx, int) else 0))
+                        print(f"Warning: sprite_index for primitive {op_id} was invalid or out-of-range; clamped to {primitive.kwargs['sprite_index']}")
 
             self.primitives.append((op_id, primitive))
             self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
@@ -1880,7 +1936,7 @@ class SDFSceneBuilder:
             except Exception:
                 pass
 
-        # Load operations
+        # Load operations (unchanged)
         for op_dict in scene_dict.get("operations", []):
             op_id = op_dict["op_id"]
 
@@ -1903,7 +1959,8 @@ class SDFSceneBuilder:
                 self.next_id = max(self.next_id, op_num + 1)
             except Exception:
                 pass
-
+        
+    
     def save_to_json(self, filepath):
         # Save the scene to a JSON file.
         try:
