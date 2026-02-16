@@ -2234,6 +2234,7 @@ def main():
 
     # Initialize GLFW
     if not glfw.init():
+        print("---GLFW IS NOT INIT---")
         return
 
     # Create a windowed mode window and its OpenGL context
@@ -2244,12 +2245,16 @@ def main():
             return
 
     except Exception as e:
+        print(f"{e}")
         glfw.terminate()
         return
 
 
     # Make the window's context current
-    glfw.make_context_current(window)
+    try:
+        glfw.make_context_current(window)
+    except Exception as e:
+        print(f"{e}")
 
     # Initialize ImGui
     imgui.create_context()
