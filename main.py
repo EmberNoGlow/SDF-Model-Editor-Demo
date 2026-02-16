@@ -817,6 +817,72 @@ class SDFSceneBuilder:
         )
         return op_id
 
+
+    def add_member_to_group(self, group_op_id: str, member_op_id: str) -> bool:
+        """
+        Add an existing primitive (member_op_id) to a group (group_op_id).
+        Marks the primitive's kwargs['grouped'] = group_op_id so the generator
+        will fold it into the group's emission. Returns True on success.
+        """
+        if group_op_id not in self.id_to_index or member_op_id not in self.id_to_index:
+            return False
+
+        group_type, group_idx = self.id_to_index[group_op_id]
+        if group_type != 'primitive':
+            return False
+
+        group_prim = self.primitives[group_idx][1]
+        if group_prim.primitive_type != 'group':
+            return False
+
+        # Ensure member is a primitive and not already grouped
+        mem_type, mem_idx = self.id_to_index[member_op_id]
+        if mem_type != 'primitive':
+            return False
+
+        # Add member to group's list (avoid duplicates)
+        members = group_prim.kwargs.get('members', [])
+        if member_op_id in members:
+            return False
+
+        members.append(member_op_id)
+        group_prim.kwargs['members'] = members
+
+        # Mark primitive as grouped so it's skipped at top-level emission
+        self.primitives[mem_idx][1].kwargs['grouped'] = group_op_id
+        return True
+
+    def remove_member_from_group(self, group_op_id: str, member_op_id: str) -> bool:
+        """
+        Remove a primitive from a group and unmark it so it will be emitted
+        as a top-level primitive again.
+        """
+        if group_op_id not in self.id_to_index or member_op_id not in self.id_to_index:
+            return False
+
+        group_type, group_idx = self.id_to_index[group_op_id]
+        if group_type != 'primitive':
+            return False
+
+        group_prim = self.primitives[group_idx][1]
+        if group_prim.primitive_type != 'group':
+            return False
+
+        members = group_prim.kwargs.get('members', [])
+        if member_op_id not in members:
+            return False
+
+        members.remove(member_op_id)
+        group_prim.kwargs['members'] = members
+
+        # Unmark the primitive so it will be emitted at top-level again (if present)
+        if member_op_id in self.id_to_index:
+            mem_type, mem_idx = self.id_to_index[member_op_id]
+            if mem_type == 'primitive':
+                self.primitives[mem_idx][1].kwargs.pop('grouped', None)
+        return True
+
+
     def apply_group_transform(self, group_op_id, new_pos, new_rot, new_scale):
         """
         Apply a transform (position, rotation, scale) to members of group `group_op_id`.
@@ -1073,7 +1139,7 @@ class SDFSceneBuilder:
         return self.add_operation(operation_type, *args, ui_name=ui_name, forced_op_id=forced_op_id)
 
     def delete_item(self, op_id):
-        """Delete a primitive or operation by its ID, with full undo support."""
+        """Delete a primitive, group or operation by its ID, with full undo support."""
         if op_id not in self.id_to_index:
             return False
 
@@ -1084,11 +1150,23 @@ class SDFSceneBuilder:
 
         # Get all dependent items BEFORE deletion
         dependent_ops = self._get_all_dependent_items(op_id)
-        # Save dependent states, skipping any that can't be saved
         dependent_states = [self._save_item_state(dep_id) for dep_id in dependent_ops]
         dependent_states = [s for s in dependent_states if s is not None]
 
         if item_type == 'primitive':
+            primitive = self.primitives[index][1]
+            # If deleting a group, unmark its members so they will be emitted again
+            if primitive.primitive_type == 'group':
+                members = primitive.kwargs.get('members', [])
+                for mid in members:
+                    if mid in self.id_to_index:
+                        mtype, midx = self.id_to_index[mid]
+                        if mtype == 'primitive':
+                            try:
+                                self.primitives[midx][1].kwargs.pop('grouped', None)
+                            except Exception:
+                                pass
+
             # Remove the primitive
             del self.primitives[index]
             # Update indices for all primitives after this one
@@ -1108,7 +1186,6 @@ class SDFSceneBuilder:
             del self.id_to_index[op_id]
 
         # Remove any operations that depend on this deleted item
-        # We must be careful because indices change as we delete; use id lookup each time
         for dep_id in dependent_ops:
             if dep_id in self.id_to_index:
                 dep_item_type, dep_index = self.id_to_index[dep_id]
@@ -1125,7 +1202,7 @@ class SDFSceneBuilder:
                 if dep_id in self.id_to_index:
                     del self.id_to_index[dep_id]
 
-        # Register undo/redo for the deletion
+        # Register undo/redo for the deletion (restores dependents and item)
         glob_history.add(
             self._undo_delete_with_dependents,
             self._redo_delete_with_dependents,
@@ -1525,20 +1602,17 @@ class SDFSceneBuilder:
     def generate_raymarch_code(self):
         """
         Generate the GLSL code for the entire scene.
-        Groups are expanded in-place (they union their member primitives).
-        Primitives that are marked as 'grouped' are skipped in the top-level iteration
-        because the group primitive emits them instead.
-
-        Fix: when a group replaces its members, we record replacements mapping from
-        member_id -> group_id so that later operations which reference the original
-        member ids will be remapped to reference the group's id (avoiding undeclared
-        identifier errors).
+        Groups are expanded in-place (they union their member primitives and
+        include any operations that only reference members of the group).
         """
         scene_lines = []
 
         # replacements: original_op_id (e.g. "d3") -> replacement_op_id (usually group id "d10")
-        # This is used to remap operation operands that referenced grouped primitives.
+        # This is used to remap operation operands that referenced grouped primitives/ops.
         replacements = {}
+
+        # Keep track of operations that have been folded into groups (so we skip them later)
+        folded_ops = set()
 
         # Helper to append raw lines safely
         def add_lines(s):
@@ -1556,26 +1630,27 @@ class SDFSceneBuilder:
                 # then compute the group's final distance as the min() and take color of closest.
                 members = primitive.kwargs.get('members', [])
                 if not members:
-                    # empty group -> large distance
                     add_lines(f"float {op_id} = 1000.0;\n    vec3 col{op_id} = vec3(0.0);")
                     continue
 
-                member_ids = []
+                # Build mapping from original member id -> synthetic id
+                member_synth_ids = []
+                synth_map = {}  # original_id -> synthetic_id
                 member_index = 0
+
                 for mid in members:
-                    # Find member primitive if present
                     if mid not in self.id_to_index:
                         continue
                     mtype, midx = self.id_to_index[mid]
                     if mtype != 'primitive':
                         continue
                     mem = self.primitives[midx][1]
-                    # Create synthetic id - avoid collisions
                     synth_id = f"{op_id}_m{member_index}"
                     member_index += 1
-                    member_ids.append(synth_id)
+                    member_synth_ids.append(synth_id)
+                    synth_map[mid] = synth_id
 
-                    # Use a temporary copy so we can inject the member's absolute transform
+                    # Emit transform & sdf for the synthetic id
                     temp_prim = SDFPrimitive(
                         primitive_type=mem.primitive_type,
                         position=copy.deepcopy(mem.position),
@@ -1586,25 +1661,74 @@ class SDFSceneBuilder:
                         color=copy.deepcopy(mem.color),
                         **copy.deepcopy(mem.kwargs)
                     )
-
-                    # Emit transform & sdf for the synthetic id
                     add_lines(temp_prim.generate_transform_code(synth_id))
                     sdf_code = temp_prim.generate_sdf_code(synth_id)
                     if sdf_code:
                         add_lines(sdf_code)
 
-                    # Map the original member id (mid, e.g. "d3") to the group id (op_id).
-                    # This ensures operations that reference 'd3' will be remapped to refer to the group's final value.
+                    # Map original member id -> group's op_id so external ops referring to the member
+                    # after grouping will know to use the group's result.
                     replacements[mid] = op_id
 
-                # Now build code that finds the minimum distance among the members and takes the corresponding color.
-                if member_ids:
-                    # Use first as initial
-                    first = member_ids[0]
-                    block = f"float d_{op_id} = {first};\n    vec3 c_{op_id} = col{first};"
-                    for mid_name in member_ids[1:]:
-                        block += f"\n    if ({mid_name} < d_{op_id}) {{ d_{op_id} = {mid_name}; c_{op_id} = col{mid_name}; }}"
+                # Collect operations that reference only members (all string args point inside members)
+                ops_to_fold = []
+                for orig_oid, op in self.operations:
+                    # collect referenced item ids from op.args
+                    referenced = [a for a in op.args if isinstance(a, str)]
+                    if not referenced:
+                        continue
+                    # if every referenced id is a group member, we can fold this op
+                    if all((r in members) for r in referenced):
+                        ops_to_fold.append((orig_oid, op))
 
+                # Emit folded operations in the group's scope using synthetic ids
+                folded_synth_ids = []
+                op_fold_index = 0
+                for orig_oid, op in ops_to_fold:
+                    # build remapped args: if arg refers to a member or a previously folded op, map it to the synthetic id
+                    remapped_args = []
+                    for a in op.args:
+                        if isinstance(a, str):
+                            if a in synth_map:
+                                remapped_args.append(synth_map[a])
+                            else:
+                                # if the arg is another folded operation we've already handled, map it
+                                if a in synth_map:
+                                    remapped_args.append(synth_map[a])
+                                else:
+                                    remapped_args.append(a)
+                        else:
+                            remapped_args.append(a)
+
+                    synth_op_id = f"{op_id}_op{op_fold_index}"
+                    op_fold_index += 1
+                    # Create a transient copy of operation with remapped args
+                    op_copy = SDFOperation(op.operation_type, *remapped_args, ui_name=op.ui_name)
+                    op_copy.smooth_k = getattr(op, "smooth_k", None)
+                    op_copy.float_param = getattr(op, "float_param", None)
+
+                    # Emit operation code using synthetic id
+                    code = op_copy.generate_code(synth_op_id)
+                    add_lines(code)
+
+                    # Register mapping: original operation id -> group id, so outer ops referencing orig_oid are remapped to group
+                    replacements[orig_oid] = op_id
+                    # Also make this operation's synthetic id available for subsequent folded ops
+                    synth_map[orig_oid] = synth_op_id
+                    folded_synth_ids.append(synth_op_id)
+                    folded_ops.add(orig_oid)
+
+                # Build final list of candidate outputs for the group's "result"
+                final_outputs = []
+                final_outputs.extend(member_synth_ids)
+                final_outputs.extend(folded_synth_ids)
+
+                # Create min-of final outputs and pick color of closest
+                if final_outputs:
+                    first = final_outputs[0]
+                    block = f"float d_{op_id} = {first};\n    vec3 c_{op_id} = col{first};"
+                    for fname in final_outputs[1:]:
+                        block += f"\n    if ({fname} < d_{op_id}) {{ d_{op_id} = {fname}; c_{op_id} = col{fname}; }}"
                     block += f"\n    float {op_id} = d_{op_id};\n    vec3 col{op_id} = c_{op_id};"
                     add_lines(block)
                 else:
@@ -1615,8 +1739,12 @@ class SDFSceneBuilder:
                 add_lines(primitive.generate_transform_code(op_id))
                 add_lines(primitive.generate_sdf_code(op_id))
 
-        # operations - remap arguments that point to grouped primitives
+        # operations - remap arguments that point to grouped primitives or folded ops
         for op_id, operation in self.operations:
+            # Skip operations that were folded into a group
+            if op_id in folded_ops:
+                continue
+
             # Build remapped args for this operation (do not mutate original operation)
             remapped_args = []
             for a in operation.args:
@@ -1625,9 +1753,8 @@ class SDFSceneBuilder:
                 else:
                     remapped_args.append(a)
 
-            # Create a transient copy of operation with remapped args so generate_code uses the remapped operands.
+            # Create transient operation copy with remapped args
             op_copy = SDFOperation(operation.operation_type, *remapped_args, ui_name=operation.ui_name)
-            # Preserve optional parameters (smooth_k/float_param) if present
             op_copy.smooth_k = getattr(operation, "smooth_k", None)
             op_copy.float_param = getattr(operation, "float_param", None)
 
@@ -1636,29 +1763,27 @@ class SDFSceneBuilder:
 
         if scene_lines:
             scene_code = "\n    ".join(scene_lines)
-            # Determine last id
+            # Determine last id used to construct the return
+            last_id = None
+            last_col_id = None
             if self.operations:
-                last_op_id = self.operations[-1][0]
-                last_col_id = f"col{last_op_id}"
-                last_id = last_op_id
-            elif self.primitives:
-                # The last *emitted* primitive might be the last primitive that was not grouped; fall back to last item in combined
-                # Find last non-grouped primitive or operation
-                last_id = None
-                # prefer last operation
-                for op_id, operation in reversed(self.operations):
-                    last_id = op_id; break
-                if last_id is None:
-                    for op_id, primitive in reversed(self.primitives):
-                        if primitive.kwargs.get('grouped', None) is None:
-                            last_id = op_id
-                            break
-                if last_id is None:
-                    return "return vec4(1000.0, 0.0, 0.0, 0.0);"
-                last_col_id = f"col{last_id}"
-            else:
+                # find last operation not folded (if last op folded then fallback)
+                for op_id, _ in reversed(self.operations):
+                    if op_id in folded_ops:
+                        continue
+                    last_id = op_id
+                    break
+            if last_id is None:
+                # find last non-grouped primitive
+                for op_id, prim in reversed(self.primitives):
+                    if prim.kwargs.get('grouped', None) is None or prim.primitive_type == 'group':
+                        last_id = op_id
+                        break
+
+            if last_id is None:
                 return "return vec4(0.0, 0.0, 0.0, 1000.0);"
 
+            last_col_id = f"col{last_id}"
             scene_code += f"\n    return vec4({last_col_id}, {last_id});"
             return scene_code
         else:
@@ -4337,15 +4462,105 @@ You can also support the project by reporting an error, or by suggesting an impr
                 truncated_name = name
             return f"{truncated_name} ({op_id})"
         
+
+    
         imgui.text("Primitives:")
         io_local = imgui.get_io()
+
+        # Render groups first as parent nodes (showing members as children)
         for op_id, primitive in scene_builder.primitives:
+            if primitive.primitive_type != 'group':
+                continue
+
+            label = format_label(primitive.ui_name, op_id)
+            # Tree node for the group
+            flags = 0
+            if selected_item_id == op_id:
+                flags |= imgui.TREE_NODE_SELECTED
+
+            node_open = imgui.tree_node(label, flags)
+
+            # Clicking the group selects it
+            if imgui.is_item_clicked():
+                selected_item_id = op_id
+                selection_mode = 'primitive'
+                renaming_item_id = None
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+
+            if node_open:
+                # Render members as indented child items
+                members = primitive.kwargs.get('members', [])
+                for mid in members:
+                    if mid not in scene_builder.id_to_index:
+                        continue
+                    m_type, m_idx = scene_builder.id_to_index[mid]
+                    if m_type != 'primitive':
+                        continue
+                    member_prim = scene_builder.primitives[m_idx][1]
+                    mlabel = format_label(member_prim.ui_name, mid)
+                    # draw a selectable / leaf for the member
+                    flags_m = imgui.TREE_NODE_LEAF
+                    if selected_item_id == mid or mid in selected_items:
+                        flags_m |= imgui.TREE_NODE_SELECTED
+
+                    # Use same visual layout as before (arrow buttons left)
+                    imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
+                    if imgui.arrow_button(f"##up_{mid}", 2):
+                        idx = scene_builder.id_to_index[mid][1]
+                        if idx > 0:
+                            scene_builder.move_item(mid, idx - 1)
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+
+                    imgui.same_line()
+                    if imgui.arrow_button(f"##down_{mid}", 3):
+                        idx = scene_builder.id_to_index[mid][1]
+                        if idx < len(scene_builder.primitives) - 1:
+                            scene_builder.move_item(mid, idx + 1)
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+                    imgui.pop_style_var(1)
+
+                    imgui.same_line()
+                    node_open_m = imgui.tree_node(mlabel, flags_m)
+                    if imgui.is_item_clicked():
+                        # respect Ctrl multi-select
+                        if io_local.key_ctrl:
+                            if mid in selected_items:
+                                selected_items.remove(mid)
+                            else:
+                                selected_items.add(mid)
+                            selected_item_id = None
+                            selection_mode = None
+                        else:
+                            selected_items.clear()
+                            selected_item_id = mid
+                            selection_mode = 'primitive'
+                            renaming_item_id = None
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+
+                    if node_open_m:
+                        imgui.tree_pop()
+
+                imgui.tree_pop()
+
+        # Render remaining top-level primitives that are not grouped
+        for op_id, primitive in scene_builder.primitives:
+            # Skip groups and primitives marked as grouped (they're shown as children above)
+            if primitive.primitive_type == 'group' or primitive.kwargs.get('grouped', None) is not None:
+                continue
+
             label = format_label(primitive.ui_name, op_id)
             flags = imgui.TREE_NODE_LEAF
             if selected_item_id == op_id or op_id in selected_items:
                 flags |= imgui.TREE_NODE_SELECTED
 
-            # arrow buttons left (unchanged)
             imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
             if imgui.arrow_button(f"##up_{op_id}", 2):
                 idx = scene_builder.id_to_index[op_id][1]
