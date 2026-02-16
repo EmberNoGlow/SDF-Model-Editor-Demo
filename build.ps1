@@ -1,27 +1,21 @@
-# --- CONVENIENT AND FAST SCRIPT THAT COMPILES A PROJECT WITH JUST ONE COMMAND ---
-# Autor: EmberNoGlow & ChatGPT
-# -----------------------------
+# --- FAST AND CLEAN BUILD SCRIPT FOR PYINSTALLER PROJECT ---
+# Author: EmberNoGlow & ChatGPT
+# -----------------------------------------------------------
 
 # --- Configuration ---
-$ReleaseDir = "ReleaseBuild\SDFEditor"
+$ReleaseDir = "ReleaseBuild"
 $VenvName = ".venv"
 $PyInstallerPath = Join-Path $VenvName "Scripts\pyinstaller.exe"
 $PipPath = Join-Path $VenvName "Scripts\pip.exe"
 $MainScript = "main.py"
+$DistExecutable = "sdfeditor"
 $GlfwDllSource = Join-Path $VenvName "Lib\site-packages\glfw\glfw3.dll"
-$DistExecutable = "sdfeditor" # Name used by PyInstaller --name
-$IconFile = "icon.ico" # Checking if there's an icon to use
 
-# Start a timer to see how long we take
-$BuildTimer = [System.Diagnostics.Stopwatch]::StartNew()
-
-# --- Step 0: Cleanup ---
-# We wipe the old build and dist folders first so we don't end up with 
-# leftover junk from previous attempts.
-Write-Host "0. Cleaning up old build files..." -ForegroundColor Gray
-foreach ($folder in $ReleaseDir, "dist", "build") {
-    if (Test-Path $folder) { 
-        Remove-Item -Path $folder -Recurse -Force 
+# --- Step 0: Cleanup old build folders ---
+Write-Host "0. Cleaning up old build folders..." -ForegroundColor Gray
+foreach ($folder in "dist", "build", $ReleaseDir) {
+    if (Test-Path $folder) {
+        Remove-Item -Path $folder -Recurse -Force
     }
 }
 
@@ -29,7 +23,7 @@ foreach ($folder in $ReleaseDir, "dist", "build") {
 Write-Host "1. Creating release directory: $ReleaseDir..." -ForegroundColor Cyan
 New-Item -Name $ReleaseDir -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
 
-# --- Step 2: Create Virtual Environment ---
+# --- Step 2: Create or Verify Virtual Environment ---
 Write-Host "2. Checking and creating virtual environment $VenvName..."
 if (-not (Test-Path $PipPath)) {
     Write-Host "Creating environment via python -m venv..."
@@ -43,35 +37,29 @@ if (-not (Test-Path $PipPath)) {
     Write-Host "Virtual environment already exists." -ForegroundColor DarkGray
 }
 
-# --- Steps 3 & 4: Install Dependencies ---
-Write-Host "3 & 4. Installing dependencies from requirements.txt..."
+# --- Step 3: Install Dependencies ---
+Write-Host "3. Installing dependencies from requirements.txt..."
 if (Test-Path "requirements.txt") {
     & $PipPath install -r requirements.txt
 } else {
     Write-Warning "requirements.txt not found. Skipping dependency installation."
 }
 
-# --- Step 5: Install PyInstaller ---
-Write-Host "5. Ensuring PyInstaller is installed..."
+# --- Step 4: Ensure PyInstaller is Installed ---
+Write-Host "4. Ensuring PyInstaller is installed..."
 & $PipPath install pyinstaller
 
-# --- Step 6: Execute PyInstaller Build ---
-Write-Host "6. Running PyInstaller build..."
+# --- Step 5: Run PyInstaller Build ---
+Write-Host "5. Running PyInstaller build..."
 
-# We prepare the command arguments here. If an icon.ico exists, we use it automatically.
+# IMPORTANT:
+# We do NOT add glfw3.dll via --add-binary to avoid DLL conflicts.
 $PyCommand = @(
-    "--onefile",
+    "--onedir",
     "--name", $DistExecutable,
     "--windowed",
-    "--add-binary", "$GlfwDllSource;."
+    $MainScript
 )
-
-if (Test-Path $IconFile) {
-    Write-Host "Found icon.ico, applying to executable..." -ForegroundColor DarkCyan
-    $PyCommand += "--icon", $IconFile
-}
-
-$PyCommand += $MainScript
 
 & $PyInstallerPath @PyCommand
 
@@ -80,29 +68,30 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- Step 7: Move Compiled Executable ---
-Write-Host "7. Moving compiled executable to $ReleaseDir..."
-$CompiledFile = if (Test-Path ".\dist\$($DistExecutable).exe") { ".\dist\$($DistExecutable).exe" } 
-                else { ".\dist\$($DistExecutable)" }
+# --- Step 6: Move Compiled Executable and Dependencies ---
+Write-Host "6. Copying built files to $ReleaseDir..."
 
-if (Test-Path $CompiledFile) {
-    Move-Item -Path $CompiledFile -Destination $ReleaseDir -Force
-    Write-Host "Executable moved successfully."
+$DistDir = ".\dist\$DistExecutable"
+
+if (Test-Path $DistDir) {
+    Copy-Item -Path "$DistDir\*" -Destination $ReleaseDir -Recurse -Force
+    Write-Host "All runtime files (exe + dependencies + _internal) copied to $ReleaseDir."
 } else {
-    Write-Warning "Could not find compiled executable in 'dist'."
+    Write-Warning "Could not find build directory '$DistDir'."
 }
 
-# --- Step 8: Explicitly Copy GLFW DLL ---
-Write-Host "8. Explicitly copying glfw3.dll to $ReleaseDir root..."
+
+# --- Step 7: Copy glfw3.dll ---
+Write-Host "7. Copying glfw3.dll to $ReleaseDir..."
 if (Test-Path $GlfwDllSource) {
     Copy-Item -Path $GlfwDllSource -Destination $ReleaseDir -Force
     Write-Host "glfw3.dll copied."
 } else {
-    Write-Warning "GLFW DLL not found at source path. Skipping explicit copy."
+    Write-Warning "GLFW DLL not found in venv. Application may not start."
 }
 
-# --- Step 9: Copy Shaders Folder ---
-Write-Host "9. Copying 'shaders' folder to $ReleaseDir..."
+# --- Step 8: Copy Shaders Folder ---
+Write-Host "8. Copying 'shaders' folder..."
 if (Test-Path ".\shaders") {
     Copy-Item -Path ".\shaders" -Destination $ReleaseDir -Recurse -Force
     Write-Host "Shaders folder copied."
@@ -110,8 +99,8 @@ if (Test-Path ".\shaders") {
     Write-Warning "Folder 'shaders' not found. Skipping."
 }
 
-# --- Step 10: Copy Fonts Folder ---
-Write-Host "10. Copying 'gui/fonts' to $ReleaseDir/gui/..."
+# --- Step 9: Copy GUI Fonts ---
+Write-Host "9. Copying 'gui/fonts'..."
 if (Test-Path ".\gui\fonts") {
     New-Item -Name "gui" -Path $ReleaseDir -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
     Copy-Item -Path ".\gui\fonts" -Destination "$ReleaseDir\gui\" -Recurse -Force
@@ -120,47 +109,30 @@ if (Test-Path ".\gui\fonts") {
     Write-Warning "Folder 'gui/fonts' not found. Skipping."
 }
 
-# --- Step 11: Create URL Shortcut ---
-Write-Host "11. Creating URL shortcut 'Visit Github.url' in $ReleaseDir..."
+# --- Step 10: Copy Documentation Files ---
+Write-Host "10. Copying documentation files..."
+foreach ($doc in "README.md", "LICENSE", "LICENSE.txt") {
+    if (Test-Path $doc) {
+        Copy-Item -Path $doc -Destination $ReleaseDir -Force
+        Write-Host "Copied $doc."
+    }
+}
+
+# --- Step 11: Create GitHub Shortcut ---
+Write-Host "11. Creating GitHub URL shortcut..."
 $UrlFilePath = Join-Path $ReleaseDir "Visit Github.url"
 $UrlContent = @"
 [InternetShortcut]
 URL=https://github.com/EmberNoGlow/SDF-Model-Editor-Demo
 "@
-
 Set-Content -Path $UrlFilePath -Value $UrlContent -Encoding UTF8
 
-# --- Step 12: Copy Extras (README/LICENSE) ---
-# Most people want the license and readme in the release so users know what they're looking at.
-Write-Host "12. Searching for Documentation/License files..."
-foreach ($doc in "README.md", "LICENSE", "LICENSE.txt") {
-    if (Test-Path $doc) {
-        Copy-Item -Path $doc -Destination $ReleaseDir -Force
-        Write-Host "Copied $doc." -ForegroundColor DarkGray
-    }
-}
-
-# --- Step 13: Zip it up ---
-Write-Host "13. Creating a ZIP archive of the build..." -ForegroundColor Cyan
+# --- Step 12: Create ZIP Archive ---
+Write-Host "12. Creating ZIP archive..."
 
 $ZipFile = "SDFEditor.zip"
+if (Test-Path $ZipFile) { Remove-Item $ZipFile -Force }
 
-$TempFolder = Join-Path -Path (Get-Location) -ChildPath "TempZipRoot"
-$TargetFolderInZip = Join-Path -Path $TempFolder -ChildPath "SDFEditor"
+Compress-Archive -Path "$ReleaseDir\*" -DestinationPath $ZipFile -CompressionLevel Optimal
 
-if (Test-Path $TempFolder) { Remove-Item $TempFolder -Recurse -Force }
-New-Item -Path $TargetFolderInZip -ItemType Directory | Out-Null
-
-Copy-Item -Path "$ReleaseDir\*" -Destination $TargetFolderInZip -Recurse
-
-if (Test-Path $ZipFile) { Remove-Item $ZipFile }
-Compress-Archive -Path "$TempFolder\*" -DestinationPath $ZipFile -CompressionLevel Optimal
-
-Remove-Item $TempFolder -Recurse -Force
-
-Write-Host "Archive created: $ZipFile"
-
-# Finish up and show the total time
-$BuildTimer.Stop()
-$Time = $BuildTimer.Elapsed
-Write-Host ("`nBUILD COMPLETED SUCCESSFULLY in {0:mm}m {0:ss}s!" -f $Time) -ForegroundColor Green
+Write-Host "`nBUILD COMPLETED SUCCESSFULLY!" -ForegroundColor Green
