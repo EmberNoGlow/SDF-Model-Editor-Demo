@@ -85,6 +85,7 @@ Contributions are **highly encouraged**! Here’s how you can help:
 1. **Report bugs** → Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues).
 2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions/).
 3. **Submit code** → Fork the repo and create a [Pull Request](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
+4.  You can also send me **[DM on bsky](https://bsky.app/profile/embernoglow.bsky.social)** - report bugs, suggest features, or just Review!
 
 > **Note:** This project is a learning experience – expect refactoring and experimentation!
 
