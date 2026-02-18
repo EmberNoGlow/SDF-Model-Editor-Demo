@@ -99,14 +99,14 @@ if (Test-Path ".\shaders") {
     Write-Warning "Folder 'shaders' not found. Skipping."
 }
 
-# --- Step 9: Copy GUI Fonts ---
-Write-Host "9. Copying 'gui/fonts'..."
-if (Test-Path ".\gui\fonts") {
-    New-Item -Name "gui" -Path $ReleaseDir -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
-    Copy-Item -Path ".\gui\fonts" -Destination "$ReleaseDir\gui\" -Recurse -Force
-    Write-Host "gui/fonts folder copied."
+# --- Step 9: Copy Fonts ---
+Write-Host "9. Copying 'assets/fonts'..."
+if (Test-Path ".\assets\fonts") {
+    New-Item -Name "assets" -Path $ReleaseDir -ItemType Directory -ErrorAction SilentlyContinue | Out-Null
+    Copy-Item -Path ".\assets\fonts" -Destination "$ReleaseDir\assets\" -Recurse -Force
+    Write-Host "assets/fonts folder copied."
 } else {
-    Write-Warning "Folder 'gui/fonts' not found. Skipping."
+    Write-Warning "Folder 'assets/fonts' not found. Skipping."
 }
 
 # --- Step 10: Copy Documentation Files ---
