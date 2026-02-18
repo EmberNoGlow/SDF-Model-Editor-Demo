@@ -95,8 +95,27 @@ class SDFPrimitive:
             # size_or_radius[0] = radius a, size_or_radius[1] = radius b, kwargs['height'] = height
             height = self.kwargs.get('height', 1.0)
             return f"float {op_id} = sdRoundedCylinder(p{op_id}, {self.size_or_radius[0]}, {self.size_or_radius[1]}, {height});\n    vec3 col{op_id} = {color_vec};"
+        elif self.primitive_type == "curve":
+            points = self.kwargs.get('points', [[0, 0, 0], [1, 1, 1]])
+            thickness = self.kwargs.get('thickness', 0.1)
+            n_pts = len(points)
+
+            if len(points) < 8:
+                for i in range(0, 8-len(points)):
+                    points.append([0, 0, 0])
+            
+            # Generate point array code
+            pt_strs = [f"vec3({p[0]:.4f}, {p[1]:.4f}, {p[2]:.4f})" for p in points]
+            pt_array = "{" + ", ".join(pt_strs) + "}"
+            
+            return (
+                f"vec3 curve_pts_{op_id}[{n_pts}] = {pt_array};\n"
+                f"    float {op_id} = sdfCurve(p{op_id}, curve_pts_{op_id}, {n_pts}, {thickness});\n"
+                f"    vec3 col{op_id} = {color_vec};"
+            )
         else:
             raise ValueError(f"Unknown primitive type: {self.primitive_type}")
+
 
 
     def to_dict(self):

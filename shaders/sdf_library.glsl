@@ -87,6 +87,34 @@ float sdRoundedCylinder( vec3 p, float ra, float rb, float h )
   return min(max(d.x,d.y),0.0) + length(max(d,0.0)) - rb;
 }
 
+// ============ CURVE SDF ============
+// Distance from point p to a polyline defined by control points
+// with optional smoothing at corners
+float sdSegment(vec3 p, vec3 a, vec3 b) {
+    vec3 pa = p - a;
+    vec3 ba = b - a;
+    float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * h);
+}
+
+float sdfCurve(vec3 p, vec3 points[8], int nPoints, float thickness) {
+    float minDist = 1e9;
+    
+    // For each segment of the polyline
+    for(int i = 0; i < 31; i++) {
+        if (i < nPoints - 1) {
+            float d = sdSegment(p, points[i], points[i + 1]);
+            minDist = min(minDist, d);
+        }
+    }
+    
+    // Apply thickness and corner rounding
+    // rounding acts as a blend factor for smoothing
+    float result = minDist - thickness;
+    return result;
+}
+
+
 
 
 // Logic operations
@@ -243,10 +271,6 @@ vec3 pointer_twist_radial(vec3 p, vec3 anchorPos) {
     q.z = r * sin(na);
     return q + anchorPos;
 }
-
-
-
-
 
 
 

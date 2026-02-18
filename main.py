@@ -75,8 +75,8 @@ end_drag = False
 R_start_drag = False
 R_end_drag = False
 
- # A variable to track what we recompiled the shader
- # in cycles mode for later updating the fbo
+# A variable to track what we recompiled the shader
+# in cycles mode for later updating the fbo
 monitor = False
 
 
@@ -92,7 +92,7 @@ tkinter_thread = None
 
 def main():
     # Globals
-    global start_drag, end_drag, dragging, selected_item_id, drag_position, drag_rot_position
+    global start_drag, end_drag, dragging, R_dragging, selected_item_id, drag_position, drag_rot_position
 
 
     # Initialize GLFW
@@ -2633,11 +2633,11 @@ You can also support the project by reporting an error, or by suggesting an impr
                             )
                             changed = changed1 or changed2
                         else:
-                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer", "sprite"]:
+                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer", "sprite", "curve"]:
                                 changed, primitive.size_or_radius = input_vec3(
                                     "Size", primitive.size_or_radius, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
                                 )
-                        if primitive.primitive_type not in ["pointer", "sprite"]: # HACK
+                        if primitive.primitive_type not in ["pointer", "sprite", "curve"]: # HACK
                             if changed:
                                 success, new_uniforms = recompile_shader()
                                 if success:
@@ -2746,7 +2746,56 @@ You can also support the project by reporting an error, or by suggesting an impr
                                     success, new_uniforms = recompile_shader()
                                     if success:
                                         uniform_locs = new_uniforms
-
+                            elif primitive.primitive_type == "curve":
+                                imgui.spacing()
+                                
+                                # Points array editor
+                                points = primitive.kwargs.get('points', [[0, 0, 0], [1, 1, 1]])
+                                imgui.text("Curve Points:")
+                                
+                                points_to_remove = None
+                                for i, pt in enumerate(points):
+                                    changed, new_pt = input_vec3(
+                                        f"Point {i}", list(pt), STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                                    )
+                                    if changed:
+                                        points[i] = new_pt
+                                        primitive.kwargs['points'] = points
+                                        success, new_uniforms = recompile_shader()
+                                        if success:
+                                            uniform_locs = new_uniforms
+                                    
+                                    imgui.same_line()
+                                    if imgui.button(f"Remove##pt{i}", width=60):
+                                        points_to_remove = i
+                                
+                                if points_to_remove is not None and len(points) > 2:
+                                    points.pop(points_to_remove)
+                                    primitive.kwargs['points'] = points
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+                                
+                                if imgui.button("Add Point", width=panel_elem_width_float):
+                                    points.append([0.0, 0.0, 0.0])
+                                    primitive.kwargs['points'] = points
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+                                
+                                imgui.spacing()
+                                
+                                # Thickness parameter
+                                thickness = primitive.kwargs.get('thickness', 0.1)
+                                changed, thickness = input_float(
+                                    "Thickness", thickness, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                )
+                                if changed:
+                                    primitive.kwargs['thickness'] = thickness
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+                                
 
                             imgui.begin_group()
 
@@ -2929,7 +2978,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                 ("Capped Cylinder", "capped_cylinder", (0.3, 1.0)),
                 ("Rounded Cylinder", "rounded_cylinder", (0.3, 0.1)),
                 ("Pointer", "pointer", None),
-                ("Sprite", "sprite", None)
+                ("Sprite", "sprite", None),
+                ("Curve", "curve", None)
             ]
 
             for label, prim_type, size_radius in primitives_list:
@@ -2971,7 +3021,16 @@ You can also support the project by reporting an error, or by suggesting an impr
                         sprites_array.append(new_spr)
                         # Create a SDF primitive that references the sprite index so it shows in the tree
                         new_id = scene_builder.add_primitive("sprite", (0.0, 0.0, 0.0), [0.0,0.0,0.0], ui_name=label, color=[1.0,1.0,1.0], sprite_index=len(sprites_array)-1)
-                    
+                    if prim_type == "curve":
+                        new_id = scene_builder.add_primitive(
+                            "curve",
+                            position=(0.0, 0.0, 0.0),
+                            size_or_radius=None,
+                            ui_name=label,
+                            points=[[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 0.0, 0.0]],
+                            thickness=0.1,
+                            color=(0.5, 0.7, 1.0)
+                        )
                     else:
                         new_id = scene_builder.add_box((0.0, 0.0, 0.0), size_radius, ui_name=label)
                     
