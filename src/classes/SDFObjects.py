@@ -2,10 +2,32 @@ class SDFPrimitive:
     def __init__(self, selected_item_id, primitive_type, position, size_or_radius, rotation=None, scale=None, ui_name=None, color=None, **kwargs):
         self.primitive_type = primitive_type
         self.position = list(position)
-        self.size_or_radius = size_or_radius if isinstance(size_or_radius, (list, tuple)) else [size_or_radius]
+
+        # Normalize size_or_radius into a list (accept scalar or sequence)
+        if isinstance(size_or_radius, (list, tuple)):
+            self.size_or_radius = list(size_or_radius)
+        else:
+            self.size_or_radius = [size_or_radius]
+
+        # Ensure the list is mutable
         if not isinstance(self.size_or_radius, list):
             self.size_or_radius = list(self.size_or_radius)
-        # Always initialize as 3D vectors
+
+        # Ensure size_or_radius has the expected length for this primitive.
+        # For a scalar input we repeat the last element to fill required components
+        expected_len = None
+        if primitive_type in ("box", "round_box"):
+            expected_len = 3
+        elif primitive_type in ("torus", "hex_prism", "rounded_cylinder", "capped_cylinder", "vertical_capsule"):
+            expected_len = 2
+        elif primitive_type in ("sphere", "pointer", "sprite", "curve"):
+            expected_len = 1
+
+        if expected_len is not None and len(self.size_or_radius) < expected_len:
+            last = self.size_or_radius[-1] if self.size_or_radius else 0.0
+            self.size_or_radius += [last] * (expected_len - len(self.size_or_radius))
+
+        # Always initialize as 3D vectors for rotation/scale/color defaults
         self.rotation = list(rotation) if rotation else [0.0, 0.0, 0.0]
         self.scale = list(scale) if scale else [1.0, 1.0, 1.0]
         self.color = list(color) if color else [0.8, 0.6, 0.4]
