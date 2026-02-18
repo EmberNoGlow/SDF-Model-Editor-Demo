@@ -2637,7 +2637,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 changed, primitive.size_or_radius = input_vec3(
                                     "Size", primitive.size_or_radius, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
                                 )
-                        if primitive.primitive_type not in ["pointer", "sprite", "curve"]: # HACK
+                        if primitive.primitive_type not in ["pointer", "sprite", "curve"]:
                             if changed:
                                 success, new_uniforms = recompile_shader()
                                 if success:
@@ -2984,7 +2984,9 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             for label, prim_type, size_radius in primitives_list:
                 if imgui.button(f"  {label}", -1):
-                    if prim_type == "round_box":
+                    if prim_type == "box":
+                        new_id = scene_builder.add_box((0.0, 0.0, 0.0), size_radius, ui_name=label)
+                    elif prim_type == "round_box":
                         new_id = scene_builder.add_roundbox((0.0, 0.0, 0.0), size_radius, 0.1, ui_name=label)
                     elif prim_type == "sphere":
                         new_id = scene_builder.add_sphere((0.0, 0.0, 0.0), size_radius, ui_name=label)
@@ -3031,8 +3033,6 @@ You can also support the project by reporting an error, or by suggesting an impr
                             thickness=0.1,
                             color=(0.5, 0.7, 1.0)
                         )
-                    else:
-                        new_id = scene_builder.add_box((0.0, 0.0, 0.0), size_radius, ui_name=label)
                     
                     success, new_uniforms = recompile_shader()
                     if success:
