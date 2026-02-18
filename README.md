@@ -85,6 +85,7 @@ Contributions are **highly encouraged**! Here’s how you can help:
 1. **Report bugs** → Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues).
 2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions/).
 3. **Submit code** → Fork the repo and create a [Pull Request](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
+4.  You can also send me **[DM on bsky](https://bsky.app/profile/embernoglow.bsky.social)** - report bugs, suggest features, or just Review!
 
 > **Note:** This project is a learning experience – expect refactoring and experimentation!
 
@@ -175,7 +176,7 @@ pip install pyinstaller
 2. **Compile into one file**
 
 ```bash
-pyinstaller --onefile --name sdfeditor --windowed --add-binary ".venv\Lib\site-packages\glfw\glfw3.dll;." main.py
+pyinstaller --onedir --name sdfeditor --windowed main.py
 ```
 
 > *NOTE*: You should make sure that you have a virtual environment named **.venv created and glfw installed** (it is added to requirements). If there is none or the **path is incorrect, specify the correct path** to `the glfw3.dll` file located in the virtual environment in the `\Lib\site-packages\glfw folder`!
