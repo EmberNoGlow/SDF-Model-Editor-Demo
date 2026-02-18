@@ -12,134 +12,90 @@
 
 
 ## **🌟 Overview**
-This project is a **work-in-progress** editor for designing 3D models using **Signed Distance Fields (SDFs)**. Built with `Python`, `GLSL`, `ImGui`, `GLFW`, and `PyOpenGL`, it allows real-time rendering and interaction with SDF primitives.
+**SDF Model Editor** is an experimental, real‑time tool for designing 3D models using **Signed Distance Fields (SDFs)**. Built with **Python**, **GLSL**, **ImGui**, **GLFW**, and **PyOpenGL**, it provides an accessible environment for exploring procedural modeling techniques without the complexity of traditional sculpting workflows.
 
-While the current version is a **demo with limited functionality**, it serves as a foundation for a more powerful tool. The goal? To simplify 3D modeling by combining primitives into stylized characters or objects – **no sculpting required!**
-
-> *I’m happy with the result, but there’s so much more to build!*
+The current version is a **functional demo** and a foundation for a more complete editor. The long‑term vision is to make SDF‑based modeling intuitive, playful, and powerful — enabling users to build stylized characters and objects from simple primitives.
 
 ---
 
 ## **📌 Screenshots**
-| ![Screenshot 1](Screenshots/Screenshot_1.jpg) | ![Screenshot 2](Screenshots/Screenshot_2.jpg) | ![Screenshot 2](Screenshots/Screenshot_3.jpg)
+| ![Screenshot 1](Screenshots/Screenshot_1.jpg) | ![Screenshot 2](Screenshots/Screenshot_2.jpg) | ![Screenshot 3](Screenshots/Screenshot_3.jpg)
 |:--------------------------------------------:|:--------------------------------------------:|:--------------------------------------------:|
-| ![Screenshot 3](Screenshots/Screenshot_4.jpg) | ![Screenshot 4](Screenshots/Screenshot_5.jpg) | ![Screenshot 2](Screenshots/Screenshot_6.jpg)
+| ![Screenshot 4](Screenshots/Screenshot_4.jpg) | ![Screenshot 5](Screenshots/Screenshot_5.jpg) | ![Screenshot 6](Screenshots/Screenshot_6.jpg)
 
 ---
 
-## **⚠️ Current Status**
-This is a late-stage prototype. I'm on the cusp of a major transition: the MVP is progressing well, and **[Roadmap](#-roadmap)** is nearing completion. Next, I'll move on to building the full product. Once the MVP is complete, I'll immediately focus on promoting the project on social media—and your support can make this launch truly meaningful!
+## 🚀 Features
 
+- **Real‑time SDF rendering** using GLSL shaders  
+- **Cycles Additional rendering mode** (realistic ray‑tracing algorithm)  
+- **Smooth boolean operations** (union, subtract, intersect, etc.)  
+- **Multiple primitive types** (sphere, box, cone, and more)  
+- **ImGui‑based UI** for intuitive interaction  
+- **Save & Load** scenes (JSON)  
+- **Export to 3D formats** (OBJ via scikit‑image)  
+- **Built‑in GLSL code editor** (Tkinter)  
+- **Undo/Redo** support  
 
-> **Your feedback and contributions are welcome!** Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues) or submit a [PR](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
+## 🧭 Project Status
 
----
+This project is in **late‑stage prototype** development. The MVP is nearing completion, and the next phase will focus on expanding functionality, improving UX, and preparing for a broader public release.
 
-## **🚀 Features**
-✅ **Real-time SDF rendering** (GLSL shaders)
-
-✅ **Cycles Additional rendering mode – Realistic Ray Tracing algorithm**
-
-✅ **Smooth logic operations** (substract, intersect, union, etc.)
-
-✅ **Multi-primitive composition** (spheres, boxes, cones, etc.)
-
-✅ **ImGui-based UI** for intuitive controls
-
-✅ **Save & Load** functions (using tkinter)
-
-✅ **Export to 3d** using scikit-image
-
-✅ **Built-in real-time scene code editor in GLSL** using Tkinter
+Your feedback, ideas, and contributions can meaningfully shape the direction of the full editor.
 
 ---
 
-## **🎯 Roadmap**
+## 🎯 Roadmap
 
-### *Current Progress*
-- 📝 **Customization**
-- 🧷 **UX improvements**
-- 🐛 **Fix bugs**
-- 🔨 Making an **GLSL code editor**
-- 🌐 **Localization** - Preparation
+### **Current Work**
+- 📝 Customization  
+- 🧷 UX improvements  
+- 🐛 Bug fixes  
+- 🔨 GLSL code editor  
+- 🌐 Localization groundwork  
 
-### **Core Functionality (MVP Goals)**
-- [x] **Free movement of the camera in 3d space**
-- [x] **Translation operations for primitives** – rotation, scale, and position – can be changed in real time in the inspector.
-- [x] **Save/Load** using JSON
-- [x] **Undo/Redo support**
-- [x] **Export to 3D formats** (OBJ)
-- [ ] **Gizmo-based manipulation** (drag, rotate, scale primitives)
-- [ ] **Write Docs!**
+### **MVP Goals**
+- [x] Free camera movement  
+- [x] Real‑time transform controls (position, rotation, scale)  
+- [x] Save/Load (JSON)  
+- [x] Undo/Redo  
+- [x] OBJ export  
+- [ ] Gizmo‑based manipulation  
+- [ ] Documentation  
 
-### **User Experience (Future Improvements)**
-- [x] **Themes**
-- [ ] **Customization**
-- [ ] **Localization (i18n)**
-- [ ] **Performance optimizations**
-
----
-
-## **💞 Contributing**
-Contributions are **highly encouraged**! Here’s how you can help:
-1. **Report bugs** → Open an [issue](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues).
-2. **Suggest features** → Share your ideas in [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions/).
-3. **Submit code** → Fork the repo and create a [Pull Request](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls).
-4.  You can also send me **[DM on bsky](https://bsky.app/profile/embernoglow.bsky.social)** - report bugs, suggest features, or just Review!
-
-> **Note:** This project is a learning experience – expect refactoring and experimentation!
+### **Future Improvements**
+- [x] Themes  
+- [ ] Full customization  
+- [ ] Localization (i18n)  
+- [ ] Performance optimizations  
 
 ---
 
-## **💡 The Story Behind This Project**
-### **Inspiration**
-It all started with [this article](https://iquilezles.org/articles/smin/) on SDF-based modeling. The idea of creating stylized 3D characters with just **10-20 primitives** was too exciting to ignore!
+## 💞 Contributing
 
-### **The Journey**
-- **Phase 1:** Built an MVP using AI tools (ChatGPT, Copilot, Cursor).
-- **Phase 2:** Hit limitations – free chat limits, code complexity, and bugs.
-- **Phase 3:** Spent **2 months** refactoring, learning, and improving.
+Contributions are **warmly welcomed** — whether you're fixing bugs, proposing features, or exploring SDFs for the first time.
 
-> *AI isn’t a magic solution – it’s a tool. The real work is in understanding and refining the code.*
+You can help by:
 
-### **Lessons Learned**
-✔ **AI accelerates prototyping** but requires deep debugging.
-
-✔ **Refactoring is part of the process** – embrace it!
-
-✔ **Small steps lead to big results** – this is just the beginning.
+1. Reporting issues → [Issues](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/issues)  
+2. Suggesting features → [Discussions](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/discussions)  
+3. Submitting code → [Pull Requests](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/pulls)  
+4. Reaching out directly → **[DM on Bluesky](https://bsky.app/profile/embernoglow.bsky.social)**  
 
 ---
 
-## **🔗 Resources**
-- [SDF Wikipedia](https://en.wikipedia.org/wiki/Signed_distance_function)
-- [Inigo Quilez’s SDF Functions](https://iquilezles.org/articles/distfunctions/)
-- [Shadertoy](https://www.shadertoy.com/) (for SDF inspiration)
-- [Cursor AI](https://cursor.com/) (the AI assistant that helped)
+
+## 🛠 Installation
+### **Download (Windows)**  
+Pre‑built executables are available in **[Releases](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/releases)**
+
+> Linux builds are not yet supported.
+
 
 ---
 
-## **📜 License**
-This project is licensed under the **MIT License** – see [LICENSE](LICENSE) for details.
+### **Run from Source**
 
----
-
-## **🙌 Acknowledgments**
-- **Inigo Quilez** for SDF research.
-- **AI tools** (ChatGPT, Copilot, Cursor) for assistance.
-- **Open-source community** for inspiration and libraries.
-
----
-
-## **🚀 Ready to Try It?**
-### Download compiled
-Compiled executables for windows can be **found in [releases](https://github.com/EmberNoGlow/SDF-Model-Editor-Demo/releases)**
-
-
-> *NOTE*: I don't have the ability to compile a linux app yet.
-
-
-### Clone and run main.py
 ```bash
 git clone https://github.com/EmberNoGlow/SDF-Model-Editor-Demo.git
 cd SDF-Model-Editor-Demo
@@ -149,44 +105,41 @@ pip install -r requirements.txt
 python main.py
 ```
 
-> *NOTE:* To install the imgui package you will need a c++ compiler. My advice is to use **[mingw](https://sourceforge.net/projects/mingw/)** – if you **only** need a compiler for this task. **[Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools)** will do for this task too, but it **weighs more**.
+> Installing `imgui` requires a C++ compiler.  
+> Recommended: **[mingw]((https://sourceforge.net/projects/mingw/))** or **Visual Studio [Build Tools](https://visualstudio.microsoft.com/downloads/?q=build+tools)**.
 
 
-### Compilation
-You have several options for compilation: automatic and manual. Automatic compilation is **highly recommended** as it will save a lot of time.
+---
 
-#### Automatic
-The automated process is as simple as possible:
-1. Make sure you are in the directory where the project is located.
-2. Run the PowerShell script:
-➤ `.\build.ps1`
-3. Wait for the compilation to complete (the console should display **BUILD COMPLETED SUCCESSFULLY!**). You now have an executable file in the ReleaseBuild folder.
+## 🏗 Compilation
 
-This method has been **tested on Windows**.
+### **Automatic (Recommended)**
 
+1. Navigate to the project directory  
+2. Run:  
+   ```
+   .\build.ps1
+   ```
+3. After message "*BUILD COMPLETED SUCCESSFULLY!*", the executable will appear in `ReleaseBuild` folder.
 
-#### Manually
+---
 
-1. **First, install pyinstaller.**
+### **Manual**
 
-```bash
-pip install pyinstaller
-```
-
-2. **Compile into one file**
-
-```bash
-pyinstaller --onedir --name sdfeditor --windowed main.py
-```
-
-> *NOTE*: You should make sure that you have a virtual environment named **.venv created and glfw installed** (it is added to requirements). If there is none or the **path is incorrect, specify the correct path** to `the glfw3.dll` file located in the virtual environment in the `\Lib\site-packages\glfw folder`!
-
-3. **Move the compiled file to a separate folder and drag the shaders folder to this directory. You should get it like this:**
+1. Install PyInstaller  
+   ```bash
+   pip install pyinstaller
+   ```
+2. Build  
+   ```bash
+   pyinstaller --onedir --name sdfeditor --windowed main.py
+   ```
+3. Move the executable and required folders (`shaders`, fonts, `glfw3.dll`) into a single directory:
 
 ```
 
 root directory
-├── gui/fonts
+├── assets/fonts
 │    └── *.ttf files
 │
 ├── shaders
@@ -205,16 +158,61 @@ root directory
 
 ---
 
-### **Final Thoughts**
-This project is a **testament to experimentation** – imperfect, evolving, but full of potential. Whether you’re here to **learn, contribute, or build**, I’m excited to see where it goes next!
 
-**Let’s create something amazing together.** 🚀
+## 💡 Inspiration & Background
+
+This project began after exploring Inigo Quilez’s work on SDFs, especially the article on smooth minimum functions. The idea of building expressive 3D characters from just **10–20 primitives** was too compelling to ignore.
+
+### Development Journey
+- **Phase 1:** Rapid prototyping with AI tools.  
+- **Phase 2:** Hitting limitations — complexity, bugs, and tool constraints.  
+- **Phase 3:** Two months of refactoring, learning, and rebuilding.  
+
+### Lessons Learned
+- AI accelerates prototyping, but **understanding the code matters**.  
+- Refactoring is not a setback — it’s part of the craft.  
+- Small, consistent progress leads to real breakthroughs.  
 
 ---
 
-## Support
+## **🔗 Resources**
+- [SDF Wikipedia](https://en.wikipedia.org/wiki/Signed_distance_function)
+- [Inigo Quilez’s SDF Functions](https://iquilezles.org/articles/distfunctions/)
+- [Shadertoy](https://www.shadertoy.com/) (for SDF inspiration)
+- [Cursor AI](https://cursor.com/) (the AI assistant that helped)
 
-Your support helps development! Help by leaving a review, reporting an error, suggesting an idea in Discussions, creating a Pull Request, or just **star ⭐** the repository!.
+---
+
+## **📜 License**
+This project is licensed under the **MIT License** – see [LICENSE](LICENSE) for details.
+
+---
+
+## **🙌 Acknowledgments**
+- **Inigo Quilez** for best articles about math, sdf, computer graphics, etc.
+- **AI tools** (ChatGPT, Copilot, Cursor) for assistance.
+- **Open-source community** for inspiration and libraries.
+
+---
+
+## 🚀 Final Thoughts
+
+This project is an evolving experiment — imperfect, ambitious, and full of potential. Whether you're here to learn, contribute, or build something new, I’m excited to see where this journey leads.
+
+**Let’s create something amazing.**
+
+---
+
+## ⭐ Support the Project
+
+You can help by:
+
+- Starring the repo  
+- Reporting bugs  
+- Suggesting ideas  
+- Sharing the project  
+
+Every bit of support helps the editor grow.
 
 
 ## Follow me
