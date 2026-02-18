@@ -250,7 +250,7 @@ def main():
                 # If texture not loaded, bind 0 to keep behavior stable
                 glActiveTexture(GL_TEXTURE0 + unit)
                 glBindTexture(GL_TEXTURE_2D, 0)
-                if loc is not None and loc != -1:
+                if loc != -1:
                     glUniform1i(loc, unit)
         # restore active texture to 0
         glActiveTexture(GL_TEXTURE0)
@@ -1688,8 +1688,10 @@ def main():
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
                     set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
-                glBindVertexArray(vao)
                 bind_sprite_textures(uniform_locs)
+
+
+                glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
                 
                 # Switch back to default framebuffer
@@ -1705,7 +1707,6 @@ def main():
                 # Set viewport to the rendering area (accounting for menu bar)
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(display_vao)
-                if shader != None: bind_sprite_textures(uniform_locs)
                 glDrawArrays(GL_QUADS, 0, 4)
                 glBindVertexArray(0)
                 
