@@ -49,6 +49,10 @@ FPS_WINDOW_OFFSET = 25  # Offset from top for FPS window
 FPS_WINDOW_WIDTH = 140
 FPS_WINDOW_HEIGHT = 30
 
+ORI_WINDOW_OFFSET = 60  # Offset from top for Orientation window
+ORI_WINDOW_WIDTH = 70
+ORI_WINDOW_HEIGHT = 130
+
 # Camera Constants
 MOUSE_SENSITIVITY = 0.005
 PAN_SENSITIVITY = 0.1
@@ -2151,6 +2155,39 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.text_colored("FPS: " + str(fps_value), 0.0, 1.0, 0.0, 1.0)
         elif shader_choice == 1:
             imgui.text_colored("Sample: " + str(frame_count), 1.0, 1.0, 0.0, 1.0)
+
+        imgui.end()
+
+        # Orientation Overlay
+        ori_x = width - panel_width - ORI_WINDOW_WIDTH - ORI_WINDOW_OFFSET
+        imgui.set_next_window_position(fps_x+70, ORI_WINDOW_OFFSET)
+        imgui.set_next_window_size(ORI_WINDOW_WIDTH, ORI_WINDOW_HEIGHT)
+        imgui.begin("ORI", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE | imgui.WINDOW_ALWAYS_AUTO_RESIZE | imgui.WINDOW_NO_SCROLLBAR)
+        
+        imgui.same_line(17,0) # At Center
+        imgui.text_colored("VIEW", 0.8,0.8,1.0)
+        imgui.spacing()
+        if imgui.button("X##Ori"):
+            target_yaw = 0.0
+            target_pitch = 0.0
+        imgui.same_line()
+        if imgui.button("-X##Ori"):
+            target_yaw = 3.14
+            target_pitch = 0.0
+        imgui.spacing()
+        if imgui.button("Y##Ori"):
+            target_pitch = 1.57
+        imgui.same_line()
+        if imgui.button("-Y##Ori"):
+            target_pitch = -1.57     
+        imgui.spacing()
+        if imgui.button("Z##Ori"):
+            target_yaw = 1.57
+            target_pitch = 0.0
+        imgui.same_line()
+        if imgui.button("-Z##Ori"):
+            target_yaw = -1.57 
+            target_pitch = 0.0    
 
         imgui.end()
         
