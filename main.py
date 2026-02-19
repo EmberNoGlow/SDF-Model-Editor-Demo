@@ -51,7 +51,7 @@ FPS_WINDOW_HEIGHT = 30
 
 ORI_WINDOW_OFFSET = 60  # Offset from top for Orientation window
 ORI_WINDOW_WIDTH = 70
-ORI_WINDOW_HEIGHT = 130
+ORI_WINDOW_HEIGHT = 110
 
 # Camera Constants
 MOUSE_SENSITIVITY = 0.005
@@ -2167,25 +2167,25 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.same_line(17,0) # At Center
         imgui.text_colored("VIEW", 0.8,0.8,1.0)
         imgui.spacing()
-        if imgui.button("X##Ori"):
+        if imgui.small_button("X##Ori"):
             target_yaw = 0.0
             target_pitch = 0.0
         imgui.same_line()
-        if imgui.button("-X##Ori"):
+        if imgui.small_button("-X##Ori"):
             target_yaw = 3.14
             target_pitch = 0.0
         imgui.spacing()
-        if imgui.button("Y##Ori"):
+        if imgui.small_button("Y##Ori"):
             target_pitch = 1.57
         imgui.same_line()
-        if imgui.button("-Y##Ori"):
+        if imgui.small_button("-Y##Ori"):
             target_pitch = -1.57     
         imgui.spacing()
-        if imgui.button("Z##Ori"):
+        if imgui.small_button("Z##Ori"):
             target_yaw = 1.57
             target_pitch = 0.0
         imgui.same_line()
-        if imgui.button("-Z##Ori"):
+        if imgui.small_button("-Z##Ori"):
             target_yaw = -1.57 
             target_pitch = 0.0    
 
