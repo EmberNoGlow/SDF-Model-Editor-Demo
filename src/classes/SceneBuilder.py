@@ -969,7 +969,8 @@ class SDFSceneBuilder:
             # Skip primitives that were folded into groups (they are emitted by their group)
             if primitive.kwargs.get('grouped', None) is not None:
                 continue
-
+            
+            primitive.update_selected_item_id(self.selected_item_id)
             if primitive.primitive_type == 'group':
                 # Expand group: for each member, emit transform + sdf code under synthetic ids,
                 # then compute the group's final distance as the min() and take color of closest.

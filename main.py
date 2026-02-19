@@ -95,6 +95,7 @@ def MonitorChanges(func):
 CE_app = None
 tkinter_thread = None
 
+
 def main():
     # Globals
     global start_drag, end_drag, dragging, R_dragging, selected_item_id, drag_position, drag_rot_position
@@ -765,6 +766,7 @@ def main():
                     if success:
                         uniform_locs = new_uniforms
                     selected_item_id = None
+                    scene_builder.update_selected_item_id(selected_item_id)
                     selection_mode = None
                 last_key_delete_pressed = True
         else:
@@ -1110,6 +1112,7 @@ def main():
                         glob_history.redo_stack.clear() 
                         scene_builder.update_glob_history(glob_history)
                         selected_item_id = None
+                        scene_builder.update_selected_item_id(selected_item_id)
                         selection_mode = None
                         success, new_uniforms = recompile_shader()
                         if success:
@@ -1228,6 +1231,7 @@ def main():
                     if success:
                         uniform_locs = new_uniforms
                     selected_item_id = None
+                    scene_builder.update_selected_item_id(selected_item_id)
                     selection_mode = None
                 last_key_o_pressed = True
         else:
@@ -1278,6 +1282,7 @@ def main():
                 if duplicated_ids:
                     selected_items.clear()
                     selected_item_id = duplicated_ids[-1]
+                    scene_builder.update_selected_item_id(selected_item_id)
                     selection_mode = 'primitive'
                     # Recompile shader to pick up new primitives
                     success, new_uniforms = recompile_shader()
@@ -1300,6 +1305,7 @@ def main():
                     if success:
                         uniform_locs = new_uniforms
                     selected_item_id = None
+                    scene_builder.update_selected_item_id(selected_item_id)
                     selection_mode = None
                 last_key_s_pressed = True
         else:
@@ -2363,6 +2369,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             # Clicking the group selects it
             if imgui.is_item_clicked():
                 selected_item_id = op_id
+                scene_builder.update_selected_item_id(selected_item_id)
                 selection_mode = 'primitive'
                 renaming_item_id = None
                 success, new_uniforms = recompile_shader()
@@ -2415,10 +2422,12 @@ You can also support the project by reporting an error, or by suggesting an impr
                             else:
                                 selected_items.add(mid)
                             selected_item_id = None
+                            scene_builder.update_selected_item_id(selected_item_id)
                             selection_mode = None
                         else:
                             selected_items.clear()
                             selected_item_id = mid
+                            scene_builder.update_selected_item_id(selected_item_id)
                             selection_mode = 'primitive'
                             renaming_item_id = None
                             success, new_uniforms = recompile_shader()
@@ -2474,11 +2483,13 @@ You can also support the project by reporting an error, or by suggesting an impr
                         selected_items.add(op_id)
                     # clear single selection if multiple selected
                     selected_item_id = None
+                    scene_builder.update_selected_item_id(selected_item_id)
                     selection_mode = None
                 else:
                     # regular single select
                     selected_items.clear()
                     selected_item_id = op_id
+                    scene_builder.update_selected_item_id(selected_item_id)
                     selection_mode = 'primitive'
                     renaming_item_id = None
 
@@ -2528,6 +2539,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             # Handle selection when the node is clicked
             if imgui.is_item_clicked():
                 selected_item_id = op_id
+                scene_builder.update_selected_item_id(selected_item_id)
                 selection_mode = 'operation'
                 renaming_item_id = None
 
@@ -2561,6 +2573,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                 # Clear multi selection and select the new group
                 selected_items.clear()
                 selected_item_id = new_group_id
+                scene_builder.update_selected_item_id(selected_item_id)
                 selection_mode = 'primitive'
                 success, new_uniforms = recompile_shader()
                 if success:
@@ -3124,6 +3137,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         uniform_locs = new_uniforms
                     
                     selected_item_id = new_id
+                    scene_builder.update_selected_item_id(selected_item_id)
                     selection_mode = 'primitive'
                     show_selection_window = False
 
@@ -3185,6 +3199,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                                 uniform_locs = new_uniforms
                             
                             selected_item_id = new_id
+                            scene_builder.update_selected_item_id(selected_item_id)
                             selection_mode = 'operation'
                             show_selection_window = False
             else:
