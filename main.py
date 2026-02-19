@@ -62,6 +62,7 @@ MIN_RADIUS = 1.0
 MAX_RADIUS = 100.0
 MIN_PITCH = -math.radians(90)
 MAX_PITCH = math.radians(90)
+UI_SCALE = 1.0
 
 # Moved variables
 drag_position = [0,0,0] # Track calculation result
@@ -126,8 +127,6 @@ def main():
     # Initialize ImGui
     imgui.create_context()
     impl = GlfwRenderer(window)
-    rebuild_imgui_fonts(impl, "assets/fonts/Roboto-Medium.ttf", 16.0)
-
 
     # --- Camera State ---
     target_yaw = 0.0
@@ -285,6 +284,7 @@ def main():
     show_export_obj_window = False
     show_about_window = False
     show_exit_window = False
+    show_restart_window = False
     selection_mode = None  # 'primitive' or 'operation'
     renaming_item_id = None  # Item being renamed
     rename_text = ""
@@ -602,7 +602,10 @@ def main():
         nonlocal show_exit_window
         glfw.set_window_should_close(window, False)
         show_exit_window = True
-        
+
+    def restart():
+        nonlocal show_restart_window
+        show_restart_window = True
 
 
     # --- Main Loop ---
@@ -615,7 +618,7 @@ def main():
 
     # Load User Config
     # I use JSON format with data extension to avoid confusion with one extension
-    default_uconfig = {"Theme": theme}
+    default_uconfig = {"Theme": theme, "UIScale" : 1.0}
     try:
         UConfig = load_user_config("UserData/User.data")
     except:
@@ -631,6 +634,9 @@ def main():
                 setattr(ui_themes, label, theme[label])
                 ui_themes.setup_theme()
 
+    global UI_SCALE
+    UI_SCALE = UConfig["UIScale"]
+    rebuild_imgui_fonts(impl, "assets/fonts/Roboto-Medium.ttf", 16.0, UI_SCALE)
 
 
     while not glfw.window_should_close(window):
@@ -1909,7 +1915,15 @@ def main():
                     setattr(ui_themes, label, item)
                 ui_themes.setup_theme()
 
-            
+            imgui.spacing()
+            imgui.separator()
+            imgui.spacing()
+
+            global UI_SCALE
+            changed, UI_SCALE = input_float("Interface Scale", UI_SCALE, 0.05, 100)
+            imgui.text_colored("For the changes to take effect, restart the application.", 1.0,0.9,0.7)
+            if imgui.button("RESTART"):
+                restart()
 
         def render_user_tab():
             imgui.text("User Profile Settings Content Here... WIP")
@@ -2211,13 +2225,46 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.same_line(0,15)
             if imgui.button("YES", 130,30):
                 # Save Data
-                config = {"Theme": theme}
+                config = {"Theme": theme, "UIScale": UI_SCALE}
                 save_user_config("UserData/User.data", config)
 
 
                 glfw.set_window_should_close(window, True)
 
             imgui.end()
+
+        if show_restart_window:
+            imgui.set_next_window_position(width // 2 - 150, height // 2 - 65)
+            imgui.set_next_window_size(300, 130)  # Increased height
+            is_open, show_restart_window = imgui.begin("Confirm Restart", True, imgui.WINDOW_NO_COLLAPSE)
+            
+            if not is_open:
+                show_restart_window = False
+            
+            imgui.spacing()
+            imgui.text(f"Are you sure you want to restart the app?\nThis may result in loss of unsaved data.")
+            imgui.spacing()
+            imgui.separator()
+            imgui.spacing()
+
+            if imgui.button("Cancel", 130,30):
+                show_restart_window = False
+            imgui.same_line(0,15)
+            if imgui.button("YES", 130,30):
+                # Save Data
+                config = {"Theme": theme, "UIScale": UI_SCALE}
+                save_user_config("UserData/User.data", config)
+
+                import sys
+                import subprocess
+                if getattr(sys, 'frozen', False):
+                    subprocess.Popen([sys.executable])
+                else:
+                    subprocess.Popen([sys.executable] + sys.argv)
+                exit()
+
+            imgui.end()       
+
 
 
         # Display save/load status message

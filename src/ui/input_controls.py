@@ -4,31 +4,45 @@ import time
 from imgui.integrations.glfw import GlfwRenderer
 from OpenGL.GL import (
     glBindTexture, glTexParameteri, GL_TEXTURE_2D,
-    GL_TEXTURE_MIN_FILTER, GL_TEXTURE_MAG_FILTER, GL_NEAREST
+    GL_TEXTURE_MIN_FILTER, GL_TEXTURE_MAG_FILTER, GL_NEAREST, GL_LINEAR
 )
 
 # --- Font ---
-def rebuild_imgui_fonts(renderer : GlfwRenderer, base_font_path="path/to/your/font.ttf", base_font_size=16.0):
-    # base_font_size is in logical points; multiply by framebuffer scale for pixel-perfect atlas
+import glfw
+def rebuild_imgui_fonts(renderer: GlfwRenderer, base_font_path="path/to/your/font.ttf", base_font_size=16.0, UI_SCALE=1.0):
+    """
+    Rebuild font atlas with proper DPI scaling for sharp text.
+    - base_font_size: logical size in points
+    - UI_SCALE: user-defined scaling factor (e.g., 1.0, 1.5, 2.0)
+    """
     io = imgui.get_io()
-    fb_scale_x, fb_scale_y = io.display_fb_scale
+    
+    # Get framebuffer scale manually for accuracy
+    win_w, win_h = glfw.get_window_size(renderer.window)
+    fb_w, fb_h = glfw.get_framebuffer_size(renderer.window)
+    fb_scale_x = fb_w / win_w
+    fb_scale_y = fb_h / win_h
+    fb_scale = max(fb_scale_x, fb_scale_y)
 
-    # clear existing fonts and add scaled font
+    # Calculate final pixel size and round to integer
+    pixel_size = int(round(base_font_size * fb_scale * UI_SCALE))
+
+    # Clear and rebuild font atlas
     io.fonts.clear()
-    pixel_size = base_font_size * max(fb_scale_x, fb_scale_y)
     io.fonts.add_font_from_file_ttf(base_font_path, pixel_size)
-
-    # rebuild texture and let the renderer upload it
+    
+    # Rebuild font texture
     renderer.refresh_font_texture()
 
-    # force nearest filtering if you want crisp text at integer scales
+    # Optional: use nearest filtering for crisp, pixel-perfect look (only for integer scaling)
+    # For smooth text, keep GL_LINEAR (default)
     tex_id = io.fonts.texture_id
     if tex_id:
         glBindTexture(GL_TEXTURE_2D, tex_id)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+        filter_mode = GL_NEAREST if UI_SCALE.is_integer() else GL_LINEAR
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter_mode)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter_mode)
         glBindTexture(GL_TEXTURE_2D, 0)
-
 
 
 
