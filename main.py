@@ -336,6 +336,7 @@ def main():
     vox_quality = 1.0
     export_z_up = True
     export_level = 0.0
+    exp_use_color = True
 
     # Sprites
     sprites_array = []
@@ -2016,16 +2017,9 @@ def main():
 
 
 
-
-
-
-
-
-
-
         if show_export_vol_window:
-            imgui.set_next_window_position(width // 2 - 150, height // 2 - 110)
-            imgui.set_next_window_size(300, 220)
+            imgui.set_next_window_position(width // 2 - 150, height // 2 - 125)
+            imgui.set_next_window_size(300, 250)
             is_open, show_export_vol_window = imgui.begin("Export as Volume", True, imgui.WINDOW_NO_COLLAPSE)
 
             if not is_open:
@@ -2040,12 +2034,14 @@ def main():
 
             imgui.spacing()
 
-            changed, vox_quality = input_float("Voxelization Quality", vox_quality, 0.25, 100)
+            changed, vox_quality = input_float("Vox. Quality", vox_quality, 0.25, 100)
+
+            changed, exp_use_color = imgui.checkbox("Use Color", exp_use_color)
 
             imgui.separator()
             imgui.spacing()
 
-            file_preview_size = sdfexp.calculate_sdf_file_size(grid_size, vox_quality)
+            file_preview_size = sdfexp.calculate_sdf_file_size(grid_size, vox_quality, exp_use_color)
             if file_preview_size[1]>1:
                 imgui.text(f"File size = {file_preview_size[1]:.2f} mb")
             else:
@@ -2061,7 +2057,7 @@ def main():
 
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
-                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, window)
+                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, exp_use_color, window)
                 save_sdfvol_dialog(sdfexp, comp_bin)
 
                 show_export_vol_window = False
@@ -2097,6 +2093,11 @@ def main():
 
             changed, export_z_up = imgui.checkbox("Z up", export_z_up)
 
+            imgui.same_line()
+
+            changed, exp_use_color = imgui.checkbox("Use Color", exp_use_color)
+
+
             imgui.separator()
             imgui.spacing()
 
@@ -2107,9 +2108,18 @@ def main():
 
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
-                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, window)
-                elvl = np.interp(export_level, [0,1], [comp_bin.min(), comp_bin.max()])
-                success, message = save_sdfobj_dialog(sdfexp, comp_bin, export_z_up, elvl)
+                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, exp_use_color, window)
+                dist_sdf = None
+                color_sdf = None
+
+                if isinstance(comp_bin, tuple):
+                    elvl = np.interp(export_level, [0,1], [comp_bin[0].min(), comp_bin[0].max()])
+                    dist_sdf, color_sdf = comp_bin
+                else:
+                    elvl = np.interp(export_level, [0,1], [comp_bin.min(), comp_bin.max()])
+                    dist_sdf = comp_bin
+
+                success, message = save_sdfobj_dialog(sdfexp, dist_sdf, color_sdf, export_z_up, elvl, exp_use_color)
                 export_obj_message = [success, message]
                 export_obj_message_time = time.time()
 

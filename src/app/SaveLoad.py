@@ -78,7 +78,7 @@ def save_sdfvol_dialog(sdfexp, data, parent_window=None):
         root.destroy()
 
 
-def save_sdfobj_dialog(sdfexp, data, export_z_up, export_level = 0.0, parent_window=None):
+def save_sdfobj_dialog(sdfexp, dist_sdf, color_sdf, export_z_up, export_level, exp_use_color, parent_window=None):
     # Open a save dialog and save the scene to JSON.
     try:
         root = tk.Tk()
@@ -94,7 +94,7 @@ def save_sdfobj_dialog(sdfexp, data, export_z_up, export_level = 0.0, parent_win
         if not filepath:
             return False, "Filepath is not valid"
         
-        success, message = sdfexp.export_to_obj(data, filepath, export_z_up, export_level)
+        success, message = sdfexp.export_to_obj(dist_sdf, color_sdf, filepath, export_z_up, export_level, exp_use_color)
         return success, message
 
     except Exception as e:
