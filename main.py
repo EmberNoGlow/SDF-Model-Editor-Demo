@@ -62,7 +62,6 @@ MIN_RADIUS = 1.0
 MAX_RADIUS = 100.0
 MIN_PITCH = -math.radians(90)
 MAX_PITCH = math.radians(90)
-UI_SCALE = 1.0
 
 # Moved variables
 drag_position = [0,0,0] # Track calculation result
@@ -636,10 +635,7 @@ def main():
                 setattr(ui_themes, label, theme[label])
                 ui_themes.setup_theme()
 
-    global UI_SCALE
-    UI_SCALE = UConfig["UIScale"]
-    rebuild_imgui_fonts(impl, "assets/fonts/Roboto-Medium.ttf", 16.0, UI_SCALE)
-
+    rebuild_imgui_fonts(impl, "assets/fonts/Roboto-Medium.ttf", 16.0)
 
     while not glfw.window_should_close(window):
         # calc Delta time 
@@ -1926,12 +1922,6 @@ def main():
             imgui.separator()
             imgui.spacing()
 
-            global UI_SCALE
-            changed, UI_SCALE = input_float("Interface Scale", UI_SCALE, 0.05, 100)
-            imgui.text_colored("For the changes to take effect, restart the application.", 1.0,0.9,0.7)
-            if imgui.button("RESTART"):
-                restart()
-
         def render_user_tab():
             imgui.text("User Profile Settings Content Here... WIP")
 
@@ -2241,7 +2231,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.same_line(0,15)
             if imgui.button("YES", 130,30):
                 # Save Data
-                config = {"Theme": theme, "UIScale": UI_SCALE}
+                config = {"Theme": theme}
                 save_user_config("UserData/User.data", config)
 
 
@@ -2268,7 +2258,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.same_line(0,15)
             if imgui.button("YES", 130,30):
                 # Save Data
-                config = {"Theme": theme, "UIScale": UI_SCALE}
+                config = {"Theme": theme}
                 save_user_config("UserData/User.data", config)
 
                 import sys
