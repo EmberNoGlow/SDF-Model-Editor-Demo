@@ -17,7 +17,7 @@ def save_scene_dialog(scene_builder, parent_window=None):
         if not filepath:
             return False, "Save cancelled"
         
-        success, message = scene_builder.save_to_json(filepath)
+        success, message = scene_builder.save_to_file(filepath)
         if not success:
             return False, f"Failed to save: {message}"
         return True, f"Scene saved to {filepath}"
@@ -42,7 +42,7 @@ def load_scene_dialog(scene_builder):
         if not filepath:
             return False, "Load cancelled"
 
-        success, message = scene_builder.load_from_json(filepath)
+        success, message = scene_builder.load_from_file(filepath)
         if not success:
             return False, f"Failed to load: {message}"
         return True, f"Scene loaded from {filepath}"

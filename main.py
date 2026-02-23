@@ -2483,7 +2483,7 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.spacing()
         imgui.separator()
         
-        if imgui.button("Add (Primitives / Operations)  (Ctrl+A)", -1):
+        if imgui.button(f"Add (Ctrl+A)", -1):
             show_add_change_window = True
             pending_change_node_id = None
         
@@ -2749,15 +2749,15 @@ You can also support the project by reporting an error, or by suggesting an impr
 
         # Combined Add/Change Window - Two columns (left = primitives, right = operations)
         if show_add_change_window:
-            imgui.set_next_window_position(width // 2 - 300, height // 2 - 220)
-            imgui.set_next_window_size(600, 440)
+            imgui.set_next_window_position(width // 2 - 300, height // 2 - 235)
+            imgui.set_next_window_size(600, 470)
             is_open, show_add_change_window = imgui.begin("Add / Change Type", True, imgui.WINDOW_NO_COLLAPSE)
 
             if not is_open:
                 show_add_change_window = False
                 pending_change_node_id = None
 
-            # Define lists (same primitives_list and operations_list you had)
+            # Define lists (same primitives_list and operations_list)
             primitives_list = [
                 ("Box", "box", (0.5, 0.5, 0.5)),
                 ("Sphere", "sphere", 0.5),
@@ -2788,7 +2788,7 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             # Layout: two columns
             imgui.columns(2, "add_change_cols", border=True)
-            imgui.set_column_width(0, 280)  # primitives column
+            imgui.set_column_width(0, 290)  # primitives column
             imgui.text("Primitives")
             imgui.separator()
 
@@ -2826,6 +2826,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         show_add_change_window = False
                 if imgui.is_item_hovered():
                     imgui.set_tooltip(f"Add / Change to {label}")
+            
 
             imgui.next_column()
             imgui.text("Operations")
@@ -2863,12 +2864,14 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             imgui.columns(1)
             imgui.separator()
-            if imgui.button("Cancel", 120, 28):
+            imgui.spacing()
+            imgui.same_line(20,0)
+            if imgui.button("Cancel", 265, 28):
                 show_add_change_window = False
                 pending_change_node_id = None
 
-            imgui.same_line()
-            if imgui.button("Close", 120, 28):
+            imgui.same_line(305,0)
+            if imgui.button("Close", 265, 28):
                 show_add_change_window = False
                 pending_change_node_id = None
 

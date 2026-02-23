@@ -957,9 +957,6 @@ class SDFSceneBuilder:
         return True
 
 
-
-
-
     def update_selected_item_id(self, new_value):
         """Update the selected item reference."""
         self.selected_item_id = new_value
@@ -1375,3 +1372,89 @@ class SDFSceneBuilder:
         """Remove any duplicate op_id before adding new one."""
         if op_id in self.scene_nodes:
             self._delete_node_no_history(op_id)
+
+
+    # TODO: Refactor
+    # =====================================================================
+    # SAVE/LOAD FUNCTIONS 
+    # =====================================================================
+
+    def _recompute_next_id(self):
+        """
+        Ensure next_id is greater than any existing numeric part of node IDs.
+        Node IDs are expected in the form 'd<number>'.
+        """
+        max_n = -1
+        for nid in self.scene_nodes.keys():
+            if isinstance(nid, str) and nid.startswith('d'):
+                try:
+                    n = int(nid[1:])
+                    if n > max_n:
+                        max_n = n
+                except Exception:
+                    continue
+        # set to next free index
+        self.next_id = max_n + 1 if max_n >= 0 else 0
+
+    def to_json(self) -> str:
+        """
+        Return the scene serialized as a pretty JSON string.
+        """
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True)
+
+    def from_json(self, json_str: str) -> bool:
+        """
+        Load a scene from a JSON string. Returns True on success, False on failure.
+        """
+        try:
+            scene_dict = json.loads(json_str)
+            self.from_dict(scene_dict)
+            # Recompute next_id to avoid collisions
+            self._recompute_next_id()
+            self.invalidate_cache()
+            return True
+        except Exception as e:
+            print(f"SceneBuilder.from_json: failed to parse/load JSON: {e}")
+            return False
+
+    def save_to_file(self, filepath: str) -> tuple[bool, str]:
+        import os
+        """
+        Save the current scene to a file in JSON format.
+
+        Returns:
+            (success: bool, message: str)
+        """
+        try:
+            # Ensure parent folder exists
+            directory = os.path.dirname(filepath)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(self.to_dict(), f, indent=2, sort_keys=True)
+
+            return True, f"Saved scene to {filepath}"
+        except Exception as e:
+            return False, f"Failed to save scene to {filepath}: {e}"
+
+    def load_from_file(self, filepath: str) -> tuple[bool, str]:
+        import os
+        """
+        Load scene from a JSON file produced by save_to_file().
+
+        Returns:
+            (success: bool, message: str)
+        """
+        if not os.path.exists(filepath):
+            return False, f"File does not exist: {filepath}"
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                scene_dict = json.load(f)
+            self.from_dict(scene_dict)
+            # Recompute next_id to avoid collisions
+            self._recompute_next_id()
+            self.invalidate_cache()
+            return True, f"Loaded scene from {filepath}"
+        except Exception as e:
+            return False, f"Failed to load scene from {filepath}: {e}"
