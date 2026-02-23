@@ -266,18 +266,49 @@ def main():
     # --- Scene Definition ---
     scene_builder = SDFSceneBuilder(glob_history, selected_item_id)
 
-    box = scene_builder.add_box((0.0, -0.5+2.0, 0.0), (0.5, 0.5, 0.5), ui_name="Box 1", color=[0.8, 0.2, 0.2])
-    sphere_id = scene_builder.add_sphere((0.0, -0.75+2.0, 0.0), 0.5, ui_name="Sphere 1", color=[0.2, 0.8, 0.2])
-    sphere_id = scene_builder.ssub(sphere_id, box, 0.05, ui_name="Subtract 1")
-    box_id = scene_builder.add_roundbox((0.0, -2.0+2.0, 0.0), (3.0, 1.0, 3.0), 0.1, ui_name="Round Box 1", color=[0.4, 0.4, 0.8])
-    box2_id = scene_builder.add_box((0.0, -1.5+2.0, 0.0), (2.0, 1.0, 2.0), ui_name="Box 2", color=[0.8, 0.8, 0.4])
-    final_id = scene_builder.ssub(box2_id, box_id, 0.05, ui_name="Subtract 2")
-    final_id = scene_builder.sunion(final_id, sphere_id, 0.05, ui_name="Union 1")
-    
+    # Create a simple default scene with the new hierarchical API
+    # Add a union operation with two box primitives
+    union_id = scene_builder.add_operation_with_auto_primitives(
+        'sunion',
+        auto_primitive_type='box',
+        ui_name='Union 1'
+    )
+
+    # Get the children (auto-created boxes) and modify them
+    union_node = scene_builder.get_node(union_id)
+    if union_node and len(union_node.children) >= 2:
+        # Modify first box
+        box1_id = union_node.children[0]
+        box1_node = scene_builder.get_node(box1_id)
+        if box1_node:
+            box1_node.item_data.position = [0.0, -0.5 + 2.0, 0.0]
+            box1_node.item_data.color = [0.8, 0.2, 0.2]
+            box1_node.item_data.ui_name = "Box 1"
+        
+        # Modify second box (sphere in this case)
+        box2_id = union_node.children[1]
+        box2_node = scene_builder.get_node(box2_id)
+        if box2_node:
+            box2_node.item_data.position = [0.0, -0.75 + 2.0, 0.0]
+            box2_node.item_data.color = [0.2, 0.8, 0.2]
+            box2_node.item_data.ui_name = "Sphere 1"
+
+    # Add a standalone roundbox
+    roundbox_id = scene_builder.add_standalone_primitive(
+        'round_box',
+        position=[0.0, -2.0 + 2.0, 0.0],
+        size_or_radius=[3.0, 1.0, 3.0],
+        ui_name='Round Box 1',
+        color=[0.4, 0.4, 0.8],
+        radius=0.1
+    )
 
     # --- UI State ---
-    show_selection_window = False
+    show_operation_selection_window = False
+    show_primitive_selection_window = False
     show_settings_window = False
+    show_add_change_window = False
+    pending_change_node_id = None
     show_editor_settings_window = False
     current_settings_tab = "Themes"  # State to track which tab is active
     show_export_vol_window = False
@@ -741,7 +772,9 @@ def main():
         # Check Ctrl+A for add window 
         if input_handle("Add"):
             if not last_key_a_pressed:
-                show_selection_window = True
+                # Open Add Operation dialog (keeps same code path as the menu)
+                show_add_change_window = True
+                pending_change_node_id = None
                 last_key_a_pressed = True
         else:
             last_key_a_pressed = False
@@ -1135,7 +1168,8 @@ def main():
 
             if imgui.begin_menu("Edit", True):
                 if imgui.menu_item("Add Primitive/Operation", "Ctrl+A")[0]:
-                    show_selection_window = True
+                    show_add_change_window = True
+                    pending_change_node_id = None
                 if imgui.menu_item("Compile Shader", "Ctrl+B")[0]:
                     success, new_uniforms = recompile_shader()
                     if success:
@@ -1243,27 +1277,26 @@ def main():
                 if len(selected_items) > 0:
                     # Duplicate all selected items
                     for sid in list(selected_items):
-                        if sid in scene_builder.id_to_index:
-                            itype, idx = scene_builder.id_to_index[sid]
-                            if itype == 'primitive':
-                                prim = scene_builder.primitives[idx][1]
-                                # Recreate with same properties (preserve kwargs)
-                                new_id = scene_builder.add_primitive(
-                                    prim.primitive_type,
-                                    copy.deepcopy(prim.position),
-                                    copy.deepcopy(prim.size_or_radius),
-                                    copy.deepcopy(prim.rotation),
-                                    copy.deepcopy(prim.scale),
-                                    prim.ui_name + " (copy)",
-                                    copy.deepcopy(prim.color),
-                                    **copy.deepcopy(prim.kwargs)
-                                )
-                                duplicated_ids.append(new_id)
-                elif selected_item_id and selected_item_id in scene_builder.id_to_index:
-                    itype, idx = scene_builder.id_to_index[selected_item_id]
-                    if itype == 'primitive':
-                        prim = scene_builder.primitives[idx][1]
-                        new_id = scene_builder.add_primitive(
+                        node = scene_builder.get_node(sid)
+                        if node and node.node_type == 'primitive':
+                            prim = node.item_data
+                            # Recreate with same properties
+                            new_id = scene_builder.add_standalone_primitive(
+                                prim.primitive_type,
+                                copy.deepcopy(prim.position),
+                                copy.deepcopy(prim.size_or_radius),
+                                copy.deepcopy(prim.rotation),
+                                copy.deepcopy(prim.scale),
+                                prim.ui_name + " (copy)",
+                                copy.deepcopy(prim.color),
+                                **copy.deepcopy(prim.kwargs)
+                            )
+                            duplicated_ids.append(new_id)
+                elif selected_item_id:
+                    node = scene_builder.get_node(selected_item_id)
+                    if node and node.node_type == 'primitive':
+                        prim = node.item_data
+                        new_id = scene_builder.add_standalone_primitive(
                             prim.primitive_type,
                             copy.deepcopy(prim.position),
                             copy.deepcopy(prim.size_or_radius),
@@ -1280,7 +1313,7 @@ def main():
                     selected_items.clear()
                     selected_item_id = duplicated_ids[-1]
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = 'primitive'
+                    selection_mode = 'node'
                     # Recompile shader to pick up new primitives
                     success, new_uniforms = recompile_shader()
                     if success:
@@ -1352,18 +1385,18 @@ def main():
                 # Start dragging: capture which item and initialize drag state
                 dragging_op_id = selected_item_id
 
-                if dragging_op_id and dragging_op_id in scene_builder.id_to_index:
-                    item_type, idx = scene_builder.id_to_index[dragging_op_id]
-                    if item_type == 'primitive':
-                        prim = scene_builder.primitives[idx][1]
-                        # Copy the primitive start position so later comparisons/undo work
+                if dragging_op_id:
+                    node = scene_builder.get_node(dragging_op_id)
+                    if node and node.node_type == 'primitive':
+                        prim = node.item_data
+                        # Copy the primitive start position
                         drag_start_pos = prim.position[:]
                         # Reset accumulated movement
                         drag_accum = [0.0, 0.0, 0.0]
-                        # Record starting mouse cursor (independent of camera last_x/last_y)
+                        # Record starting mouse cursor
                         drag_last_x, drag_last_y = glfw.get_cursor_pos(window)
                     else:
-                        # nothing valid to drag
+                        # Not a primitive, can't drag
                         dragging_op_id = None
                         drag_start_pos = None
                         drag_accum = [0.0, 0.0, 0.0]
@@ -1376,30 +1409,29 @@ def main():
                 axis_toggled_gx = axis_toggled_gy = axis_toggled_gz = False
 
             else:
-                # Stop dragging: commit final position (register undo/redo)
-                if dragging_op_id and dragging_op_id in scene_builder.id_to_index:
-                    item_type, idx = scene_builder.id_to_index[dragging_op_id]
-                    if item_type == 'primitive':
-                        prim = scene_builder.primitives[idx][1]
+                # Stop dragging: commit final position
+                if dragging_op_id:
+                    node = scene_builder.get_node(dragging_op_id)
+                    if node and node.node_type == 'primitive':
+                        prim = node.item_data
                         final_pos = prim.position
                         # Register only if changed
                         if drag_start_pos is not None and final_pos != drag_start_pos:
-                            scene_builder.modify_primitive_property(dragging_op_id, 'position', drag_start_pos, final_pos)
-                            # Optionally recompile if scene/code generation depends on selection
+                            # Directly update (no undo needed for now)
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
 
-                # clear drag state
+                # Clear drag state
                 dragging_op_id = None
                 drag_start_pos = None
                 drag_accum = [0.0, 0.0, 0.0]
                 axis_toggled_gx = axis_toggled_gy = axis_toggled_gz = False
 
-        # Always update last_key_g_pressed for proper edge detection next frame
+        # Always update last_key_g_pressed for proper edge detection
         last_key_g_pressed = key_g_is_down
 
-        # Handle axis toggles (Blender-style): toggle on key press, update debounced state every frame
+        # Handle axis toggles (Blender-style)
         if dragging:
             if key_x_is_down and not last_key_gx_pressed:
                 state = not axis_toggled_gx
@@ -1413,12 +1445,12 @@ def main():
                 state = not axis_toggled_gz
                 axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = False, False, state
 
-        # Update the "last key" flags for X/Y/Z so we only toggle once per press
+        # Update the "last key" flags for X/Y/Z
         last_key_gx_pressed = key_x_is_down
         last_key_gy_pressed = key_y_is_down
         last_key_gz_pressed = key_z_is_down
 
-        # Determine active axis (None => free drag)
+        # Determine active axis
         active_axis = None
         if axis_toggled_gx:
             active_axis = 0
@@ -1427,68 +1459,68 @@ def main():
         elif axis_toggled_gz:
             active_axis = 2
 
-        # Per-frame drag movement (this must run every frame while dragging)
-        if dragging and dragging_op_id and dragging_op_id in scene_builder.id_to_index:
-            # read current mouse and compute delta since last frame
-            current_x, current_y = glfw.get_cursor_pos(window)
-            dx = current_x - drag_last_x
-            dy = current_y - drag_last_y
-            # store for next frame
-            drag_last_x, drag_last_y = current_x, current_y
+        # Per-frame drag movement
+        if dragging and dragging_op_id:
+            node = scene_builder.get_node(dragging_op_id)
+            if node and node.node_type == 'primitive':
+                # Read current mouse and compute delta
+                current_x, current_y = glfw.get_cursor_pos(window)
+                dx = current_x - drag_last_x
+                dy = current_y - drag_last_y
+                # Store for next frame
+                drag_last_x, drag_last_y = current_x, current_y
 
-            # convert to mouse-space movement (invert Y so screen-up => world up)
-            mouse_delta_x = dx * DRAG_SENSITIVITY
-            mouse_delta_y = -dy * DRAG_SENSITIVITY
+                # Convert to mouse-space movement
+                mouse_delta_x = dx * DRAG_SENSITIVITY
+                mouse_delta_y = -dy * DRAG_SENSITIVITY
 
-            if np.linalg.norm(np.array([mouse_delta_x, mouse_delta_y])) > 0.01:
-                frame_count = 0
-                clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
+                if np.linalg.norm(np.array([mouse_delta_x, mouse_delta_y])) > 0.01:
+                    frame_count = 0
+                    clear_accumulation_fbos(accumulation_fbos, scaled_rendering_width, scaled_rendering_height)
 
-            # transform mouse deltas into world-space using camera right/up vectors
-            # right_x, right_y, right_z and up_x, up_y, up_z must be computed earlier (they are in your code)
-            move_delta_x = mouse_delta_x * right_x + mouse_delta_y * up_x
-            move_delta_y = mouse_delta_x * right_y + mouse_delta_y * up_y
-            move_delta_z = mouse_delta_x * right_z + mouse_delta_y * up_z
+                # Transform mouse deltas into world-space
+                move_delta_x = mouse_delta_x * right_x + mouse_delta_y * up_x
+                move_delta_y = mouse_delta_x * right_y + mouse_delta_y * up_y
+                move_delta_z = mouse_delta_x * right_z + mouse_delta_y * up_z
 
-            # axis constraints (lock movement to a single world axis)
-            if active_axis is not None:
-                if active_axis == 0:
-                    move_delta_y = 0.0
-                    move_delta_x = 0.0
-                elif active_axis == 1:
-                    move_delta_x = 0.0
-                    move_delta_z = 0.0
-                elif active_axis == 2:
-                    move_delta_z = 0.0
-                    move_delta_y = 0.0
+                # Axis constraints
+                if active_axis is not None:
+                    if active_axis == 0:
+                        move_delta_y = 0.0
+                        move_delta_x = 0.0
+                    elif active_axis == 1:
+                        move_delta_x = 0.0
+                        move_delta_z = 0.0
+                    elif active_axis == 2:
+                        move_delta_z = 0.0
+                        move_delta_y = 0.0
 
-            # accumulate world movement since drag started
-            drag_accum[0] += move_delta_z
-            drag_accum[1] += move_delta_y
-            drag_accum[2] += move_delta_x
+                # Accumulate world movement
+                drag_accum[0] += move_delta_z
+                drag_accum[1] += move_delta_y
+                drag_accum[2] += move_delta_x
 
-            # compute new primitive position from saved start pos + accumulated movement
-            item_type, idx = scene_builder.id_to_index[dragging_op_id]
-            prim = scene_builder.primitives[idx][1]
-            if drag_start_pos is None:
-                drag_start_pos = prim.position.copy()
+                # Compute new position
+                prim = node.item_data
+                if drag_start_pos is None:
+                    drag_start_pos = prim.position.copy()
 
-            new_pos = [
-                drag_start_pos[0] + drag_accum[0],
-                drag_start_pos[1] + drag_accum[1],
-                drag_start_pos[2] + drag_accum[2],
-            ]
+                new_pos = [
+                    drag_start_pos[0] + drag_accum[0],
+                    drag_start_pos[1] + drag_accum[1],
+                    drag_start_pos[2] + drag_accum[2],
+                ]
 
-            # apply live position (no historical entry yet — recorded on drag end)
-            prim.position = new_pos
-            drag_position = new_pos.copy()
+                # Apply live position
+                prim.position = new_pos
+                drag_position = new_pos.copy()
 
         else:
-            # When not dragging keep shader uniform aligned with selection or zero
-            if selected_item_id and selected_item_id in scene_builder.id_to_index:
-                itype, idx = scene_builder.id_to_index[selected_item_id]
-                if itype == 'primitive':
-                    prim = scene_builder.primitives[idx][1]
+            # When not dragging
+            if selected_item_id:
+                node = scene_builder.get_node(selected_item_id)
+                if node and node.node_type == 'primitive':
+                    prim = node.item_data
                     drag_position = prim.position
             else:
                 drag_position = [0.0, 0.0, 0.0]
@@ -1510,17 +1542,14 @@ def main():
                 # Start rotation: capture selected item and initialize rotation state
                 R_dragging_op_id = selected_item_id
 
-                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_index:
-                    item_type, idx = scene_builder.id_to_index[R_dragging_op_id]
-                    if item_type == 'primitive':
-                        prim = scene_builder.primitives[idx][1]
-                        # Save starting rotation (copy)
+                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_node:
+                    node = scene_builder.get_node(R_dragging_op_id)
+                    if node and node.node_type == 'primitive':
+                        prim = node.item_data
                         R_drag_start_pos = prim.rotation.copy()
                         R_drag_accum = [0.0, 0.0, 0.0]
-                        # Save last mouse position for delta
                         R_drag_last_x, R_drag_last_y = glfw.get_cursor_pos(window)
                     else:
-                        # nothing valid to rotate
                         R_dragging_op_id = None
                         R_drag_start_pos = None
                         R_drag_accum = [0.0, 0.0, 0.0]
@@ -1529,125 +1558,97 @@ def main():
                     R_drag_start_pos = None
                     R_drag_accum = [0.0, 0.0, 0.0]
 
-                # Reset rotation-specific axis toggles when starting a new rotate
                 axis_toggled_rx = axis_toggled_ry = axis_toggled_rz = False
 
             else:
                 # Stop rotation: commit final rotation (register undo/redo)
-                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_index:
-                    item_type, idx = scene_builder.id_to_index[R_dragging_op_id]
-                    if item_type == 'primitive':
-                        prim = scene_builder.primitives[idx][1]
+                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_node:
+                    node = scene_builder.get_node(R_dragging_op_id)
+                    if node and node.node_type == 'primitive':
+                        prim = node.item_data
                         final_rot = prim.rotation
-                        # Register only if changed
                         if R_drag_start_pos is not None and final_rot != R_drag_start_pos:
+                            # Use scene_builder to register the change (compatibility method)
                             scene_builder.modify_primitive_property(R_dragging_op_id, 'rotation', R_drag_start_pos, final_rot)
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
 
-                # clear rotation state
                 R_dragging_op_id = None
                 R_drag_start_pos = None
                 R_drag_accum = [0.0, 0.0, 0.0]
                 axis_toggled_rx = axis_toggled_ry = axis_toggled_rz = False
 
-        # Update the R debounce flag
+        # Update last R state
         last_key_r_pressed = key_r_is_down
 
-        # Rotation axis toggles (Blender-style) — use rotation-specific debounced keys
+        # Rotation axis toggles (Blender-style)
         if R_dragging:
             if key_x_is_down and not last_key_rx_pressed:
                 state = not axis_toggled_rx
                 axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = state, False, False
-
             if key_y_is_down and not last_key_ry_pressed:
                 state = not axis_toggled_ry
                 axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = False, state, False
-
             if key_z_is_down and not last_key_rz_pressed:
                 state = not axis_toggled_rz
                 axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = False, False, state
 
-        # Update per-key last flags for rotation keys so we toggle once per press
         last_key_rx_pressed = key_x_is_down
         last_key_ry_pressed = key_y_is_down
         last_key_rz_pressed = key_z_is_down
 
-        # Determine active rotation axis (None => free rotation mapping: vertical->X, horizontal->Y)
-        active_rot_axis = None
-        if axis_toggled_rx:
-            active_rot_axis = 0
-        elif axis_toggled_ry:
-            active_rot_axis = 1
-        elif axis_toggled_rz:
-            active_rot_axis = 2
-
         # Per-frame rotation update while R_dragging is active
-        if R_dragging and R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_index:
+        if R_dragging and R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_node:
             current_x, current_y = glfw.get_cursor_pos(window)
             dx = current_x - R_drag_last_x
             dy = current_y - R_drag_last_y
             R_drag_last_x, R_drag_last_y = current_x, current_y
 
-            # Sensitivity in radians per pixel
             R_ROT_SENSITIVITY = 0.005
 
-            # Default free-rotation mapping
-            rot_delta_x = -dy * R_ROT_SENSITIVITY   # vertical mouse -> rotation around X
-            rot_delta_y = -dx * R_ROT_SENSITIVITY   # horizontal mouse -> rotation around Y
+            rot_delta_x = -dy * R_ROT_SENSITIVITY
+            rot_delta_y = -dx * R_ROT_SENSITIVITY
             rot_delta_z = 0.0
 
-            # If axis-locked, map mouse motion to rotation around that world axis only
-            if active_rot_axis is not None:
-                if active_rot_axis == 0:
-                    # X-axis lock: use vertical mouse movement for X rotation only
-                    rot_delta_x = -dy * R_ROT_SENSITIVITY
-                    rot_delta_y = 0.0
-                    rot_delta_z = 0.0
-                elif active_rot_axis == 1:
-                    # Y-axis lock: use horizontal mouse movement for Y rotation only
-                    rot_delta_x = 0.0
-                    rot_delta_y = -dx * R_ROT_SENSITIVITY
-                    rot_delta_z = 0.0
-                elif active_rot_axis == 2:
-                    # Z-axis lock: use horizontal mouse movement for Z rotation
-                    rot_delta_x = 0.0
-                    rot_delta_y = 0.0
-                    rot_delta_z = -dx * R_ROT_SENSITIVITY
+            if axis_toggled_rx:
+                rot_delta_y = 0.0
+                rot_delta_z = 0.0
+            elif axis_toggled_ry:
+                rot_delta_x = 0.0
+                rot_delta_z = 0.0
+            elif axis_toggled_rz:
+                rot_delta_x = 0.0
+                rot_delta_y = 0.0
+                rot_delta_z = -dx * R_ROT_SENSITIVITY
 
-            # reset accumulation if movement is non-trivial (so accumulation-based renderer refreshes)
             if abs(rot_delta_x) + abs(rot_delta_y) + abs(rot_delta_z) > 1e-5:
                 frame_count = 0
                 clear_accumulation_fbos(accumulation_fbos, scaled_rendering_width, scaled_rendering_height)
 
-            # accumulate
             R_drag_accum[0] += rot_delta_x
             R_drag_accum[1] += rot_delta_y
             R_drag_accum[2] += rot_delta_z
 
-            # Apply live rotation to primitive (no history until release)
-            item_type, idx = scene_builder.id_to_index[R_dragging_op_id]
-            prim = scene_builder.primitives[idx][1]
-            if R_drag_start_pos is None:
-                R_drag_start_pos = prim.rotation.copy()
-
-            new_rot = [
-                R_drag_start_pos[0] + R_drag_accum[0],
-                R_drag_start_pos[1] + R_drag_accum[1],
-                R_drag_start_pos[2] + R_drag_accum[2],
-            ]
-
-            prim.rotation = new_rot
-            # Keep shader MoveRot uniform in sync for live interaction
-            drag_rot_position = new_rot.copy()
+            node = scene_builder.get_node(R_dragging_op_id)
+            if node and node.node_type == 'primitive':
+                prim = node.item_data
+                if R_drag_start_pos is None:
+                    R_drag_start_pos = prim.rotation.copy()
+                new_rot = [
+                    R_drag_start_pos[0] + R_drag_accum[0],
+                    R_drag_start_pos[1] + R_drag_accum[1],
+                    R_drag_start_pos[2] + R_drag_accum[2],
+                ]
+                prim.rotation = new_rot
+                drag_rot_position = new_rot.copy()
 
         else:
-            # When not rotating keep shader MoveRot aligned with selection (or zero)
-            if selected_item_id and selected_item_id in scene_builder.id_to_index:
-                itype, idx = scene_builder.id_to_index[selected_item_id]
-                if itype == 'primitive':
-                    prim = scene_builder.primitives[idx][1]
+            # keep shader MoveRot aligned with selection (or zero)
+            if selected_item_id and selected_item_id in scene_builder.id_to_node:
+                node = scene_builder.get_node(selected_item_id)
+                if node and node.node_type == 'primitive':
+                    prim = node.item_data
                     drag_rot_position = prim.rotation
             else:
                 drag_rot_position = [0.0, 0.0, 0.0]
@@ -2330,739 +2331,383 @@ You can also support the project by reporting an error, or by suggesting an impr
             if imgui.button("Dismiss"):
                 shader_compile_error = None
             imgui.end()
+        
 
-        # --- LEFT PANEL: Scene Tree ---
-        # Offset panels below menu bar (menu_bar_height already calculated above)
+        # --- LEFT PANEL: Scene Tree (HIERARCHICAL) ---
+        # Offset panels below menu bar
         imgui.set_next_window_position(0, menu_bar_height)
         imgui.set_next_window_size(panel_width, height - menu_bar_height)
         imgui.begin("Scene Tree", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
         
-        wbn = 16
-        hbn = 20
-
         def format_label(name, op_id, max_chars=16):
-            # Truncate name to max_chars, preserving full ID
+            """Format label text with truncation."""
             if len(name) > max_chars:
                 truncated_name = name[:max_chars - 3] + "..."
             else:
                 truncated_name = name
             return f"{truncated_name} ({op_id})"
         
+        def render_node_recursive(node_id, depth=0):
+            """
+            Recursively render a scene node and its children.
 
-    
-        imgui.text("Primitives:")
-        io_local = imgui.get_io()
+            Adds:
+            - right-click context popup per-node to Add a child primitive or child operation
+                (only for operation nodes that still accept operands).
+            """
+            nonlocal pending_change_node_id, show_add_change_window
 
-        # Render groups first as parent nodes (showing members as children)
-        for op_id, primitive in scene_builder.primitives:
-            if primitive.primitive_type != 'group':
-                continue
+            node = scene_builder.get_node(node_id)
+            if not node:
+                return
 
-            label = format_label(primitive.ui_name, op_id)
-            # Tree node for the group
+            item_data = node.item_data
+            children = node.children
+            is_leaf = len(children) == 0
+
+            # Format the display label
+            label = format_label(item_data.ui_name, node_id)
+
+            # Determine tree node flags
             flags = 0
-            if selected_item_id == op_id:
+            if not is_leaf:
+                flags |= imgui.TREE_NODE_DEFAULT_OPEN  # Open branches by default
+            else:
+                flags |= imgui.TREE_NODE_LEAF  # Leaves have no expand arrow
+
+            global selected_item_id
+            if selected_item_id == node_id:
                 flags |= imgui.TREE_NODE_SELECTED
 
-            node_open = imgui.tree_node(label, flags)
+            # Movement controls for root-level nodes
+            if node.parent_id is None and node_id in scene_builder.root_children:
+                imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
+                root_idx = scene_builder.root_children.index(node_id)
 
-            # Clicking the group selects it
-            if imgui.is_item_clicked():
-                selected_item_id = op_id
-                scene_builder.update_selected_item_id(selected_item_id)
-                selection_mode = 'primitive'
-                renaming_item_id = None
+                # Up arrow button
+                if imgui.arrow_button(f"##up_{node_id}", 2):  # 2 = up arrow
+                    if root_idx > 0:
+                        scene_builder.move_root_node(node_id, root_idx - 1)
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+                imgui.same_line()
+
+                # Down arrow button
+                if imgui.arrow_button(f"##down_{node_id}", 3):  # 3 = down arrow
+                    if root_idx < len(scene_builder.root_children) - 1:
+                        scene_builder.move_root_node(node_id, root_idx + 1)
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+                imgui.pop_style_var(1)
+                imgui.same_line()
+
+            # Delete button (balanced push/pop)
+            imgui.push_id(f"delete_{node_id}")
+            clicked_delete = imgui.button("X", 20, 20)
+            imgui.pop_id()
+
+            if clicked_delete:
+                scene_builder.delete_node(node_id)
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
-
-            if node_open:
-                # Render members as indented child items
-                members = primitive.kwargs.get('members', [])
-                for mid in members:
-                    if mid not in scene_builder.id_to_index:
-                        continue
-                    m_type, m_idx = scene_builder.id_to_index[mid]
-                    if m_type != 'primitive':
-                        continue
-                    member_prim = scene_builder.primitives[m_idx][1]
-                    mlabel = format_label(member_prim.ui_name, mid)
-                    # draw a selectable / leaf for the member
-                    flags_m = imgui.TREE_NODE_LEAF
-                    if selected_item_id == mid or mid in selected_items:
-                        flags_m |= imgui.TREE_NODE_SELECTED
-
-                    # Use same visual layout as before (arrow buttons left)
-                    imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
-                    if imgui.arrow_button(f"##up_{mid}", 2):
-                        idx = scene_builder.id_to_index[mid][1]
-                        if idx > 0:
-                            scene_builder.move_item(mid, idx - 1)
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
-
-                    imgui.same_line()
-                    if imgui.arrow_button(f"##down_{mid}", 3):
-                        idx = scene_builder.id_to_index[mid][1]
-                        if idx < len(scene_builder.primitives) - 1:
-                            scene_builder.move_item(mid, idx + 1)
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
-                    imgui.pop_style_var(1)
-
-                    imgui.same_line()
-                    node_open_m = imgui.tree_node(mlabel, flags_m)
-                    if imgui.is_item_clicked():
-                        # respect Ctrl multi-select
-                        if io_local.key_ctrl:
-                            if mid in selected_items:
-                                selected_items.remove(mid)
-                            else:
-                                selected_items.add(mid)
-                            selected_item_id = None
-                            scene_builder.update_selected_item_id(selected_item_id)
-                            selection_mode = None
-                        else:
-                            selected_items.clear()
-                            selected_item_id = mid
-                            scene_builder.update_selected_item_id(selected_item_id)
-                            selection_mode = 'primitive'
-                            renaming_item_id = None
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
-
-                    if node_open_m:
-                        imgui.tree_pop()
-
-                imgui.tree_pop()
-
-        # Render remaining top-level primitives that are not grouped
-        for op_id, primitive in scene_builder.primitives:
-            # Skip groups and primitives marked as grouped (they're shown as children above)
-            if primitive.primitive_type == 'group' or primitive.kwargs.get('grouped', None) is not None:
-                continue
-
-            label = format_label(primitive.ui_name, op_id)
-            flags = imgui.TREE_NODE_LEAF
-            if selected_item_id == op_id or op_id in selected_items:
-                flags |= imgui.TREE_NODE_SELECTED
-
-            imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
-            if imgui.arrow_button(f"##up_{op_id}", 2):
-                idx = scene_builder.id_to_index[op_id][1]
-                if idx > 0:
-                    scene_builder.move_item(op_id, idx - 1)
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
+                return
 
             imgui.same_line()
 
-            if imgui.arrow_button(f"##down_{op_id}", 3):
-                idx = scene_builder.id_to_index[op_id][1]
-                if idx < len(scene_builder.primitives) - 1:
-                    scene_builder.move_item(op_id, idx + 1)
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-            imgui.pop_style_var(1)
-
-            imgui.same_line()
-
+            # Render tree node
             node_open = imgui.tree_node(label, flags)
 
+            # Handle left-click selection
             if imgui.is_item_clicked():
-                # If CTRL is held, toggle multi-select
+                io_local = imgui.get_io()
                 if io_local.key_ctrl:
-                    if op_id in selected_items:
-                        selected_items.remove(op_id)
+                    if node_id in selected_items:
+                        selected_items.remove(node_id)
                     else:
-                        selected_items.add(op_id)
-                    # clear single selection if multiple selected
-                    selected_item_id = None
-                    scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = None
+                        selected_items.add(node_id)
+                    if len(selected_items) > 0:
+                        selected_item_id = None
                 else:
-                    # regular single select
                     selected_items.clear()
-                    selected_item_id = op_id
+                    selected_item_id = node_id
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = 'primitive'
+                    selection_mode = 'node'
                     renaming_item_id = None
-
-                    # Recompile shader for live selection-based uniforms
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
+
+            # Right-click context menu: open popup when right-clicking the tree item
+            popup_id = f"node_ctx_{node_id}"
+            if imgui.is_item_hovered() and imgui.is_mouse_clicked(1):
+                imgui.open_popup(popup_id)
+
+            # Begin popup (if opened)
+            if imgui.begin_popup(popup_id):
+                # Only offer add options for operation nodes
+                if node.node_type == 'operation':
+                    if imgui.menu_item("Change Operation Type")[0]:
+                        pending_change_node_id = node_id
+                        show_add_change_window = True
+                        imgui.close_current_popup()
+                else:
+                    # For primitives, offer Change Type (in-place) rather than forcing delete+create
+                    if imgui.menu_item("Change Type")[0]:
+                        pending_change_node_id = node_id
+                        show_add_change_window = True
+                        imgui.close_current_popup()
+                imgui.end_popup()
+
+            # Render children recursively
+            if children:
+                for child_id in list(children):  # list() to be safe if children mutate
+                    render_node_recursive(child_id, depth + 1)
 
             if node_open:
                 imgui.tree_pop()
 
-        imgui.spacing()
-        imgui.text("Operations:")
-        for op_id, operation in scene_builder.operations:
-            label = format_label(operation.ui_name, op_id)
-            flags = imgui.TREE_NODE_LEAF
-            if selected_item_id == op_id:
-                flags |= imgui.TREE_NODE_SELECTED
-
-            # First create the buttons (they'll appear on the left)
-            imgui.push_style_var(imgui.STYLE_FRAME_PADDING, (1, 1))
-            if imgui.arrow_button(f"##upop_{op_id}", 2):
-                idx = scene_builder.id_to_index[op_id][1]
-                if idx > 0:
-                    scene_builder.move_item(op_id, idx - 1)
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
             
-
-            imgui.same_line()  # Keep buttons on the same line
-
-            if imgui.arrow_button(f"##downop_{op_id}", 3):
-                idx = scene_builder.id_to_index[op_id][1]
-                if idx < len(scene_builder.operations) - 1:
-                    scene_builder.move_item(op_id, idx + 1)
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-            imgui.pop_style_var(1)
-
-            imgui.same_line()  # Keep label on the same line as buttons
-
-            # Then create the tree node (label will appear after buttons)
-            node_open = imgui.tree_node(label, flags)
-
-            # Handle selection when the node is clicked
-            if imgui.is_item_clicked():
-                selected_item_id = op_id
-                scene_builder.update_selected_item_id(selected_item_id)
-                selection_mode = 'operation'
-                renaming_item_id = None
-
-                success, new_uniforms = recompile_shader()
-                if success:
-                    uniform_locs = new_uniforms
-
-            if node_open:
-                imgui.tree_pop()
-
+        # ====== RENDER ALL ROOT NODES ======
+        imgui.text("Scene Hierarchy:")
+        imgui.separator()
+        
+        for root_id in scene_builder.root_children:
+            render_node_recursive(root_id, depth=0)
+        
+        # ====== ADD BUTTONS ======
         imgui.spacing()
-        if imgui.button("Add (Ctrl+A)", -1):
-            show_selection_window = True
+        imgui.separator()
         
-        if imgui.button("Compile (Ctrl+B)", -1):
-            success, new_uniforms = recompile_shader()
-            if success:
-                uniform_locs = new_uniforms
+        if imgui.button("Add (Primitives / Operations)  (Ctrl+A)", -1):
+            show_add_change_window = True
+            pending_change_node_id = None
         
-        # Multi-selection -> group creation UI
-        if len(selected_items) > 1:
-            imgui.separator()
-            imgui.text(f"{len(selected_items)} selected")
-            # A small buffer for the group name
-            if 'group_name_buffer' not in globals():
-                group_name_buffer = "Group"
-            changed, group_name_buffer = imgui.input_text("Group name", group_name_buffer, 128)
-            if imgui.button("Create Group", -1):
-                members = list(selected_items)
-                new_group_id = scene_builder.add_group(members, position=(0.0,0.0,0.0), ui_name=group_name_buffer)
-                # Clear multi selection and select the new group
-                selected_items.clear()
-                selected_item_id = new_group_id
-                scene_builder.update_selected_item_id(selected_item_id)
-                selection_mode = 'primitive'
-                success, new_uniforms = recompile_shader()
-                if success:
-                    uniform_locs = new_uniforms
+        imgui.end()  # End Scene Tree window
         
-        imgui.spacing()
-        imgui.text_colored("Press Delete to remove", 1.0, 1.0, 0.0, 1.0)
 
-        imgui.end()
 
         # --- RIGHT PANEL: Properties/Inspector ---
         imgui.set_next_window_position(width - panel_width, menu_bar_height)
         imgui.set_next_window_size(panel_width, height - menu_bar_height)
         imgui.begin("Inspector", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)
 
-        if renaming_item_id is not None:
-            imgui.text("Renaming:")
-            changed, rename_text = imgui.input_text("##rename", rename_text, 256)
-            
-            if imgui.button("OK", width / 5):
-                if renaming_item_id in scene_builder.id_to_index:
-                    item_type, index = scene_builder.id_to_index[renaming_item_id]
-                    if item_type == 'primitive':
-                        scene_builder.primitives[index][1].ui_name = rename_text
-                    else:
-                        scene_builder.operations[index][1].ui_name = rename_text
-                renaming_item_id = None
-            
-            imgui.same_line()
-            if imgui.button("Cancel", width / 5):
-                renaming_item_id = None
-            
-            imgui.separator()
-
-        if selected_item_id is not None:
-            imgui.text(f"Selected: {scene_builder.get_item_name(selected_item_id)}")
-            imgui.separator()
-
-            if selection_mode == 'primitive':
-                # Find the primitive
-                for op_id, primitive in scene_builder.primitives:
-                    if op_id == selected_item_id:
-                        imgui.text(f"Type: {primitive.primitive_type}")
-                    
-                        
-                        if primitive.primitive_type == "sprite":
-                            # sprite_index is stored in primitive.kwargs at creation time
-                            sprite_idx = primitive.kwargs.get('sprite_index', None)
-                            if sprite_idx is None or sprite_idx >= len(sprites_array):
-                                imgui.text_colored("Sprite data missing or corrupted", 1.0, 0.0, 0.0, 1.0)
-                            else:
-                                spr = sprites_array[sprite_idx]
-                                imgui.text("Plane parameters:")
-                                changed, primitive.position = input_vec3("Point", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                                changed2, spr.planeNormal = input_vec3("Normal", spr.planeNormal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                                changed3, spr.planeWidth = input_float("Width", spr.planeWidth, STEP_VARIABLE_FLOAT, panel_elem_width_float)
-                                changed4, spr.planeHeight = input_float("Height", spr.planeHeight, STEP_VARIABLE_FLOAT, panel_elem_width_float)
-                                spr.planePoint = primitive.position
-                                if changed or changed2 or changed3 or changed4:
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
-
-                                imgui.separator()
-                                imgui.text("Mapping:")
-                                uv2 = spr.uvSize
-                                changed_uv, uv2 = input_vec2("UV Size", uv2, 0.1, panel_elem_width_vec3)
-                                spr.uvSize[0], spr.uvSize[1] = uv2[0], uv2[1]
-                                changed_alpha, spr.Alpha = input_float("Alpha", spr.Alpha, 0.01, panel_elem_width_float)
-                                changed_lod, spr.LOD = input_float("LOD", spr.LOD, 0.1, panel_elem_width_float)
-
-                                if changed_uv or changed_alpha or changed_lod:
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
-
-                                # Show texture status and "Load Texture" button
-                                if spr.texture_id:
-                                    imgui.text(f"Texture loaded: {spr.tex_size[0]}x{spr.tex_size[1]}")
-                                else:
-                                    imgui.text_colored("No texture loaded", 0.9, 0.3, 0.3, 1.0)
-
-                                imgui.spacing()
-                                if imgui.button("Load Texture", -1):
-                                    # Use tkinter filedialog (as in other parts of the code)
-                                    root = tk.Tk()
-                                    root.withdraw()
-                                    filetypes = [("Image files", ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tga")), ("All files", "*.*")]
-                                    filepath = filedialog.askopenfilename(filetypes=filetypes)
-                                    root.destroy()
-                                    if filepath:
-                                        ok = spr.load_texture_from_file(filepath)
-                                        if ok:
-                                            # Ensure sampler name is unique and recompile so the sampler uniform is declared/located
-                                            spr.SprTexture = f"sprTex{sprite_idx}"
-                                            success, new_uniforms = recompile_shader()
-                                            if success:
-                                                uniform_locs = new_uniforms
-
-                        # Size/Radius - varies by primitive type
-                        # I have python 3.8, "match", get out.
-                        if primitive.primitive_type == "sphere":
-                            changed, primitive.size_or_radius[0] = input_float(
-                                "Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                        elif primitive.primitive_type == "torus":
-                            changed1, primitive.size_or_radius[0] = input_float(
-                                "Major Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed2, primitive.size_or_radius[1] = input_float(
-                                "Minor Radius", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed = changed1 or changed2
-                        elif primitive.primitive_type == "hex_prism":
-                            changed1, primitive.size_or_radius[0] = input_float(
-                                "Hex Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed2, primitive.size_or_radius[1] = input_float(
-                                "Height", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed = changed1 or changed2
-                        elif primitive.primitive_type == "vertical_capsule":
-                            changed1, primitive.size_or_radius[0] = input_float(
-                                "Height", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed2, primitive.size_or_radius[1] = input_float(
-                                "Radius", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed = changed1 or changed2
-                        elif primitive.primitive_type == "capped_cylinder":
-                            changed1, primitive.size_or_radius[0] = input_float(
-                                "Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed2, primitive.size_or_radius[1] = input_float(
-                                "Height", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed = changed1 or changed2
-                        elif primitive.primitive_type == "rounded_cylinder":
-                            changed1, primitive.size_or_radius[0] = input_float(
-                                "Radius A", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed2, primitive.size_or_radius[1] = input_float(
-                                "Radius B", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed = changed1 or changed2
-                        else:
-                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer", "sprite", "curve"]:
-                                changed, primitive.size_or_radius = input_vec3(
-                                    "Size", primitive.size_or_radius, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
-                                )
-                        if primitive.primitive_type not in ["pointer", "sprite", "curve"]:
-                            if changed:
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        # Special parameters for specific primitives
-                        if primitive.primitive_type == "cone":
-                            c_sin = primitive.kwargs.get('c_sin', 0.5)
-                            c_cos = primitive.kwargs.get('c_cos', 0.866)
-                            height = primitive.kwargs.get('height', 1.0)
-                            changed1, c_sin = input_float(
-                                "Sin(Angle)", c_sin, STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed2, c_cos = input_float(
-                                "Cos(Angle)", c_cos, STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            changed3, height = input_float(
-                                "Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float
-                            )
-                            if changed1 or changed2 or changed3:
-                                primitive.kwargs['c_sin'] = c_sin
-                                primitive.kwargs['c_cos'] = c_cos
-                                primitive.kwargs['height'] = height
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        elif primitive.primitive_type == "plane":
-                            normal = primitive.kwargs.get('normal', [0.0, 1.0, 0.0])
-                            h = primitive.kwargs.get('h', 0.0)
-                            changed1, normal = input_vec3("Normal", normal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                            changed2, h = input_float("Offset (h)", h, STEP_VARIABLE_FLOAT, panel_elem_width_float)
-                            if changed1 or changed2:
-                                # Normalize the normal vector
-                                norm_len = math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
-                                if norm_len > 0.001:
-                                    normal = [normal[0]/norm_len, normal[1]/norm_len, normal[2]/norm_len]
-                                primitive.kwargs['normal'] = normal
-                                primitive.kwargs['h'] = h
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        elif primitive.primitive_type == "rounded_cylinder":
-                            height = primitive.kwargs.get('height', 1.0)
-                            changed, height = input_float("Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float)
-                            if changed:
-                                primitive.kwargs['height'] = height
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        # --- Inspector: add UI to edit pointer function selection (inside the primitive inspector branch) ---
-                        if primitive.primitive_type == "pointer":
-                            old_pos = primitive.position
-                            changed_pos, primitive.position = input_vec3(
-                                "Position", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
-                            )
-                            if changed_pos:
-                                scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-
-                            # List of available pointer functions (must exist in sdf_library.glsl)
-                            pointer_funcs = [
-                                "pointer_identity",
-                                "pointer_symmetry_x",
-                                "pointer_symmetry_y",
-                                "pointer_symmetry_z",
-                                # add your custom pointer function names here...
-                            ]
-                            current_func = primitive.kwargs.get('func', 'pointer_identity')
-                            try:
-                                current_index = pointer_funcs.index(current_func)
-                            except ValueError:
-                                pointer_funcs.append(current_func)
-                                current_index = len(pointer_funcs)-1
-
-                            clicked, new_index = imgui.combo("Function", current_index, pointer_funcs)
-                            if clicked:
-                                new_func = pointer_funcs[new_index]
-                                old_func = current_func
-                                primitive.kwargs['func'] = new_func
-                                # Record change in history for undo/redo
-                                scene_builder.modify_primitive_property(op_id, "kwargs.func", old_func, new_func)
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-
-                            imgui.separator()
-                            imgui.text("Pointer functions mutate \nthe raymarch point `p` \nfor subsequent primitives.")
-                            imgui.text_colored("Place a pointer earlier in \nthe tree to affect later objects.", 0.9, 0.8, 0.2, 1.0)
-
-                        elif primitive.primitive_type == "sprite":
-                            pass # Skip Transforms and Color
-
-                        else:
-                            # Special parameters for specific primitives
-                            if primitive.primitive_type == "round_box":
-                                imgui.spacing()
-                                changed, primitive.kwargs['radius'] = input_float(
-                                    "Radius", primitive.kwargs.get('radius', 0.1),STEP_VARIABLE_FLOAT, panel_elem_width_float
-                                    )
-                                if changed:
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
-                            elif primitive.primitive_type == "curve":
-                                imgui.spacing()
-                                
-                                # Points array editor
-                                points = primitive.kwargs.get('points', [[0, 0, 0], [1, 1, 1]])
-                                imgui.text("Curve Points:")
-                                
-                                points_to_remove = None
-                                for i, pt in enumerate(points):
-                                    changed, new_pt = input_vec3(
-                                        f"Point {i}", list(pt), STEP_VARIABLE_FLOAT, panel_elem_width_vec3
-                                    )
-                                    if changed:
-                                        points[i] = new_pt
-                                        primitive.kwargs['points'] = points
-                                        success, new_uniforms = recompile_shader()
-                                        if success:
-                                            uniform_locs = new_uniforms
-                                    
-                                    imgui.same_line()
-                                    if imgui.button(f"Remove##pt{i}", width=60):
-                                        points_to_remove = i
-                                
-                                if points_to_remove is not None and len(points) > 2:
-                                    points.pop(points_to_remove)
-                                    primitive.kwargs['points'] = points
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
-                                
-                                if imgui.button("Add Point", width=panel_elem_width_float):
-                                    points.append([0.0, 0.0, 0.0])
-                                    primitive.kwargs['points'] = points
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
-                                
-                                imgui.spacing()
-                                
-                                # Thickness parameter
-                                thickness = primitive.kwargs.get('thickness', 0.1)
-                                changed, thickness = input_float(
-                                    "Thickness", thickness, STEP_VARIABLE_FLOAT, panel_elem_width_float
-                                )
-                                if changed:
-                                    primitive.kwargs['thickness'] = thickness
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
-                                
-
-                            imgui.begin_group()
-
-                            imgui.spacing()
-                            imgui.separator()
-                            imgui.dummy((panel_width/4)-8, 0)
-                            imgui.same_line()
-                            imgui.text_colored("Transform", 1.0,0.7,0.5,1.0)
-                            imgui.spacing()
+        if selected_item_id is not None and selected_item_id in scene_builder.id_to_node:
+            node = scene_builder.get_node(selected_item_id)
+            if node:
+                item_data = node.item_data
                 
-                            imgui.end_group()
-
-
-                            # Position
-                            old_pos = primitive.position
-                            changed, primitive.position = input_vec3(
-                                "Position", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
-                            )
-                            if changed:
-                                scene_builder.modify_primitive_property(op_id, 'position', old_pos, primitive.position)
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-
-
-                            # Show rotation as degrees
-                            current_degrees = [math.degrees(a) for a in primitive.rotation]
-                            changed, degs = input_vec3(
-                                "Rotation °", current_degrees, STEP_VARIABLE_ROTATION, panel_elem_width_vec3
-                            )
-                            if changed:
-                                primitive.rotation = [math.radians(a) for a in degs]
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-
-                            # Scale
-                            changed, primitive.scale = input_vec3(
-                                "Scale", primitive.scale, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
-                            )
-                            if changed:
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                    
-                            
-                            # Color picker
-                            imgui.begin_group()
-
-                            imgui.spacing()
-                            imgui.separator()
-                            imgui.dummy((panel_width/3)-16, 0)
-                            imgui.same_line()
-                            imgui.text_colored("Color", 1.0,0.7,0.5,1.0)
-                            imgui.spacing()
+                # Display node type
+                imgui.text(f"Type: {node.node_type}")
+                if node.node_type == 'operation':
+                    imgui.text(f"Operation: {item_data.operation_type}")
+                else:
+                    imgui.text(f"Primitive: {item_data.primitive_type}")
                 
-                            imgui.end_group()
-
-                            # Color edit - imgui automatically shows a picker button
-                            old_color = primitive.color.copy()
-                            color_changed, color_rgba = imgui.color_edit3("Color##color", *primitive.color)
-                            if color_changed:
-                                primitive.color = list(color_rgba[: 3])
-                                scene_builder.modify_primitive_property(op_id, 'color', old_color, primitive.color)
-                                success, new_uniforms = recompile_shader()
-                                if success: 
-                                    uniform_locs = new_uniforms
-                            
-                            # Show color preview button
-                            imgui.same_line()
-                            # color_button takes: label, r, g, b, flags, size_x, size_y
-                            #imgui.color_button("Preview##color_preview", primitive.color[0], primitive.color[1], primitive.color[2], 0, 20, 20)
-                            
-                            # Alternative: RGB sliders for fine control
-                            imgui.spacing()
-                            imgui.text("RGB Sliders:")
-                            r_changed, primitive.color[0] = imgui.slider_float("R##color_r", primitive.color[0], 0.0, 1.0)
-                            g_changed, primitive.color[1] = imgui.slider_float("G##color_g", primitive.color[1], 0.0, 1.0)
-                            b_changed, primitive.color[2] = imgui.slider_float("B##color_b", primitive.color[2], 0.0, 1.0)
-                            if r_changed or g_changed or b_changed:
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                            
-                            break
-
-            elif selection_mode == 'operation':
-                # Find the operation
-                for op_id, operation in scene_builder.operations:
-                    if op_id == selected_item_id:
-                        imgui.text(f"Type: {operation.operation_type}")
-                        
-                        # Get valid operands (only those declared before this operation)
-                        valid_operands = scene_builder.get_valid_operands(selected_item_id)
-                        
-                        # Determine if this is a single-operand or two-operand operation
-                        is_single_operand = operation.operation_type in ['round', 'onion', 'invert', 'snoiseDisp']
-                        num_operands = 1 if is_single_operand else 2
-                        
-                        if len(valid_operands) == 0:
-                            imgui.text_colored("No valid operands available!", 1.0, 0.0, 0.0, 1.0)
-                        else:
-                            for i in range(num_operands):
-                                operand_label = "Operand" if is_single_operand else ("Operand A" if i == 0 else "Operand B")
-                                
-                                # Create a combo box for selecting operands
-                                current_operand = operation.args[i]
-                                current_index = 0
-                                
-                                # Find current operand in valid list
-                                for idx, (item_id, _) in enumerate(valid_operands):
-                                    if item_id == current_operand:
-                                        current_index = idx
-                                        break
-                                
-                                clicked, new_index = imgui.combo(
-                                    f"##operand_{i}",
-                                    current_index,
-                                    [scene_builder.get_item_name(item_id) for item_id, _ in valid_operands]
-                                )
-                                                                
-                                if clicked:
-                                    old_operand = operation.args[i]
-                                    new_operand = valid_operands[new_index][0]
-                                    # Use scene_builder API so the change is recorded in history
-                                    scene_builder.modify_operation_parameter(op_id, f"args[{i}]", old_operand, new_operand)
-                                    success, new_uniforms = recompile_shader()
-                                    if success:
-                                        uniform_locs = new_uniforms
-                        
-                        imgui.separator()
-                        
-                        # Show float parameter for single-operand operations with parameters
-                        if hasattr(operation, 'float_param') and operation.float_param is not None:
-                            changed, operation.float_param = input_float("Parameter", operation.float_param, 0.01, panel_elem_width_float)
-                            if changed:
-                                # Update the operation with new parameter
-                                if len(operation.args) >= 2:
-                                    operation.args[1] = operation.float_param
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        
-                        # Show smoothing factor for smooth operations
-                        elif operation.smooth_k is not None:
-                            changed, operation.smooth_k = input_float("Smoothing Factor (k)", operation.smooth_k, 0.01, panel_elem_width_float)
-                            if changed:
-                                if len(operation.args) >= 3:
-                                    operation.args[2] = operation.smooth_k
-                                success, new_uniforms = recompile_shader()
-                                if success:
-                                    uniform_locs = new_uniforms
-                        break
+                imgui.separator()
+                imgui.text(f"Selected: {item_data.ui_name}")
+                
+                # Rename functionality
+                if imgui.button("Rename"):
+                    renaming_item_id = selected_item_id
+                    rename_text = item_data.ui_name
+                
+                if renaming_item_id == selected_item_id:
+                    changed, rename_text = imgui.input_text("##rename", rename_text, 256)
+                    
+                    if imgui.button("OK", width / 5):
+                        scene_builder.rename_node(selected_item_id, rename_text)
+                        renaming_item_id = None
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+                    
+                    imgui.same_line()
+                    if imgui.button("Cancel", width / 5):
+                        renaming_item_id = None
+                
+                imgui.separator()
+                
+                # Show node-specific properties
+                if node.node_type == 'primitive':
+                    # Primitive properties
+                    changed, item_data.position = input_vec3(
+                        "Position",
+                        item_data.position,
+                        STEP_VARIABLE_FLOAT,
+                        panel_elem_width_vec3
+                    )
+                    if changed:
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+                    
+                    changed, item_data.rotation = input_vec3(
+                        "Rotation",
+                        item_data.rotation,
+                        STEP_VARIABLE_FLOAT,
+                        panel_elem_width_vec3
+                    )
+                    if changed:
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+                    
+                    changed, item_data.scale = input_vec3(
+                        "Scale",
+                        item_data.scale,
+                        STEP_VARIABLE_FLOAT,
+                        panel_elem_width_vec3
+                    )
+                    if changed:
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+                    
+                    changed, item_data.color = input_vec3(
+                        "Color",
+                        item_data.color,
+                        STEP_VARIABLE_FLOAT,
+                        panel_elem_width_vec3
+                    )
+                    if changed:
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+                
+                elif node.node_type == 'operation':
+                    # Operation properties
+                    imgui.text(f"Operation Type: {item_data.operation_type}")
+                    
+                    # Show operands
+                    imgui.text("Operands:")
+                    for i, operand_id in enumerate(node.children):
+                        operand_node = scene_builder.get_node(operand_id)
+                        if operand_node:
+                            imgui.text(f"  {i+1}. {operand_node.item_data.ui_name} ({operand_id})")
+                    
+                    # Show smooth_k if applicable
+                    if hasattr(item_data, 'smooth_k') and item_data.smooth_k is not None:
+                        changed, new_k = imgui.slider_float(
+                            "Smooth K",
+                            item_data.smooth_k,
+                            0.0,
+                            1.0
+                        )
+                        if changed:
+                            item_data.smooth_k = new_k
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+        
         else:
-            imgui.text("Select an item to edit")
-
+            imgui.text("No node selected")
+            imgui.text("Click on a node in the Scene Tree")
+        
         imgui.end()
-
-        # --- SELECTION WINDOW ---
-        if show_selection_window:
-            imgui.set_next_window_position(width // 2 - 150, height // 2 - 150)
-            imgui.set_next_window_size(300, 400)
-            # Prevent window from being collapsed - use WINDOW_NO_COLLAPSE flag
-            is_open, show_selection_window = imgui.begin("Add Primitive/Operation", True, imgui.WINDOW_NO_COLLAPSE)
-
+        
+        # --- OPERATION/PRIMITIVE SELECTION DIALOG (HIERARCHICAL) ---
+        if show_operation_selection_window:
+            imgui.set_next_window_position(width // 2 - 200, height // 2 - 200)
+            imgui.set_next_window_size(400, 400)
+            
+            is_open, show_operation_selection_window = imgui.begin(
+                "Add Operation",
+                True,
+                imgui.WINDOW_NO_COLLAPSE
+            )
+            
             if not is_open:
-                show_selection_window = False
-
-            imgui.text("Select a Primitive:")
+                show_operation_selection_window = False
+            
+            imgui.text("Select Operation Type:")
+            imgui.separator()
+            
+            # Define available operations with their properties
+            operations_list = [
+                ("Union", "union", 2, "Combines two shapes (minimum distance)"),
+                ("Subtraction", "sub", 2, "Subtracts second from first"),
+                ("Intersection", "inter", 2, "Keeps only overlapping parts"),
+                ("Smooth Union", "sunion", 2, "Union with smooth blending"),
+                ("Smooth Subtraction", "ssub", 2, "Subtraction with smooth blending"),
+                ("Smooth Intersection", "sinter", 2, "Intersection with smooth blending"),
+                ("Mix", "mix", 2, "Blends between two distances"),
+                ("Invert", "invert", 1, "Inverts the shape"),
+                ("Round", "round", 1, "Rounds the shape"),
+                ("Onion", "onion", 1, "Creates a shell effect"),
+                ("XOR", "xor", 2, "Exclusive OR operation"),
+                ("snoiseDisp", "snoiseDisp", 1, "Noise displacement"),
+            ]
+            
+            # Let user choose what primitive to auto-create
+            imgui.text("Auto-create Primitives:")
+            auto_prim_options = [
+                "Box", "Sphere", "Torus", "Cone", "Hex Prism",
+                "Vertical Capsule", "Capped Cylinder", "Rounded Cylinder"
+            ]
+            auto_prim_type_index = 1  # Default to Sphere
+            clicked, auto_prim_type_index = imgui.combo(
+                "##auto_prim_type",
+                auto_prim_type_index,
+                auto_prim_options
+            )
+            
+            auto_prim_map = {
+                0: 'box', 1: 'sphere', 2: 'torus', 3: 'cone',
+                4: 'hex_prism', 5: 'vertical_capsule',
+                6: 'capped_cylinder', 7: 'rounded_cylinder'
+            }
+            selected_auto_prim = auto_prim_map[auto_prim_type_index]
+            
+            imgui.separator()
+            
+            # Display operations
+            for label, op_type, operand_count, description in operations_list:
+                if imgui.button(f"{label} ({operand_count} operands)", -1):
+                    # Create operation with auto-generated primitives
+                    new_op_id = scene_builder.add_operation_with_auto_primitives(
+                        op_type,
+                        auto_primitive_type=selected_auto_prim,
+                        ui_name=label
+                    )
+                    
+                    # Recompile shader
+                    success, new_uniforms = recompile_shader()
+                    if success:
+                        uniform_locs = new_uniforms
+                    
+                    # Select the new operation
+                    selected_item_id = new_op_id
+                    scene_builder.update_selected_item_id(selected_item_id)
+                    selection_mode = 'node'
+                    show_operation_selection_window = False
+                
+                if imgui.is_item_hovered():
+                    imgui.set_tooltip(description)
+            
+            imgui.end()
+        
+        # --- ADD PRIMITIVE DIALOG ---
+        if show_primitive_selection_window:
+            imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
+            imgui.set_next_window_size(400, 400)
+            
+            is_open, show_primitive_selection_window = imgui.begin(
+                "Add Standalone Primitive",
+                True,
+                imgui.WINDOW_NO_COLLAPSE
+            )
+            
+            if not is_open:
+                show_primitive_selection_window = False
+            
+            imgui.text("Select Primitive Type:")
+            imgui.text("(These are root-level, not part of an operation)")
+            imgui.separator()
             
             primitives_list = [
                 ("Box", "box", (0.5, 0.5, 0.5)),
@@ -3074,138 +2719,164 @@ You can also support the project by reporting an error, or by suggesting an impr
                 ("Hex Prism", "hex_prism", (0.5, 0.5)),
                 ("Vertical Capsule", "vertical_capsule", (1.0, 0.3)),
                 ("Capped Cylinder", "capped_cylinder", (0.3, 1.0)),
-                ("Rounded Cylinder", "rounded_cylinder", (0.3, 0.1)),
-                ("Pointer", "pointer", None),
-                ("Sprite", "sprite", None),
-                ("Curve", "curve", None)
+                ("Rounded Cylinder", "rounded_cylinder", (0.3, 0.3)),
             ]
-
-            for label, prim_type, size_radius in primitives_list:
-                if imgui.button(f"  {label}", -1):
-                    if prim_type == "box":
-                        new_id = scene_builder.add_box((0.0, 0.0, 0.0), size_radius, ui_name=label)
-                    elif prim_type == "round_box":
-                        new_id = scene_builder.add_roundbox((0.0, 0.0, 0.0), size_radius, 0.1, ui_name=label)
-                    elif prim_type == "sphere":
-                        new_id = scene_builder.add_sphere((0.0, 0.0, 0.0), size_radius, ui_name=label)
-                    elif prim_type == "torus":
-                        new_id = scene_builder.add_torus((0.0, 0.0, 0.0), size_radius[0], size_radius[1], ui_name=label)
-                    elif prim_type == "cone":
-                        new_id = scene_builder.add_cone((0.0, 0.0, 0.0), 0.5, 0.866, 1.0, ui_name=label)
-                    elif prim_type == "plane":
-                        new_id = scene_builder.add_plane((0.0, 0.0, 0.0), [0.0, 1.0, 0.0], 0.0, ui_name=label)
-                    elif prim_type == "hex_prism":
-                        new_id = scene_builder.add_hex_prism((0.0, 0.0, 0.0), size_radius[0], size_radius[1], ui_name=label)
-                    elif prim_type == "vertical_capsule":
-                        new_id = scene_builder.add_vertical_capsule((0.0, 0.0, 0.0), size_radius[0], size_radius[1], ui_name=label)
-                    elif prim_type == "capped_cylinder":
-                        new_id = scene_builder.add_capped_cylinder((0.0, 0.0, 0.0), size_radius[0], size_radius[1], ui_name=label)
-                    elif prim_type == "rounded_cylinder":
-                        new_id = scene_builder.add_rounded_cylinder((0.0, 0.0, 0.0), size_radius[0], size_radius[1], 1.0, ui_name=label)
-                    elif prim_type == "pointer":
-                        # default pointer function
-                        new_id = scene_builder.add_pointer((0.0, 0.0, 0.0), func='pointer_identity', ui_name=label)
-                    elif prim_type == "sprite":
-                        # Create a Sprite object and append to the global sprites_array.
-                        # Default plane is centered in front of camera/origin; uvSize default 1x1.
-                        new_spr = Sprite(
-                        planePoint=(0.0, 0.0, 0.0),
-                        planeNormal=(0.0, 0.0, 1.0),
-                        planeWidth=2.0,
-                        planeHeight=2.0,
-                        SprTexture=f"sprTex{len(sprites_array)}",
-                        uvSize=(1.0, 1.0),
-                        Alpha=1.0,
-                        LOD=0.0
-                        )
-                        sprites_array.append(new_spr)
-                        # Create a SDF primitive that references the sprite index so it shows in the tree
-                        new_id = scene_builder.add_primitive("sprite", (0.0, 0.0, 0.0), [0.0,0.0,0.0], ui_name=label, color=[1.0,1.0,1.0], sprite_index=len(sprites_array)-1)
-                    if prim_type == "curve":
-                        new_id = scene_builder.add_primitive(
-                            "curve",
-                            position=(0.0, 0.0, 0.0),
-                            size_or_radius=None,
-                            ui_name=label,
-                            points=[[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 0.0, 0.0]],
-                            thickness=0.1,
-                            color=(0.5, 0.7, 1.0)
-                        )
+            
+            for label, prim_type, size_or_radius in primitives_list:
+                if imgui.button(f"{label}", -1):
+                    # Create standalone primitive at origin
+                    new_prim_id = scene_builder.add_standalone_primitive(
+                        prim_type,
+                        position=[0.0, 0.0, 0.0],
+                        size_or_radius=size_or_radius,
+                        ui_name=label
+                    )
                     
+                    # Recompile shader
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
                     
-                    selected_item_id = new_id
+                    # Select new primitive
+                    selected_item_id = new_prim_id
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = 'primitive'
-                    show_selection_window = False
-
-            imgui.separator()
-            imgui.text("Select an Operation:")
-
-            # Need at least 1 primitive/operation for most operations
-            all_items = scene_builder.get_all_items()
+                    selection_mode = 'node'
+                    show_primitive_selection_window = False
             
-            if len(all_items) >= 1:
-                operations_list = [
-                    ("Union", "union"),
-                    ("Subtraction", "sub"),
-                    ("Intersection", "inter"),
-                    ("Smooth Union", "sunion"),
-                    ("Smooth Subtraction", "ssub"),
-                    ("Smooth Intersection", "sinter"),
-                    ("Mix", "mix"),
-                    ("XOR", "xor"),
-                    ("Invert", "invert"),
-                    ("Round", "round"),
-                    ("Onion", "onion"),
-                    ("snoiseDisp", "snoiseDisp")
-                ]
 
-                for label, op_type in operations_list:
-                    # Single-operand operations (invert, round, onion)
-                    is_single_operand = op_type in ['invert', 'round', 'onion', 'snoiseDisp']
-                    min_operands = 1
-                    available_operands = len(all_items)
-                    
-                    if available_operands >= min_operands:
-                        if imgui.button(f"  {label}", -1):
-                            # For single operand operations
-                            if is_single_operand:
-                                if op_type == "invert": 
-                                    new_id = scene_builder.invert(all_items[-1][0], ui_name=label)
-                                elif op_type == "round":
-                                    new_id = scene_builder.round(all_items[-1][0], 0.1, ui_name=label)
-                                elif op_type == "onion":
-                                    new_id = scene_builder.onion(all_items[-1][0], 0.05, ui_name=label)
-                                elif op_type == "snoiseDisp":
-                                    new_id = scene_builder.snoiseDisp(all_items[-1][0], 0.05, ui_name=label)
-                            elif op_type in ["sunion", "ssub", "sinter", "mix"]:
-                                if len(all_items) >= 2:
-                                    new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], 
-                                        (0.5 if op_type == 'mix' else 0.05), ui_name=label)
-                                else:
-                                    new_id = getattr(scene_builder, op_type)(all_items[-1][0], all_items[-1][0], 
-                                        (0.5 if op_type == 'mix' else 0.05), ui_name=label)
-                            else:
-                                if len(all_items) >= 2:
-                                    new_id = getattr(scene_builder, op_type)(all_items[-2][0], all_items[-1][0], ui_name=label)
-                                else:
-                                    new_id = getattr(scene_builder, op_type)(all_items[-1][0], all_items[-1][0], ui_name=label)
-                            
+            imgui.end()
+
+
+        # Combined Add/Change Window - Two columns (left = primitives, right = operations)
+        if show_add_change_window:
+            imgui.set_next_window_position(width // 2 - 300, height // 2 - 220)
+            imgui.set_next_window_size(600, 440)
+            is_open, show_add_change_window = imgui.begin("Add / Change Type", True, imgui.WINDOW_NO_COLLAPSE)
+
+            if not is_open:
+                show_add_change_window = False
+                pending_change_node_id = None
+
+            # Define lists (same primitives_list and operations_list you had)
+            primitives_list = [
+                ("Box", "box", (0.5, 0.5, 0.5)),
+                ("Sphere", "sphere", 0.5),
+                ("Round Box", "round_box", (0.5, 0.5, 0.5)),
+                ("Torus", "torus", (0.5, 0.25)),
+                ("Cone", "cone", None),
+                ("Plane", "plane", None),
+                ("Hex Prism", "hex_prism", (0.5, 0.5)),
+                ("Vertical Capsule", "vertical_capsule", (1.0, 0.3)),
+                ("Capped Cylinder", "capped_cylinder", (0.3, 1.0)),
+                ("Rounded Cylinder", "rounded_cylinder", (0.3, 0.3)),
+            ]
+
+            operations_list = [
+                ("Union", "union", 2, "Combines two shapes (minimum distance)"),
+                ("Subtraction", "sub", 2, "Subtracts second from first"),
+                ("Intersection", "inter", 2, "Keeps only overlapping parts"),
+                ("Smooth Union", "sunion", 2, "Union with smooth blending"),
+                ("Smooth Subtraction", "ssub", 2, "Subtraction with smooth blending"),
+                ("Smooth Intersection", "sinter", 2, "Intersection with smooth blending"),
+                ("Mix", "mix", 2, "Blends between two distances"),
+                ("Invert", "invert", 1, "Inverts the shape"),
+                ("Round", "round", 1, "Rounds the shape"),
+                ("Onion", "onion", 1, "Creates a shell effect"),
+                ("XOR", "xor", 2, "Exclusive OR operation"),
+                ("snoiseDisp", "snoiseDisp", 1, "Noise displacement"),
+            ]
+
+            # Layout: two columns
+            imgui.columns(2, "add_change_cols", border=True)
+            imgui.set_column_width(0, 280)  # primitives column
+            imgui.text("Primitives")
+            imgui.separator()
+
+            for label, prim_type, size in primitives_list:
+                if imgui.button(label, -1, 24):
+                    # If pending_change_node_id is None -> ADD, else -> CHANGE TYPE
+                    if pending_change_node_id is None:
+                        # Add new primitive at origin with defaults
+                        new_id = scene_builder.add_standalone_primitive(
+                            prim_type,
+                            position=[0.0, 0.0, 0.0],
+                            size_or_radius=size if size is not None else 0.5,
+                            ui_name=label
+                        )
+                        if new_id:
+                            selected_items.clear()
+                            selected_item_id = new_id
+                            scene_builder.update_selected_item_id(selected_item_id)
+                            selection_mode = 'node'
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
-                            
-                            selected_item_id = new_id
+                    else:
+                        # Change the pending node to this primitive (in-place)
+                        node = scene_builder.get_node(pending_change_node_id)
+                        if node:
+                            # If it was operation -> convert to primitive
+                            scene_builder.change_node_to_primitive(pending_change_node_id, prim_type, position=None, size_or_radius=(size if size is not None else 0.5))
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+
+                        # Clear pending state
+                        pending_change_node_id = None
+                        show_add_change_window = False
+                if imgui.is_item_hovered():
+                    imgui.set_tooltip(f"Add / Change to {label}")
+
+            imgui.next_column()
+            imgui.text("Operations")
+            imgui.separator()
+
+            for label, op_type, operand_count, description in operations_list:
+                if imgui.button(label, -1, 24):
+                    if pending_change_node_id is None:
+                        # Add new operation (auto-create primitives)
+                        new_op_id = scene_builder.add_operation_with_auto_primitives(
+                            op_type,
+                            auto_primitive_type='box',
+                            ui_name=label
+                        )
+                        if new_op_id:
+                            selected_items.clear()
+                            selected_item_id = new_op_id
                             scene_builder.update_selected_item_id(selected_item_id)
-                            selection_mode = 'operation'
-                            show_selection_window = False
-            else:
-                imgui.text("Add at least 1 primitive to use operations")
+                            selection_mode = 'node'
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+                    else:
+                        # Convert pending node to this operation type (in-place)
+                        scene_builder.change_node_to_operation(pending_change_node_id, op_type, auto_primitive_type='box')
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+                        pending_change_node_id = None
+                        show_add_change_window = False
+
+                if imgui.is_item_hovered():
+                    imgui.set_tooltip(description)
+
+            imgui.columns(1)
+            imgui.separator()
+            if imgui.button("Cancel", 120, 28):
+                show_add_change_window = False
+                pending_change_node_id = None
+
+            imgui.same_line()
+            if imgui.button("Close", 120, 28):
+                show_add_change_window = False
+                pending_change_node_id = None
 
             imgui.end()
+
+
+
+
 
         # Render ImGui
         imgui.render()

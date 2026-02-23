@@ -1,1312 +1,1377 @@
+"""
+NEW HIERARCHICAL SCENE BUILDER
+
+This module provides a complete refactoring of the scene architecture
+from a flat primitives/operations model to a hierarchical tree model.
+
+Key improvements:
+- Operations are root-level nodes that own their operand primitives
+- Clear parent-child relationships make dependencies obvious
+- Auto-creation of primitives when operations are added
+- Cascade deletion (deleting operation deletes its children)
+- Intuitive tree-based UI similar to Blender/Godot
+"""
+
 import json
 import numpy as np
 import copy
 import math
+from typing import Dict, List, Any, Optional, Tuple
 
-from typing import Dict, List, Any
-from src.classes import *
+from src.classes.SDFObjects import SDFOperation, SDFPrimitive
+
+
+class SceneNode:
+    """
+    Represents a single node in the hierarchical scene tree.
+    
+    A node can be either:
+    - An Operation (has children which are its operands/primitives)
+    - A Primitive (leaf node or child of operation)
+    
+    Attributes:
+        node_type: 'operation' or 'primitive'
+        item_id: Unique identifier like 'd0', 'd1', etc.
+        item_data: The actual SDFOperation or SDFPrimitive object
+        parent_id: ID of parent node (None if root)
+        children: List of child node IDs
+    """
+    
+    def __init__(self, node_type: str, item_id: str, item_data, parent_id: Optional[str] = None):
+        self.node_type = node_type  # 'operation' or 'primitive'
+        self.item_id = item_id
+        self.item_data = item_data  # SDFOperation or SDFPrimitive
+        self.parent_id = parent_id
+        self.children = []  # List of child item_ids
+    
+    def add_child(self, child_id: str):
+        """Add a child node ID."""
+        if child_id not in self.children:
+            self.children.append(child_id)
+    
+    def remove_child(self, child_id: str):
+        """Remove a child node ID."""
+        if child_id in self.children:
+            self.children.remove(child_id)
+    
+    def to_dict(self) -> Dict:
+        """Serialize node to dictionary for JSON storage."""
+        return {
+            'node_type': self.node_type,
+            'item_id': self.item_id,
+            'parent_id': self.parent_id,
+            'children': self.children,
+            'item_data': self.item_data.to_dict()
+        }
+
 
 class SDFSceneBuilder:
+    """
+    New hierarchical scene builder that organizes the scene as a tree
+    instead of flat primitives and operations lists.
+    
+    Usage:
+        builder = SDFSceneBuilderHierarchical(history, selected_id)
+        
+        # Add an operation (auto-creates children)
+        union_id = builder.add_operation_with_auto_primitives(
+            'union',
+            auto_primitive_type='box',
+            ui_name='Union 1'
+        )
+        
+        # Add a standalone primitive at root
+        sphere_id = builder.add_standalone_primitive(
+            'sphere',
+            position=[0, 0, 0],
+            size_or_radius=0.5,
+            ui_name='Sphere'
+        )
+        
+        # Query the tree
+        root_nodes = builder.get_root_nodes()
+        children = builder.get_children(union_id)
+    """
+    
     def __init__(self, glob_history, selected_item_id):
-        self.primitives = []
-        self.operations = []
+        """
+        Initialize the hierarchical scene builder.
+        
+        Args:
+            glob_history: History/undo-redo manager
+            selected_item_id: Reference to current selection (mutable reference)
+        """
+        self.scene_nodes = {}  # node_id -> SceneNode
+        self.root_children = []  # IDs of root-level nodes
         self.next_id = 0
-        self.id_to_index = {}
-        self.deleted_items_cache = {}  # Cache for restoring deleted items
         self.glob_history = glob_history
         self.selected_item_id = selected_item_id
+        
+        # Reverse lookup for quick access
+        self.id_to_node = {}  # item_id -> SceneNode
+        
+        # Cache for shader code generation
+        self._shader_cache = None
+        self._cache_valid = False
+
+    
+    def add_operation_with_auto_primitives(
+        self,
+        operation_type: str,
+        ui_name: Optional[str] = None,
+        auto_primitive_type: str = 'box',
+        forced_op_id: Optional[str] = None
+    ) -> str:
+        """
+        Add an operation at the ROOT LEVEL with auto-generated primitive children.
+        
+        This is the primary way to add operations in the new model.
+        When you create a Union, it automatically creates two Box primitives as children.
+        When you create an Invert, it creates one Box primitive as a child.
+        
+        Args:
+            operation_type: Type of operation ('union', 'sub', 'inter', 'sunion', 
+                          'ssub', 'sinter', 'mix', 'invert', 'round', 'onion', 'snoiseDisp')
+            ui_name: Display name for the operation (default: operation type)
+            auto_primitive_type: Type of primitives to auto-create ('box', 'sphere', etc.)
+            forced_op_id: For undo/redo to recreate with same ID
+        
+        Returns:
+            operation_op_id: ID of the created operation
+        
+        Example:
+            >>> union_id = builder.add_operation_with_auto_primitives(
+            ...     'union',
+            ...     auto_primitive_type='sphere',
+            ...     ui_name='My Union'
+            ... )
+            # Creates: Union (d0)
+            #   ├── Sphere (d1)
+            #   └── Sphere (d2)
+        """
+        # Determine operand count based on operation type
+        operand_count = self._get_operand_count(operation_type)
+        
+        # Create unique operation ID
+        op_id = forced_op_id or f"d{self.next_id}"
+        self._ensure_op_id_unique(op_id)
+        
+        # Pre-allocate operand IDs
+        operand_ids = [f"d{self.next_id + 1 + i}" for i in range(operand_count)]
+        
+        # Create operation with operand IDs as arguments
+        operation = SDFOperation(
+            operation_type,
+            *operand_ids,
+            ui_name=ui_name or operation_type
+        )
+        
+        # Create operation node
+        operation_node = SceneNode('operation', op_id, operation, parent_id=None)
+        self.scene_nodes[op_id] = operation_node
+        self.id_to_node[op_id] = operation_node
+        
+        # Add to root level
+        self.root_children.append(op_id)
+        
+        # Auto-create primitive children
+        for i, operand_id in enumerate(operand_ids):
+            # Offset each primitive so they're visible
+            position = [1.0 * i, 0.0, 0.0]
+            
+            # Create primitive
+            primitive = SDFPrimitive(
+                self.selected_item_id,
+                auto_primitive_type,
+                position,
+                0.5,  # Default radius/size
+                ui_name=f"{auto_primitive_type.title()} {i + 1}"
+            )
+            
+            # Create primitive node as child of operation
+            prim_node = SceneNode(
+                'primitive',
+                operand_id,
+                primitive,
+                parent_id=op_id
+            )
+            self.scene_nodes[operand_id] = prim_node
+            self.id_to_node[operand_id] = prim_node
+            
+            # Add to operation's children
+            operation_node.add_child(operand_id)
+            
+            self.next_id += 1
+        
+        self.next_id += 1  # Increment for next item
+        
+        # Register undo/redo
+        redo_kwargs = {'forced_op_id': op_id}
+        self.glob_history.add(
+            self.delete_node,  # undo: delete
+            self.add_operation_with_auto_primitives,  # redo: recreate
+            (op_id,),  # undo args
+            (operation_type, ui_name, auto_primitive_type),  # redo args
+            {},
+            redo_kwargs
+        )
+        
+        self.invalidate_cache()
+        return op_id
+    
 
     def update_glob_history(self, new_value):
+        """Update the global history reference."""
         self.glob_history = new_value
     
-    def update_selected_item_id(self, new_value):
-        self.selected_item_id = new_value
+    def get_item_name(self, node_id: str) -> str:
+        """Get the display name of a node (for compatibility)."""
+        node = self.get_node(node_id)
+        if node:
+            return node.item_data.ui_name
+        return node_id
+    
 
-    def _save_item_state(self, op_id):
-        """Save the complete state of an item for undo/redo."""
-        if op_id not in self.id_to_index:
+    def modify_primitive_property(self, node_id: str, property_name: str, old_value, new_value):
+        """Compatibility method for modifying primitive properties."""
+        node = self.get_node(node_id)
+        if not node or node.node_type != 'primitive':
+            return False
+        
+        prim = node.item_data
+        
+        if property_name == 'position':
+            prim.position = list(new_value)
+        elif property_name == 'rotation':
+            prim.rotation = list(new_value)
+        elif property_name == 'scale':
+            prim.scale = list(new_value)
+        elif property_name == 'color':
+            prim.color = list(new_value)
+        
+        self.invalidate_cache()
+        return True
+
+
+
+
+
+    # COMPATIBILITY METHODS (for old code that used primitives/operations lists)
+    @property
+    def primitives(self):
+        """Compatibility property that returns primitives as flat list."""
+        result = []
+        for node_id, node in self.scene_nodes.items():
+            if node.node_type == 'primitive':
+                result.append((node_id, node.item_data))
+        return result
+    
+    @property
+    def operations(self):
+        """Compatibility property that returns operations as flat list."""
+        result = []
+        for node_id, node in self.scene_nodes.items():
+            if node.node_type == 'operation':
+                result.append((node_id, node.item_data))
+        return result
+    
+    def delete_item(self, node_id: str) -> bool:
+        """Compatibility method for old delete_item calls."""
+        return self.delete_node(node_id)
+
+
+    def add_child_primitive(
+        self,
+        parent_op_id: str,
+        primitive_type: str = 'box',
+        position: List[float] = None,
+        size_or_radius=0.5,
+        rotation: Optional[List[float]] = None,
+        scale: Optional[List[float]] = None,
+        ui_name: Optional[str] = None,
+        color: Optional[List[float]] = None,
+        forced_op_id: Optional[str] = None,
+        **kwargs
+    ) -> Optional[str]:
+        """
+        Add a primitive as a child of an operation node.
+
+        Returns the new primitive node id, or None on failure.
+        """
+        if position is None:
+            position = [0.0, 0.0, 0.0]
+
+        parent = self.get_node(parent_op_id)
+        if not parent or parent.node_type != 'operation':
             return None
 
-        item_type, index = self.id_to_index[op_id]
+        # Check capacity
+        required = self._get_operand_count(parent.item_data.operation_type)
+        if len(parent.children) >= required:
+            return None
 
-        if item_type == 'primitive':
-            primitive = self.primitives[index][1]
-            return {
-                'type': 'primitive',
-                'op_id': op_id,
-                'index': index,
-                'data': primitive.to_dict()
-            }
+        node_id = forced_op_id or f"d{self.next_id}"
+        self._ensure_op_id_unique(node_id)
+
+        primitive = SDFPrimitive(
+            self.selected_item_id,
+            primitive_type,
+            position,
+            size_or_radius,
+            rotation,
+            scale,
+            ui_name or primitive_type,
+            color,
+            **(kwargs or {})
+        )
+
+        prim_node = SceneNode('primitive', node_id, primitive, parent_id=parent_op_id)
+        self.scene_nodes[node_id] = prim_node
+        self.id_to_node[node_id] = prim_node
+
+        # Attach to parent node
+        parent.add_child(node_id)
+
+        # Update operation args (append the child id)
+        op = parent.item_data
+        if hasattr(op, 'args'):
+            try:
+                # prefer list
+                if isinstance(op.args, tuple):
+                    op.args = list(op.args) + [node_id]
+                else:
+                    op.args.append(node_id)
+            except Exception:
+                # Fallback: set args to single list
+                op.args = getattr(op, 'args', []) + [node_id]
         else:
-            operation = self.operations[index][1]
-            return {
-                'type': 'operation',
-                'op_id': op_id,
-                'index': index,
-                'data': operation.to_dict()
-            }
+            op.args = [node_id]
 
-    def _get_all_dependent_items(self, op_id):
-        """Get all operations that depend on this item (directly or indirectly)."""
-        dependent = []
-
-        def get_dependents(item_id):
-            for op_id_check, operation in self.operations:
-                # operation.args may include references to other op ids
-                if item_id in operation.args and op_id_check not in dependent:
-                    dependent.append(op_id_check)
-                    get_dependents(op_id_check)  # Recursively get dependents of dependents
-
-        get_dependents(op_id)
-        return dependent
-
-    def add_primitive(self, primitive_type, position, size_or_radius,
-                      rotation=None, scale=None, ui_name=None, color=None,
-                      forced_op_id=None, **kwargs):
-
-        op_id = forced_op_id or f"d{self.next_id}"
-
-        # Ensure uniqueness
-        self._ensure_op_id_unique(op_id)
-
-        primitive = SDFPrimitive(self.selected_item_id, primitive_type, position, size_or_radius, rotation, scale, ui_name, color, **kwargs)
-        self.primitives.append((op_id, primitive))
-        self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
-
-        # Always increment next_id if not forced
         if not forced_op_id:
             self.next_id += 1
 
+        # Register undo/redo: undo deletes node, redo re-creates as child with forced id
+        redo_kwargs = copy.deepcopy(kwargs) if kwargs else {}
+        redo_kwargs['forced_op_id'] = node_id
+        self.glob_history.add(
+            self.delete_node,
+            self.add_child_primitive,
+            (node_id,),
+            (parent_op_id, primitive_type, copy.deepcopy(position), copy.deepcopy(size_or_radius),
+            copy.deepcopy(rotation), copy.deepcopy(scale), ui_name, copy.deepcopy(color)),
+            {},
+            redo_kwargs
+        )
+
+        self.invalidate_cache()
+        return node_id
+
+
+    def add_child_operation(
+        self,
+        parent_op_id: str,
+        operation_type: str,
+        ui_name: Optional[str] = None,
+        auto_primitive_type: str = 'box',
+        forced_op_id: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Add an operation node as a child of an existing operation. The newly-added
+        operation will be created with its auto-primitives (same behavior as
+        add_operation_with_auto_primitives) and then attached as a child to the parent.
+
+        Returns the new operation id or None on failure.
+        """
+        parent = self.get_node(parent_op_id)
+        if not parent or parent.node_type != 'operation':
+            return None
+
+        # Check capacity of parent
+        required = self._get_operand_count(parent.item_data.operation_type)
+        if len(parent.children) >= required:
+            return None
+
+        # Create op id
+        op_id = forced_op_id or f"d{self.next_id}"
+        self._ensure_op_id_unique(op_id)
+
+        # Determine operand count for the new child operation
+        operand_count = self._get_operand_count(operation_type)
+        operand_ids = [f"d{self.next_id + 1 + i}" for i in range(operand_count)]
+
+        # Build the child operation (but parented to parent_op_id)
+        operation = SDFOperation(
+            operation_type,
+            *operand_ids,
+            ui_name=ui_name or operation_type
+        )
+
+        op_node = SceneNode('operation', op_id, operation, parent_id=parent_op_id)
+        self.scene_nodes[op_id] = op_node
+        self.id_to_node[op_id] = op_node
+
+        # Attach to parent
+        parent.add_child(op_id)
+
+        # Ensure parent's args reference the op_id
+        op_parent = parent.item_data
+        if hasattr(op_parent, 'args'):
+            if isinstance(op_parent.args, tuple):
+                op_parent.args = list(op_parent.args) + [op_id]
+            else:
+                op_parent.args.append(op_id)
+        else:
+            op_parent.args = [op_id]
+
+        # Create the operand primitives for the newly-created child operation
+        for i, operand_id in enumerate(operand_ids):
+            position = [1.0 * i, 0.0, 0.0]
+            primitive = SDFPrimitive(
+                self.selected_item_id,
+                auto_primitive_type,
+                position,
+                0.5,
+                ui_name=f"{auto_primitive_type.title()} {i + 1}"
+            )
+            prim_node = SceneNode('primitive', operand_id, primitive, parent_id=op_id)
+            self.scene_nodes[operand_id] = prim_node
+            self.id_to_node[operand_id] = prim_node
+            op_node.add_child(operand_id)
+            self.next_id += 1
+
+        self.next_id += 1
+
         # Register undo/redo
-        # redo should restore the same op_id; pass it via redo_kwargs
+        redo_kwargs = {'forced_op_id': op_id}
+        self.glob_history.add(
+            self.delete_node,
+            self.add_child_operation,
+            (op_id,),
+            (parent_op_id, operation_type, ui_name, auto_primitive_type),
+            {},
+            redo_kwargs
+        )
+
+        self.invalidate_cache()
+        return op_id
+
+
+    def add_standalone_primitive(
+        self,
+        primitive_type: str,
+        position: List[float],
+        size_or_radius,
+        rotation: Optional[List[float]] = None,
+        scale: Optional[List[float]] = None,
+        ui_name: Optional[str] = None,
+        color: Optional[List[float]] = None,
+        forced_op_id: Optional[str] = None,
+        **kwargs
+    ) -> str:
+        """
+        Add a primitive at the ROOT LEVEL (not as a child of an operation).
+        
+        Use this for standalone primitives that aren't operands.
+        
+        Args:
+            primitive_type: Type of primitive ('box', 'sphere', 'torus', etc.)
+            position: [x, y, z] position
+            size_or_radius: Size or radius parameter
+            rotation: [rx, ry, rz] rotation in radians
+            scale: [sx, sy, sz] scale factors
+            ui_name: Display name
+            color: [r, g, b] color
+            forced_op_id: For undo/redo
+            **kwargs: Additional primitive-specific parameters
+        
+        Returns:
+            node_id: ID of the created primitive
+        """
+        op_id = forced_op_id or f"d{self.next_id}"
+        self._ensure_op_id_unique(op_id)
+        
+        # Create primitive
+        primitive = SDFPrimitive(
+            self.selected_item_id,
+            primitive_type,
+            position,
+            size_or_radius,
+            rotation,
+            scale,
+            ui_name or primitive_type,
+            color,
+            **kwargs
+        )
+        
+        # Create node
+        prim_node = SceneNode('primitive', op_id, primitive, parent_id=None)
+        self.scene_nodes[op_id] = prim_node
+        self.id_to_node[op_id] = prim_node
+        
+        # Add to root
+        self.root_children.append(op_id)
+        
+        if not forced_op_id:
+            self.next_id += 1
+        
+        # Register undo/redo
         redo_kwargs = copy.deepcopy(kwargs) if kwargs else {}
         redo_kwargs['forced_op_id'] = op_id
-
+        
         self.glob_history.add(
-            self.delete_item,
-            self.add_primitive,
+            self.delete_node,
+            self.add_standalone_primitive,
             (op_id,),
             (primitive_type, copy.deepcopy(position), copy.deepcopy(size_or_radius),
              copy.deepcopy(rotation), copy.deepcopy(scale), ui_name, copy.deepcopy(color)),
             {},
             redo_kwargs
         )
-
+        
+        self.invalidate_cache()
         return op_id
-
-    def add_box(self, position, size, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("box", position, size, rotation, scale, ui_name, color)
-
-    def add_roundbox(self, position, size, radius, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("round_box", position, size, rotation, scale, ui_name, color, radius=radius)
-
-    def add_sphere(self, position, radius, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("sphere", position, radius, rotation, scale, ui_name, color)
-
-    def add_torus(self, position, major_radius, minor_radius, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("torus", position, [major_radius, minor_radius], rotation, scale, ui_name, color)
-
-    def add_cone(self, position, c_sin, c_cos, height, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("cone", position, [0.0], rotation, scale, ui_name, color, c_sin=c_sin, c_cos=c_cos, height=height)
-
-    def add_plane(self, position, normal, h, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("plane", position, [0.0], rotation, scale, ui_name, color, normal=normal, h=h)
-
-    def add_hex_prism(self, position, hex_radius, height, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("hex_prism", position, [hex_radius, height], rotation, scale, ui_name, color)
-
-    def add_vertical_capsule(self, position, height, radius, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("vertical_capsule", position, [height, radius], rotation, scale, ui_name, color)
-
-    def add_capped_cylinder(self, position, radius, height, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("capped_cylinder", position, [radius, height], rotation, scale, ui_name, color)
-
-    def add_rounded_cylinder(self, position, radius_a, radius_b, height, rotation=None, scale=None, ui_name=None, color=None):
-        return self.add_primitive("rounded_cylinder", position, [radius_a, radius_b], rotation, scale, ui_name, color, height=height)
-
-
-    def add_group(self, member_ids: List[str], position=(0.0,0.0,0.0), rotation=None, scale=None, ui_name=None, color=None, forced_op_id=None):
+    
+    # =====================================================================
+    # TREE NAVIGATION AND QUERIES
+    # =====================================================================
+    
+    def get_item_by_id(self, node_id: str):
         """
-        Create a logical group primitive that contains member_ids (list of primitive op_ids).
-        The grouped primitives are marked (kwargs['grouped'] = group_op_id) so they won't be emitted
-        separately; the group primitive will emit their SDF as a union.
+        Return the underlying item (SDFPrimitive or SDFOperation) for node_id,
+        or None if node isn't found.
         """
-        op_id = forced_op_id or f"d{self.next_id}"
-        self._ensure_op_id_unique(op_id)
+        node = self.get_node(node_id)
+        return node.item_data if node else None
 
-        # Create group primitive (size_or_radius left empty)
-        primitive = SDFPrimitive(self.selected_item_id, "group", list(position), [0.0,0.0,0.0], rotation=rotation, scale=scale, ui_name=ui_name or "Group", color=color, members=list(member_ids))
-        primitive.kwargs['members'] = list(member_ids)
-        self.primitives.append((op_id, primitive))
-        self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
+    def get_primitive_by_index(self, idx: int):
+        """
+        Compatibility helper: return the primitive object at flat index idx
+        from the compatibility .primitives property, or raise IndexError.
+        """
+        node_id, prim = self.primitives[idx]
+        return prim
 
-        # Mark members as grouped (so the generator will skip them)
-        for mid in member_ids:
-            if mid in self.id_to_index:
-                itype, midx = self.id_to_index[mid]
-                if itype == 'primitive':
-                    self.primitives[midx][1].kwargs['grouped'] = op_id
+    def get_node_by_id(self, node_id: str) -> Optional[SceneNode]:
+        """Return the SceneNode for node_id (thin wrapper)."""
+        return self.get_node(node_id)
 
-        if not forced_op_id:
-            self.next_id += 1
-
-        # Undo/redo: create group -> delete_group on undo; re-add on redo
+    def get_node(self, node_id: str) -> Optional[SceneNode]:
+        """Get a node by ID, or None if not found."""
+        return self.scene_nodes.get(node_id)
+    
+    def get_children(self, node_id: str) -> List[str]:
+        """Get list of child IDs for a node."""
+        node = self.get_node(node_id)
+        return node.children if node else []
+    
+    def get_parent(self, node_id: str) -> Optional[SceneNode]:
+        """Get parent node of a node, or None if root."""
+        node = self.get_node(node_id)
+        if node and node.parent_id:
+            return self.get_node(node.parent_id)
+        return None
+    
+    def get_root_nodes(self) -> List[Tuple[str, SceneNode]]:
+        """Get all root-level nodes as list of (node_id, node) tuples."""
+        return [(nid, self.scene_nodes[nid]) for nid in self.root_children]
+    
+    def get_all_nodes_flat(self) -> List[Tuple[str, Any]]:
+        """
+        Get all nodes in flat list (for backwards compatibility).
+        Traverses tree in depth-first order.
+        
+        Returns:
+            List of (node_id, item_data) tuples
+        """
+        result = []
+        
+        def traverse(node_id):
+            node = self.scene_nodes.get(node_id)
+            if node:
+                result.append((node_id, node.item_data))
+                for child_id in node.children:
+                    traverse(child_id)
+        
+        for root_id in self.root_children:
+            traverse(root_id)
+        
+        return result
+    
+    def get_node_depth(self, node_id: str) -> int:
+        """Get depth of node (0 = root, 1 = child of root, etc.)"""
+        depth = 0
+        node = self.get_node(node_id)
+        while node and node.parent_id:
+            depth += 1
+            node = self.get_node(node.parent_id)
+        return depth
+    
+    def get_all_children_recursive(self, node_id: str) -> List[str]:
+        """Get all descendant IDs (children, grandchildren, etc.)."""
+        result = []
+        node = self.get_node(node_id)
+        if not node:
+            return result
+        
+        for child_id in node.children:
+            result.append(child_id)
+            result.extend(self.get_all_children_recursive(child_id))
+        
+        return result
+    
+    # =====================================================================
+    # NODE MODIFICATION
+    # =====================================================================
+    
+    def rename_node(self, node_id: str, new_name: str) -> bool:
+        """
+        Rename a node (update ui_name).
+        
+        Args:
+            node_id: ID of node to rename
+            new_name: New display name
+        
+        Returns:
+            True if successful
+        """
+        node = self.get_node(node_id)
+        if not node:
+            return False
+        
+        old_name = node.item_data.ui_name
+        node.item_data.ui_name = new_name
+        
+        # Register undo/redo
         self.glob_history.add(
-            self._undo_delete_with_dependents, # easiest reuse of undo helper by saving state
-            self._redo_operation_add,          # dummy redo: we'll just re-add (handled below)
-            (self._save_item_state(op_id), []),
-            (op_id,),
+            lambda nid, old: self.rename_node(nid, old),
+            lambda nid, new: self.rename_node(nid, new),
+            (node_id, old_name),
+            (node_id, new_name),
             {},
             {}
         )
-        return op_id
-
-
-    def add_member_to_group(self, group_op_id: str, member_op_id: str) -> bool:
-        """
-        Add an existing primitive (member_op_id) to a group (group_op_id).
-        Marks the primitive's kwargs['grouped'] = group_op_id so the generator
-        will fold it into the group's emission. Returns True on success.
-        """
-        if group_op_id not in self.id_to_index or member_op_id not in self.id_to_index:
-            return False
-
-        group_type, group_idx = self.id_to_index[group_op_id]
-        if group_type != 'primitive':
-            return False
-
-        group_prim = self.primitives[group_idx][1]
-        if group_prim.primitive_type != 'group':
-            return False
-
-        # Ensure member is a primitive and not already grouped
-        mem_type, mem_idx = self.id_to_index[member_op_id]
-        if mem_type != 'primitive':
-            return False
-
-        # Add member to group's list (avoid duplicates)
-        members = group_prim.kwargs.get('members', [])
-        if member_op_id in members:
-            return False
-
-        members.append(member_op_id)
-        group_prim.kwargs['members'] = members
-
-        # Mark primitive as grouped so it's skipped at top-level emission
-        self.primitives[mem_idx][1].kwargs['grouped'] = group_op_id
+        
+        self.invalidate_cache()
         return True
-
-    def remove_member_from_group(self, group_op_id: str, member_op_id: str) -> bool:
+    
+    def move_root_node(self, node_id: str, new_index: int) -> bool:
         """
-        Remove a primitive from a group and unmark it so it will be emitted
-        as a top-level primitive again.
+        Move a root-level node to a different position in root list.
+        
+        Args:
+            node_id: ID of root node to move
+            new_index: New position in root_children list
+        
+        Returns:
+            True if successful
         """
-        if group_op_id not in self.id_to_index or member_op_id not in self.id_to_index:
+        if node_id not in self.root_children:
             return False
-
-        group_type, group_idx = self.id_to_index[group_op_id]
-        if group_type != 'primitive':
-            return False
-
-        group_prim = self.primitives[group_idx][1]
-        if group_prim.primitive_type != 'group':
-            return False
-
-        members = group_prim.kwargs.get('members', [])
-        if member_op_id not in members:
-            return False
-
-        members.remove(member_op_id)
-        group_prim.kwargs['members'] = members
-
-        # Unmark the primitive so it will be emitted at top-level again (if present)
-        if member_op_id in self.id_to_index:
-            mem_type, mem_idx = self.id_to_index[member_op_id]
-            if mem_type == 'primitive':
-                self.primitives[mem_idx][1].kwargs.pop('grouped', None)
-        return True
-
-
-    def apply_group_transform(self, group_op_id, new_pos, new_rot, new_scale):
-        """
-        Apply a transform (position, rotation, scale) to members of group `group_op_id`.
-        This mutates member primitives' position/rotation/scale so the shader sees the change.
-        Records an undo/redo entry for the whole group transform operation.
-        """
-        if group_op_id not in self.id_to_index:
-            return False
-
-        item_type, idx = self.id_to_index[group_op_id]
-        if item_type != 'primitive':
-            return False
-
-        group = self.primitives[idx][1]
-        if group.primitive_type != 'group':
-            return False
-
-        old_group_pos = copy.deepcopy(group.position)
-        old_group_rot = copy.deepcopy(group.rotation)
-        old_group_scale = copy.deepcopy(group.scale)
-
-        members = list(group.kwargs.get('members', []))
-        # Save old member states
-        old_states = []
-        new_states = []
-
-        for mid in members:
-            if mid not in self.id_to_index:
-                continue
-            mtype, midx = self.id_to_index[mid]
-            if mtype != 'primitive':
-                continue
-            mem = self.primitives[midx][1]
-            old_states.append((mid, copy.deepcopy(mem.position), copy.deepcopy(mem.rotation), copy.deepcopy(mem.scale)))
-
-        # Apply transform to members (position rotation scale change around group's origin)
-        # Compute deltas
-        old_pos = np.array(old_group_pos, dtype=float)
-        new_pos_arr = np.array(new_pos, dtype=float)
-        delta_pos = new_pos_arr - old_pos
-
-        old_rot = np.array(old_group_rot, dtype=float)
-        new_rot_arr = np.array(new_rot, dtype=float)
-        delta_rot = new_rot_arr - old_rot  # radians
-
-        old_s = np.array(old_group_scale, dtype=float)
-        new_s = np.array(new_scale, dtype=float)
-        # avoid division by zero
-        scale_ratio = np.where(old_s == 0.0, 1.0, new_s / old_s)
-
-        # Build rotation matrices for delta_rot (apply in X, Y, Z order)
-        def rotation_matrix_from_euler(rx, ry, rz):
-            cx, sx = math.cos(rx), math.sin(rx)
-            cy, sy = math.cos(ry), math.sin(ry)
-            cz, sz = math.cos(rz), math.sin(rz)
-            Rx = np.array([[1,0,0],[0,cx,-sx],[0,sx,cx]])
-            Ry = np.array([[cy,0,sy],[0,1,0],[-sy,0,cy]])
-            Rz = np.array([[cz,-sz,0],[sz,cz,0],[0,0,1]])
-            return Rz @ Rx @ Ry
-
-        R = rotation_matrix_from_euler(delta_rot[0], delta_rot[1], delta_rot[2])
-
-        for mid in members:
-            if mid not in self.id_to_index:
-                continue
-            mtype, midx = self.id_to_index[mid]
-            if mtype != 'primitive':
-                continue
-            mem = self.primitives[midx][1]
-
-            # relative vector from group's origin to member
-            rel = np.array(mem.position, dtype=float) - old_pos
-            # scale about group origin
-            rel = rel * scale_ratio
-            # rotate about group origin
-            rel = R.dot(rel)
-            # translate by delta_pos
-            new_world = new_pos_arr + rel
-
-            # Update member attributes
-            old_pos_mem = copy.deepcopy(mem.position)
-            old_rot_mem = copy.deepcopy(mem.rotation)
-            old_scale_mem = copy.deepcopy(mem.scale)
-
-            mem.position = [float(x) for x in new_world]
-            # add delta rotation to member rotation
-            mem.rotation = [float(old_rot_mem[i] + delta_rot[i]) for i in range(3)]
-            # multiply member scale by ratio
-            mem.scale = [float(old_scale_mem[i] * scale_ratio[i]) for i in range(3)]
-
-            new_states.append((mid, copy.deepcopy(mem.position), copy.deepcopy(mem.rotation), copy.deepcopy(mem.scale)))
-
-        # Update the group primitive's stored values (so inspector reflects the new state)
-        group.position = [float(x) for x in new_pos_arr]
-        group.rotation = [float(x) for x in new_rot_arr]
-        group.scale = [float(x) for x in new_s]
-
-        # Register history entry for undo/redo (restore all member states and group)
+        
+        old_index = self.root_children.index(node_id)
+        
+        # Clamp new_index
+        new_index = max(0, min(new_index, len(self.root_children) - 1))
+        
+        if new_index == old_index:
+            return True
+        
+        # Move
+        self.root_children.pop(old_index)
+        self.root_children.insert(new_index, node_id)
+        
+        # Register undo/redo
         self.glob_history.add(
-            self._undo_group_transform,
-            self._redo_group_transform,
-            (group_op_id, old_group_pos, old_group_rot, old_group_scale, old_states),
-            (group_op_id, copy.deepcopy(group.position), copy.deepcopy(group.rotation), copy.deepcopy(group.scale), new_states),
+            self.move_root_node,
+            self.move_root_node,
+            (node_id, old_index),
+            (node_id, new_index),
             {},
             {}
         )
+        
+        self.invalidate_cache()
+        return True
+    
 
+    def _apply_primitive_state(self, node_id: str, state: dict) -> bool:
+        """
+        Internal helper to apply a saved primitive state to a node WITHOUT registering undo.
+        Used as both the undo and redo callback so reapplying doesn't add nested history.
+        """
+        node = self.get_node(node_id)
+        if not node or node.node_type != 'primitive':
+            return False
+        p = node.item_data
+        p.primitive_type = state.get('primitive_type', p.primitive_type)
+        p.position = list(state.get('position', p.position))
+        p.size_or_radius = list(state.get('size_or_radius', p.size_or_radius))
+        p.rotation = list(state.get('rotation', p.rotation))
+        p.scale = list(state.get('scale', p.scale))
+        p.color = list(state.get('color', p.color))
+        p.kwargs = dict(state.get('kwargs', p.kwargs))
         return True
 
-    def _undo_group_transform(self, group_op_id, old_group_pos, old_group_rot, old_group_scale, old_states):
-        # Restore group primitive and member primitives to old states
-        if group_op_id in self.id_to_index:
-            itype, idx = self.id_to_index[group_op_id]
-            if itype == 'primitive':
-                group = self.primitives[idx][1]
-                group.position = old_group_pos
-                group.rotation = old_group_rot
-                group.scale = old_group_scale
-
-        for (mid, pos, rot, scale) in old_states:
-            if mid in self.id_to_index:
-                itype, midx = self.id_to_index[mid]
-                if itype == 'primitive':
-                    mem = self.primitives[midx][1]
-                    mem.position = pos
-                    mem.rotation = rot
-                    mem.scale = scale
-
-    def _redo_group_transform(self, group_op_id, new_group_pos, new_group_rot, new_group_scale, new_states):
-        # Reapply group transform (same format as apply_group_transform result)
-        if group_op_id in self.id_to_index:
-            itype, idx = self.id_to_index[group_op_id]
-            if itype == 'primitive':
-                group = self.primitives[idx][1]
-                group.position = new_group_pos
-                group.rotation = new_group_rot
-                group.scale = new_group_scale
-
-        for (mid, pos, rot, scale) in new_states:
-            if mid in self.id_to_index:
-                itype, midx = self.id_to_index[mid]
-                if itype == 'primitive':
-                    mem = self.primitives[midx][1]
-                    mem.position = pos
-                    mem.rotation = rot
-                    mem.scale = scale
-
-    def add_operation(self, operation_type, *args, ui_name=None, forced_op_id=None):
+    def change_primitive_type(self, node_id: str, new_type: str, new_size_or_radius=None, **kwargs) -> bool:
         """
-        Add an operation. Accepts forced_op_id so undo/redo can recreate the same id.
+        Change a primitive's type in-place (keeps the node_id stable).
+        Registers an undo/redo entry that restores the previous state and re-applies the new state.
         """
-        op_id = forced_op_id or f"d{self.next_id}"
-
-        # Ensure uniqueness before adding
-        self._ensure_op_id_unique(op_id)
-
-        operation = SDFOperation(operation_type, *args, ui_name=ui_name)
-        self.operations.append((op_id, operation))
-        self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
-
-        if not forced_op_id:
-            self.next_id += 1
-
-        # Register undo/redo for operations
-        redo_kwargs = {'forced_op_id': op_id}
-        self.glob_history.add(
-            self._undo_operation_delete,
-            self._redo_operation_add,
-            (op_id, operation_type, copy.deepcopy(args), copy.deepcopy(ui_name)),
-            (copy.deepcopy(operation_type), copy.deepcopy(args), copy.deepcopy(ui_name)),
-            {},
-            redo_kwargs
-        )
-
-        return op_id
-
-    def sunion(self, d_a, d_b, k=0.05, ui_name=None):
-        return self.add_operation("sunion", d_a, d_b, k, ui_name=ui_name)
-
-    def ssub(self, d_a, d_b, k=0.05, ui_name=None):
-        return self.add_operation("ssub", d_a, d_b, k, ui_name=ui_name)
-
-    def sinter(self, d_a, d_b, k=0.05, ui_name=None):
-        return self.add_operation("sinter", d_a, d_b, k, ui_name=ui_name)
-
-    def mix(self, d_a, d_b, k=0.5, ui_name=None):
-        return self.add_operation("mix", d_a, d_b, k, ui_name=ui_name)
-
-    def invert(self, d_a, ui_name=None):
-        return self.add_operation("invert", d_a, ui_name=ui_name)
-
-    def sub(self, d_a, d_b, ui_name=None):
-        return self.add_operation("sub", d_a, d_b, ui_name=ui_name)
-
-    def union(self, d_a, d_b, ui_name=None):
-        return self.add_operation("union", d_a, d_b, ui_name=ui_name)
-
-    def inter(self, d_a, d_b, ui_name=None):
-        return self.add_operation("inter", d_a, d_b, ui_name=ui_name)
-
-    def xor(self, d_a, d_b, ui_name=None):
-        return self.add_operation("xor", d_a, d_b, ui_name=ui_name)
-
-    def round(self, d_a, radius, ui_name=None):
-        return self.add_operation("round", d_a, radius, ui_name=ui_name)
-
-    def onion(self, d_a, thickness, ui_name=None):
-        return self.add_operation("onion", d_a, thickness, ui_name=ui_name)
-    
-    def snoiseDisp(self, d_a, thickness, ui_name=None):
-        return self.add_operation("snoiseDisp", d_a, thickness, ui_name=ui_name)
-    
-
-    def _ensure_op_id_unique(self, op_id):
-        """Remove any duplicate op_id from primitives or operations before adding new one."""
-        # Remove from primitives
-        self.primitives = [(pid, prim) for pid, prim in self.primitives if pid != op_id]
-
-        # Remove from operations
-        self.operations = [(oid, op) for oid, op in self.operations if oid != op_id]
-
-        # Remove from mapping
-        if op_id in self.id_to_index:
-            del self.id_to_index[op_id]
-
-        # Update all indices after removal
-        for i, (pid, _) in enumerate(self.primitives):
-            self.id_to_index[pid] = ('primitive', i)
-        for i, (oid, _) in enumerate(self.operations):
-            self.id_to_index[oid] = ('operation', i)
-
-    def add_pointer(self, position=(0.0, 0.0, 0.0), func='pointer_identity', ui_name=None, color=None, forced_op_id=None, **kwargs):
-        """
-        Add a pointer primitive. `func` is the name of a GLSL function in the sdf library
-        that takes (vec3 p, vec3 pos) and returns vec3 p (transformed).
-        """
-        # Store the chosen function name in kwargs so it will be serialized
-        kwargs = dict(kwargs) if kwargs else {}
-        kwargs['func'] = func
-        op_id = self.add_primitive("pointer", position, [0.0, 0.0, 0.0], rotation=None, scale=None, ui_name=ui_name or "Pointer", color=color, forced_op_id=forced_op_id, **kwargs)
-        return op_id
-
-
-
-    def _undo_operation_delete(self, op_id, operation_type, args, ui_name):
-        """Helper to restore a deleted operation (used by history)."""
-        # Make sure this op_id will be unique (remove any current duplicates)
-        self._ensure_op_id_unique(op_id)
-        self.operations.append((op_id, SDFOperation(operation_type, *args, ui_name=ui_name)))
-        self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
-
-    def _redo_operation_add(self, operation_type, args, ui_name, forced_op_id=None):
-        """Helper to add an operation for redo (preserve op id if provided)."""
-        return self.add_operation(operation_type, *args, ui_name=ui_name, forced_op_id=forced_op_id)
-
-    def delete_item(self, op_id):
-        """Delete a primitive, group or operation by its ID, with full undo support."""
-        if op_id not in self.id_to_index:
+        node = self.get_node(node_id)
+        if not node or node.node_type != 'primitive':
             return False
 
-        item_type, index = self.id_to_index[op_id]
+        prim = node.item_data
+        # Save old state snapshot
+        old_state = prim.to_dict()
 
-        # Save state of the item being deleted
-        deleted_item_state = self._save_item_state(op_id)
+        # Compute new state (apply changes to a copy)
+        new_state = old_state.copy()
+        new_state['primitive_type'] = new_type
 
-        # Get all dependent items BEFORE deletion
-        dependent_ops = self._get_all_dependent_items(op_id)
-        dependent_states = [self._save_item_state(dep_id) for dep_id in dependent_ops]
-        dependent_states = [s for s in dependent_states if s is not None]
-
-        if item_type == 'primitive':
-            primitive = self.primitives[index][1]
-            # If deleting a group, unmark its members so they will be emitted again
-            if primitive.primitive_type == 'group':
-                members = primitive.kwargs.get('members', [])
-                for mid in members:
-                    if mid in self.id_to_index:
-                        mtype, midx = self.id_to_index[mid]
-                        if mtype == 'primitive':
-                            try:
-                                self.primitives[midx][1].kwargs.pop('grouped', None)
-                            except Exception:
-                                pass
-
-            # Remove the primitive
-            del self.primitives[index]
-            # Update indices for all primitives after this one
-            for i in range(index, len(self.primitives)):
-                prim_op_id = self.primitives[i][0]
-                self.id_to_index[prim_op_id] = ('primitive', i)
+        # Normalize size_or_radius into list/appropriate form
+        if new_size_or_radius is not None:
+            new_state['size_or_radius'] = new_size_or_radius
         else:
-            # Remove the operation
-            del self.operations[index]
-            # Update indices for all operations after this one
-            for i in range(index, len(self.operations)):
-                op_op_id = self.operations[i][0]
-                self.id_to_index[op_op_id] = ('operation', i)
+            # sensible defaults for common types
+            default_map = {
+                'box': [0.5, 0.5, 0.5],
+                'round_box': [0.5, 0.5, 0.5],
+                'sphere': [0.5],
+                'torus': [0.5, 0.25],
+                'cone': [0.5],
+                'plane': [1.0],
+                'hex_prism': [0.5, 0.5],
+                'vertical_capsule': [1.0, 0.3],
+                'capped_cylinder': [0.3, 1.0],
+                'rounded_cylinder': [0.3, 0.3],
+            }
+            new_state['size_or_radius'] = default_map.get(new_type, old_state.get('size_or_radius', []))
 
-        # Remove from mapping
-        if op_id in self.id_to_index:
-            del self.id_to_index[op_id]
+        # Update kwargs if provided
+        new_kwargs = dict(old_state.get('kwargs', {}))
+        if kwargs:
+            new_kwargs.update(kwargs)
+        new_state['kwargs'] = new_kwargs
 
-        # Remove any operations that depend on this deleted item
-        for dep_id in dependent_ops:
-            if dep_id in self.id_to_index:
-                dep_item_type, dep_index = self.id_to_index[dep_id]
-                if dep_item_type == 'operation':
-                    # Find exact tuple index in operations list for this dep_id
-                    for i, (oid, _) in enumerate(self.operations):
-                        if oid == dep_id:
-                            del self.operations[i]
-                            # Update indices
-                            for j in range(i, len(self.operations)):
-                                op_op_id = self.operations[j][0]
-                                self.id_to_index[op_op_id] = ('operation', j)
-                            break
-                if dep_id in self.id_to_index:
-                    del self.id_to_index[dep_id]
+        # Immediately apply the new state (live)
+        applied = self._apply_primitive_state(node_id, new_state)
+        if not applied:
+            return False
 
-        # Register undo/redo for the deletion (restores dependents and item)
+        # Register undo/redo using the internal apply helper (so undo/redo won't add additional history)
         self.glob_history.add(
-            self._undo_delete_with_dependents,
-            self._redo_delete_with_dependents,
-            (deleted_item_state, dependent_states),
-            (op_id,),
+            self._apply_primitive_state,   # undo: apply old state
+            self._apply_primitive_state,   # redo: apply new state
+            (node_id, old_state),
+            (node_id, new_state),
             {},
             {}
         )
 
+        self.invalidate_cache()
         return True
 
 
 
-    def _insert_primitive_at(self, index, op_id, primitive):
-        # clamp index
-        if index < 0:
-            index = 0
-        if index > len(self.primitives):
-            index = len(self.primitives)
-        self.primitives.insert(index, (op_id, primitive))
-        # update id mapping for primitives
-        for i, (pid, _) in enumerate(self.primitives):
-            self.id_to_index[pid] = ('primitive', i)
+    def _alloc_id(self) -> str:
+        """Allocate a new unique ID like d0, d1, ... and increment next_id."""
+        op_id = f"d{self.next_id}"
+        self.next_id += 1
+        while op_id in self.scene_nodes:
+            op_id = f"d{self.next_id}"
+            self.next_id += 1
+        return op_id
 
-    def _insert_operation_at(self, index, op_id, operation):
-        # clamp index
-        if index < 0:
-            index = 0
-        if index > len(self.operations):
-            index = len(self.operations)
-        self.operations.insert(index, (op_id, operation))
-        # update id mapping for operations
-        for i, (oid, _) in enumerate(self.operations):
-            self.id_to_index[oid] = ('operation', i)
+    def _ensure_op_id_unique(self, op_id: str) -> str:
+        """
+        Ensure a requested op_id is unique. If it's already present, return a fresh id.
+        Do NOT delete existing nodes here.
+        """
+        if op_id in self.scene_nodes:
+            return self._alloc_id()
+        return op_id
 
-    def _undo_delete_with_dependents(self, deleted_item_state, dependent_states):
-        """Restore a deleted item and all its dependent operations at their original indices."""
-        if deleted_item_state is None:
+    def _delete_subtree_no_history(self, node_id: str):
+        """Delete a node and all descendants without recording history (internal helper)."""
+        if node_id not in self.scene_nodes:
             return
+        all_to_delete = [node_id] + self.get_all_children_recursive(node_id)
+        for cid in all_to_delete:
+            if cid in self.scene_nodes:
+                # remove reference from parent if present
+                parent = self.get_parent(cid)
+                if parent and cid in parent.children:
+                    parent.remove_child(cid)
+                if cid in self.root_children:
+                    try:
+                        self.root_children.remove(cid)
+                    except ValueError:
+                        pass
+                # delete maps
+                if cid in self.scene_nodes:
+                    del self.scene_nodes[cid]
+                if cid in self.id_to_node:
+                    del self.id_to_node[cid]
 
-        # Restore the main item at its original index (if present)
-        item = deleted_item_state
-        op_id = item['op_id']
-        original_index = item.get('index', None)
-
-        # Ensure uniqueness before restoring
-        self._ensure_op_id_unique(op_id)
-
-        if item['type'] == 'primitive':
-            prim_dict = item['data']
-            primitive = SDFPrimitive(
-                self.selected_item_id,
-                primitive_type=prim_dict["primitive_type"],
-                position=prim_dict["position"],
-                size_or_radius=prim_dict["size_or_radius"],
-                rotation=prim_dict.get("rotation", [0.0, 0.0, 0.0]),
-                scale=prim_dict.get("scale", [1.0, 1.0, 1.0]),
-                ui_name=prim_dict.get("ui_name"),
-                color=prim_dict.get("color", [0.8, 0.6, 0.4]),
-                **prim_dict.get("kwargs", {})
-            )
-            # insert at saved index if available
-            if original_index is None:
-                self.primitives.append((op_id, primitive))
-                self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
-            else:
-                self._insert_primitive_at(original_index, op_id, primitive)
-        else:
-            op_dict = item['data']
-            operation = SDFOperation(
-                op_dict["operation_type"],
-                *op_dict["args"],
-                ui_name=op_dict.get("ui_name")
-            )
-            if op_dict.get("smooth_k") is not None:
-                operation.smooth_k = op_dict["smooth_k"]
-            if original_index is None:
-                self.operations.append((op_id, operation))
-                self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
-            else:
-                self._insert_operation_at(original_index, op_id, operation)
-
-        # Restore dependent operations at their saved indices.
-        # Skip invalid/null dependent states; sort by index ascending so insertion doesn't invalidate later indices.
-        valid_dep_states = [s for s in (dependent_states or []) if s]
-        # Filter for operation-type states only (dependents are operations)
-        valid_dep_states = [s for s in valid_dep_states if s.get('type') == 'operation']
-        # sort by their original index (missing index -> large number -> appended at end)
-        def dep_index_key(s):
-            try:
-                return s.get('index', 10**9)
-            except Exception:
-                return 10**9
-        valid_dep_states.sort(key=dep_index_key)
-
-        for dep_state in valid_dep_states:
-            dep_id = dep_state['op_id']
-            # ensure uniqueness
-            self._ensure_op_id_unique(dep_id)
-            op_dict = dep_state['data']
-            operation = SDFOperation(
-                op_dict["operation_type"],
-                *op_dict["args"],
-                ui_name=op_dict.get("ui_name")
-            )
-            if op_dict.get("smooth_k") is not None:
-                operation.smooth_k = op_dict["smooth_k"]
-            dep_index = dep_state.get('index', None)
-            if dep_index is None:
-                # append at end
-                self.operations.append((dep_id, operation))
-                self.id_to_index[dep_id] = ('operation', len(self.operations) - 1)
-            else:
-                self._insert_operation_at(dep_index, dep_id, operation)
-
-        # Recompute next_id to avoid future duplicates
-        all_ids = [int(op_id[1:]) for op_id, _ in (self.primitives + self.operations) if op_id.startswith('d')]
-        if all_ids:
-            self.next_id = max(all_ids) + 1
-
-    def _redo_delete_with_dependents(self, op_id):
-        """Redo deletion of an item and all its dependents."""
-        self.delete_item(op_id)
-
-    # ---- Property change helpers ----
-    def _set_primitive_property(self, op_id, property_name, value):
-        """Set primitive property without recording history (used by undo/redo)."""
-        if op_id not in self.id_to_index:
-            return False
-
-        item_type, index = self.id_to_index[op_id]
-        if item_type != 'primitive':
-            return False
-
-        primitive = self.primitives[index][1]
-
-        if property_name == 'position':
-            primitive.position = list(value)
-        elif property_name == 'size_or_radius':
-            primitive.size_or_radius = list(value) if isinstance(value, (list, tuple)) else [value]
-        elif property_name == 'rotation':
-            primitive.rotation = list(value)
-        elif property_name == 'scale':
-            primitive.scale = list(value)
-        elif property_name == 'color':
-            primitive.color = list(value)
-        elif property_name.startswith('kwargs.'):
-            kwarg_name = property_name[7:]
-            primitive.kwargs[kwarg_name] = value
-        return True
-
-    def modify_primitive_property(self, op_id, property_name, old_value, new_value):
-        """Track modifications to primitive properties for undo/redo."""
-        if op_id not in self.id_to_index:
-            return False
-
-        item_type, index = self.id_to_index[op_id]
-        if item_type != 'primitive':
-            return False
-
-        # Register the modification in history
-        self.glob_history.add(
-            self._undo_property_change,
-            self._redo_property_change,
-            (op_id, property_name, copy.deepcopy(old_value)),
-            (op_id, property_name, copy.deepcopy(new_value)),
-            {},
-            {}
-        )
-
-        # Apply the new value without creating another history entry
-        return self._set_primitive_property(op_id, property_name, new_value)
-
-    def _undo_property_change(self, op_id, property_name, old_value):
-        """Restore old property value (without creating history)."""
-        self._set_primitive_property(op_id, property_name, old_value)
-
-    def _redo_property_change(self, op_id, property_name, new_value):
-        """Reapply property change (without creating history)."""
-        self._set_primitive_property(op_id, property_name, new_value)
-
-    def _set_operation_parameter(self, op_id, param_name, value):
-        """Set operation parameter without recording history (used by undo/redo)."""
-        if op_id not in self.id_to_index:
-            return False
-
-        item_type, index = self.id_to_index[op_id]
-        if item_type != 'operation':
-            return False
-
-        operation = self.operations[index][1]
-
-        if param_name == 'smooth_k':
-            operation.smooth_k = value
-            if len(operation.args) >= 3:
-                operation.args[2] = value
-        elif param_name == 'float_param':
-            operation.float_param = value
-            if len(operation.args) >= 2:
-                operation.args[1] = value
-        elif param_name.startswith('args['):
-            # Handle args like "args[0]", "args[1]", etc.
-            arg_index = int(param_name.split('[')[1].split(']')[0])
-            if arg_index < len(operation.args):
-                operation.args[arg_index] = value
-        return True
-
-    def modify_operation_parameter(self, op_id, param_name, old_value, new_value):
-        """Track modifications to operation parameters for undo/redo."""
-        if op_id not in self.id_to_index:
-            return False
-
-        item_type, index = self.id_to_index[op_id]
-        if item_type != 'operation':
-            return False
-
-        self.glob_history.add(
-            self._undo_op_param_change,
-            self._redo_op_param_change,
-            (op_id, param_name, copy.deepcopy(old_value)),
-            (op_id, param_name, copy.deepcopy(new_value)),
-            {},
-            {}
-        )
-
-        # Apply the new value without creating another history entry
-        return self._set_operation_parameter(op_id, param_name, new_value)
-
-    def _undo_op_param_change(self, op_id, param_name, old_value):
-        """Restore old operation parameter value (without creating history)."""
-        self._set_operation_parameter(op_id, param_name, old_value)
-
-    def _redo_op_param_change(self, op_id, param_name, new_value):
-        """Reapply operation parameter change (without creating history)."""
-        self._set_operation_parameter(op_id, param_name, new_value)
-
-
-
-    def _move_item_no_history(self, op_id, new_index):
-        """Move an existing item to new_index within its list without creating a history entry.
-
-        For primitives the behavior is unchanged.
-
-        For operations we allow the move but then sanitize operation arguments:
-        - After the move we ensure every operation's operand references only items
-        that come earlier in the combined order (primitives then operations).
-        - If an operand would refer to an item that comes later (i.e. becomes invalid),
-        we replace it with the nearest higher-level item (the nearest item that
-        appears before the operation in the combined ordering). If none exists we
-        leave the argument unchanged (usually only happens in degenerate scenes).
+    def change_node_to_operation(self, node_id: str, operation_type: str, auto_primitive_type: str = 'box') -> bool:
         """
-        if op_id not in self.id_to_index:
+        Convert a primitive node into an operation node IN-PLACE (keeps node_id).
+        The original primitive becomes the first operand (moved into a newly-created child).
+        Additional operand primitives are created automatically.
+        Registers undo/redo by saving the subtree before/after conversion.
+        """
+        node = self.get_node(node_id)
+        if not node:
             return False
 
-        item_type, old_index = self.id_to_index[op_id]
+        # Save state for undo
+        old_state = self._save_node_tree_state(node_id)
 
-        if item_type == 'primitive':
-            item = self.primitives.pop(old_index)
-            # clamp
-            new_index = max(0, min(new_index, len(self.primitives)))
-            self.primitives.insert(new_index, item)
-            # update indices
-            for i, (pid, _) in enumerate(self.primitives):
-                self.id_to_index[pid] = ('primitive', i)
+        # If node is already an operation, simply update its type & return
+        if node.node_type == 'operation':
+            node.item_data.operation_type = operation_type
+            self.invalidate_cache()
             return True
 
-        # --- Operation move ---
-        # Allow insertion positions from 0..len(self.operations)
-        desired_new_index = max(0, min(new_index, len(self.operations)))
-
-        # Remove the item from the list
-        item = self.operations.pop(old_index)
-
-        # Adjust insertion index because the list is now shorter if removing an earlier element
-        insert_index = desired_new_index
-        if insert_index > old_index:
-            insert_index -= 1
-
-        # Clamp final insertion index
-        insert_index = max(0, min(insert_index, len(self.operations)))
-        # Insert
-        self.operations.insert(insert_index, item)
-
-        # Update id mapping for operations (and keep primitives mapping as-is)
-        for i, (oid, _) in enumerate(self.operations):
-            self.id_to_index[oid] = ('operation', i)
-
-        # --- Sanitize operands so every operation only references items declared earlier ---
-        # Build combined order: primitives first, then operations (their current order)
-        combined = []
-        for pid, _ in self.primitives:
-            combined.append(pid)
-        for oid, _ in self.operations:
-            combined.append(oid)
-
-        combined_index = {opid: idx for idx, opid in enumerate(combined)}
-
-        # Helper: find nearest valid prior item id (< limit_idx), returns None if none
-        def find_nearest_prior(limit_idx):
-            for k in range(limit_idx - 1, -1, -1):
-                return combined[k]
-            return None
-
-        # Iterate through operations and fix arguments that point to items that come
-        # at or after the operation itself (invalid).
-        for op_idx, (cur_op_id, cur_op) in enumerate(self.operations):
-            # compute combined index of this operation
-            if cur_op_id not in combined_index:
-                continue
-            cur_combined_idx = combined_index[cur_op_id]
-
-            new_args = []
-            changed = False
-            for arg in cur_op.args:
-                # Only adjust string references that exist in combined_index
-                if isinstance(arg, str) and arg in combined_index:
-                    arg_combined_idx = combined_index[arg]
-                    if arg_combined_idx >= cur_combined_idx:
-                        # invalid reference: pick the nearest prior item
-                        replacement = find_nearest_prior(cur_combined_idx)
-                        if replacement is not None and replacement != arg:
-                            new_args.append(replacement)
-                            changed = True
-                            continue
-                        # if no valid prior found, fall through and keep original arg (degenerate case)
-                new_args.append(arg)
-
-            if changed:
-                # apply sanitized args (no history recorded here)
-                cur_op.args = new_args
-
-        # After possibly changing args, done. id_to_index already updated.
-        return True
-
-    def move_item(self, op_id, new_index):
-        """
-        Public API to move an item within its section (primitives or operations).
-        Records undo/redo so the action can be reverted.
-        """
-        if op_id not in self.id_to_index:
+        # node is primitive: preserve its SDFPrimitive as first child
+        if node.node_type != 'primitive':
             return False
 
-        item_type, old_index = self.id_to_index[op_id]
+        old_prim = node.item_data
 
-        # Record undo/redo entries that call the same low-level move (no-history).
+        # Create operand ids (keep count according to operation type)
+        operand_count = self._get_operand_count(operation_type)
+        operand_ids = [self._alloc_id() for _ in range(operand_count)]
+
+        # Create new child nodes: move old primitive into operand_ids[0]
+        child_nodes = []
+
+        for i, oid in enumerate(operand_ids):
+            if i == 0:
+                # reuse the existing primitive object as child
+                prim = old_prim
+            else:
+                # create default primitives for remaining operands
+                prim = SDFPrimitive(self.selected_item_id, auto_primitive_type, [1.0 * i, 0.0, 0.0], 0.5, ui_name=f"{auto_primitive_type.title()} {i+1}")
+            prim_node = SceneNode('primitive', oid, prim, parent_id=node_id)
+            self.scene_nodes[oid] = prim_node
+            self.id_to_node[oid] = prim_node
+            child_nodes.append(oid)
+
+        # Replace the current node to be an operation
+        operation = SDFOperation(operation_type, *operand_ids, ui_name=operation_type)
+        node.node_type = 'operation'
+        node.item_data = operation
+        node.children = child_nodes
+        # ensure old primitive is no longer referenced as a root child
+        if node_id in self.root_children:
+            # node remains root; children are nested under it
+            pass
+
+        new_state = self._save_node_tree_state(node_id)
+
+        # Register undo/redo: on undo restore old_state, on redo restore new_state
+        def _do_restore(state):
+            nid = state['node_id']
+            # remove existing subtree
+            self._delete_subtree_no_history(nid)
+            self._restore_node_tree(state)
+
         self.glob_history.add(
-            self._move_item_no_history,  # undo: move back
-            self._move_item_no_history,  # redo: move to new_index again
-            (op_id, old_index),
-            (op_id, new_index),
+            _do_restore,  # undo: restore old_state
+            _do_restore,  # redo: restore new_state (we will pass new_state as redo args)
+            (old_state,),
+            (new_state,),
             {},
             {}
         )
 
-        # Apply the move
-        return self._move_item_no_history(op_id, new_index)
+        self.invalidate_cache()
+        return True
 
-
-
-
-
-
-    # --- Remaining methods unchanged (but included for completeness) ---
-    def get_all_items(self):
-        """Get all items in order: primitives then operations."""
-        return self.primitives + self.operations
-
-    def get_valid_operands(self, current_op_id):
-        """Get all valid operands for an operation (excluding itself and operations that reference it)."""
-        all_items = self.get_all_items()
-        valid_items = []
-
-        # Find the index of current operation
-        current_index = -1
-        for idx, (item_id, _) in enumerate(all_items):
-            if item_id == current_op_id:
-                current_index = idx
-                break
-
-        # Only allow items that come before the current operation
-        for idx, item in enumerate(all_items):
-            if idx < current_index:
-                valid_items.append(item)
-
-        return valid_items
-
-    def get_item_name(self, op_id):
-        """Get the display name of an item."""
-        if op_id not in self.id_to_index:
-            return op_id
-
-        item_type, index = self.id_to_index[op_id]
-        if item_type == 'primitive':
-            return self.primitives[index][1].ui_name
-        else:
-            return self.operations[index][1].ui_name
-
-    def generate_raymarch_code(self):
+    def change_node_to_primitive(self, node_id: str, primitive_type: str = 'box', position=None, size_or_radius=None, rotation=None, scale=None, color=None, **kwargs) -> bool:
         """
-        Generate the GLSL code for the entire scene.
-        Groups are expanded in-place (they union their member primitives and
-        include any operations that only reference members of the group).
+        Convert an operation node (and its children) into a single primitive node IN-PLACE.
+        The operation's subtree is deleted; the node becomes a primitive with supplied parameters.
+        Undo/redo is registered by saving the old subtree and the new subtree.
+        """
+        node = self.get_node(node_id)
+        if not node:
+            return False
+
+        old_state = self._save_node_tree_state(node_id)
+
+        # If already primitive, update its type/params
+        if node.node_type == 'primitive':
+            prim = node.item_data
+            prim.primitive_type = primitive_type
+            if position is not None:
+                prim.position = list(position)
+            if size_or_radius is not None:
+                prim.size_or_radius = size_or_radius
+            if rotation is not None:
+                prim.rotation = rotation
+            if scale is not None:
+                prim.scale = scale
+            if color is not None:
+                prim.color = color
+            if kwargs:
+                prim.kwargs.update(kwargs)
+
+            new_state = self._save_node_tree_state(node_id)
+
+            def _do_restore(state):
+                nid = state['node_id']
+                self._delete_subtree_no_history(nid)
+                self._restore_node_tree(state)
+
+            self.glob_history.add(_do_restore, _do_restore, (old_state,), (new_state,), {}, {})
+            self.invalidate_cache()
+            return True
+
+        # node is operation: delete its children and replace with a primitive
+        # Remove children nodes
+        child_ids = list(node.children)
+        for cid in child_ids:
+            self._delete_subtree_no_history(cid)
+
+        # Replace with new primitive
+        pos = position or [0.0, 0.0, 0.0]
+        s_or_r = size_or_radius if size_or_radius is not None else (0.5 if primitive_type != 'box' else [0.5,0.5,0.5])
+        prim = SDFPrimitive(self.selected_item_id, primitive_type, pos, s_or_r, rotation or [0.0,0.0,0.0], scale or [1.0,1.0,1.0], ui_name=primitive_type, color=color or [0.8,0.6,0.4], **(kwargs or {}))
+        node.node_type = 'primitive'
+        node.item_data = prim
+        node.children = []
+
+        new_state = self._save_node_tree_state(node_id)
+
+        def _do_restore(state):
+            nid = state['node_id']
+            self._delete_subtree_no_history(nid)
+            self._restore_node_tree(state)
+
+        self.glob_history.add(_do_restore, _do_restore, (old_state,), (new_state,), {}, {})
+
+        self.invalidate_cache()
+        return True
+
+
+
+
+
+    def update_selected_item_id(self, new_value):
+        """Update the selected item reference."""
+        self.selected_item_id = new_value
+    
+    # =====================================================================
+    # DELETION (CASCADE DELETE CHILDREN)
+    # =====================================================================
+    
+    def delete_node(self, node_id: str) -> bool:
+        """
+        Delete a node and all its descendants.
+        
+        Unlike the old system, deleting an operation automatically deletes
+        all its primitive children. This enforces the tree constraint.
+        
+        Args:
+            node_id: ID of node to delete
+        
+        Returns:
+            True if successful
+        """
+        if node_id not in self.scene_nodes:
+            return False
+        
+        node = self.scene_nodes[node_id]
+        
+        # Save entire subtree for undo
+        deleted_state = self._save_node_tree_state(node_id)
+        
+        # Delete all descendants
+        all_to_delete = [node_id] + self.get_all_children_recursive(node_id)
+        for child_id in all_to_delete:
+            self._delete_node_no_history(child_id)
+        
+        # Remove from parent's children
+        if node.parent_id:
+            parent = self.get_node(node.parent_id)
+            if parent:
+                parent.remove_child(node_id)
+        
+        # Remove from root if necessary
+        if node_id in self.root_children:
+            self.root_children.remove(node_id)
+        
+        # Register undo/redo
+        self.glob_history.add(
+            self._restore_node_tree,
+            self.delete_node,
+            (deleted_state,),
+            (node_id,),
+            {},
+            {}
+        )
+        
+        self.invalidate_cache()
+        return True
+    
+    def _delete_node_no_history(self, node_id: str):
+        """Internal delete without undo (used by cascade delete)."""
+        if node_id in self.scene_nodes:
+            del self.scene_nodes[node_id]
+        if node_id in self.id_to_node:
+            del self.id_to_node[node_id]
+    
+    # =====================================================================
+    # SERIALIZATION (for undo/redo and file save/load)
+    # =====================================================================
+    
+    def _save_node_tree_state(self, node_id: str) -> Optional[Dict]:
+        """
+        Save a node and all its descendants to a dictionary for undo.
+        
+        Returns:
+            Dictionary representing the entire subtree, or None
+        """
+        node = self.get_node(node_id)
+        if not node:
+            return None
+        
+        state = {
+            'node_id': node_id,
+            'node_type': node.node_type,
+            'item_data': node.item_data.to_dict(),
+            'parent_id': node.parent_id,
+            'children': []
+        }
+        
+        # Recursively save children
+        for child_id in node.children:
+            child_state = self._save_node_tree_state(child_id)
+            if child_state:
+                state['children'].append(child_state)
+        
+        return state
+    
+    def _restore_node_tree(self, node_tree_state: Dict):
+        """
+        Restore a saved node tree (used by undo).
+        
+        Args:
+            node_tree_state: Dictionary from _save_node_tree_state
+        """
+        if not node_tree_state:
+            return
+        
+        def restore_recursive(state, parent_id=None):
+            """Recursively restore nodes."""
+            node_id = state['node_id']
+            node_type = state['node_type']
+            item_data_dict = state['item_data']
+            
+            # Reconstruct the data object
+            if node_type == 'primitive':
+                item_data = SDFPrimitive(
+                    self.selected_item_id,
+                    primitive_type=item_data_dict['primitive_type'],
+                    position=item_data_dict['position'],
+                    size_or_radius=item_data_dict['size_or_radius'],
+                    rotation=item_data_dict.get('rotation'),
+                    scale=item_data_dict.get('scale'),
+                    ui_name=item_data_dict.get('ui_name'),
+                    color=item_data_dict.get('color'),
+                    **item_data_dict.get('kwargs', {})
+                )
+            else:  # operation
+                item_data = SDFOperation(
+                    item_data_dict['operation_type'],
+                    *item_data_dict['args'],
+                    ui_name=item_data_dict.get('ui_name')
+                )
+                # Restore smooth_k if present
+                if item_data_dict.get('smooth_k') is not None:
+                    item_data.smooth_k = item_data_dict['smooth_k']
+            
+            # Create node
+            node = SceneNode(node_type, node_id, item_data, parent_id=parent_id)
+            self.scene_nodes[node_id] = node
+            self.id_to_node[node_id] = node
+            
+            # Recursively restore children
+            for child_state in state.get('children', []):
+                child_id = restore_recursive(child_state, parent_id=node_id)
+                node.children.append(child_id)
+            
+            return node_id
+        
+        # Restore the tree
+        root_id = restore_recursive(node_tree_state)
+        
+        # If this is a root node being restored, add it back to root
+        if root_id and root_id not in self.root_children:
+            self.root_children.append(root_id)
+    
+    def to_dict(self) -> Dict:
+        """
+        Serialize entire scene to dictionary for JSON save.
+        
+        Returns:
+            Dictionary with 'next_id', 'root_children', 'nodes'
+        """
+        scene_dict = {
+            'next_id': self.next_id,
+            'root_children': self.root_children,
+            'nodes': {}
+        }
+        
+        # Serialize all nodes
+        for node_id, node in self.scene_nodes.items():
+            scene_dict['nodes'][node_id] = node.to_dict()
+        
+        return scene_dict
+    
+    def from_dict(self, scene_dict: Dict):
+        """
+        Load scene from dictionary (inverse of to_dict).
+        
+        Args:
+            scene_dict: Dictionary from to_dict() or JSON
+        """
+        # Clear current scene
+        self.scene_nodes.clear()
+        self.id_to_node.clear()
+        self.root_children.clear()
+        
+        # Restore basic properties
+        self.next_id = scene_dict.get('next_id', 0)
+        self.root_children = list(scene_dict.get('root_children', []))
+        
+        # Reconstruct all nodes
+        nodes_dict = scene_dict.get('nodes', {})
+        for node_id, node_data in nodes_dict.items():
+            self._reconstruct_node(node_id, node_data)
+        
+        self.invalidate_cache()
+    
+    def _reconstruct_node(self, node_id: str, node_data: Dict):
+        """
+        Reconstruct a single node from serialized data.
+        
+        Args:
+            node_id: ID of node
+            node_data: Serialized node data
+        """
+        node_type = node_data['node_type']
+        item_data_dict = node_data['item_data']
+        parent_id = node_data.get('parent_id')
+        children_ids = node_data.get('children', [])
+        
+        # Reconstruct the appropriate object type
+        if node_type == 'primitive':
+            item_data = SDFPrimitive(
+                self.selected_item_id,
+                primitive_type=item_data_dict['primitive_type'],
+                position=item_data_dict['position'],
+                size_or_radius=item_data_dict['size_or_radius'],
+                rotation=item_data_dict.get('rotation'),
+                scale=item_data_dict.get('scale'),
+                ui_name=item_data_dict.get('ui_name'),
+                color=item_data_dict.get('color'),
+                **item_data_dict.get('kwargs', {})
+            )
+        else:  # operation
+            item_data = SDFOperation(
+                item_data_dict['operation_type'],
+                *item_data_dict['args'],
+                ui_name=item_data_dict.get('ui_name')
+            )
+            # Restore smooth_k if present
+            if item_data_dict.get('smooth_k') is not None:
+                item_data.smooth_k = item_data_dict['smooth_k']
+        
+        # Create the node
+        node = SceneNode(node_type, node_id, item_data, parent_id=parent_id)
+        node.children = children_ids
+        
+        # Store in maps
+        self.scene_nodes[node_id] = node
+        self.id_to_node[node_id] = node
+    
+    # =====================================================================
+    # SHADER CODE GENERATION
+    # =====================================================================
+    
+    def generate_raymarch_code(self) -> str:
+        """
+        Generate GLSL code from the hierarchical scene tree.
+        
+        The natural tree structure ensures dependencies are satisfied:
+        - Children (operands) are emitted before parent (operation)
+        - No need to track "valid operands" or ordering constraints
+        
+        Returns:
+            GLSL code as string
         """
         scene_lines = []
-
-        # replacements: original_op_id (e.g. "d3") -> replacement_op_id (usually group id "d10")
-        # This is used to remap operation operands that referenced grouped primitives/ops.
-        replacements = {}
-
-        # Keep track of operations that have been folded into groups (so we skip them later)
-        folded_ops = set()
-
-        # Helper to append raw lines safely
-        def add_lines(s):
-            if s:
-                scene_lines.append(s)
-
-        # iterate primitives
-        for op_id, primitive in self.primitives:
-            # Skip primitives that were folded into groups (they are emitted by their group)
-            if primitive.kwargs.get('grouped', None) is not None:
-                continue
+        emitted_ids = set()
+        last_emitted_id = None
+        
+        def emit_node_code(node_id: str) -> str:
+            """
+            Recursively emit code for a node and its children.
             
-            primitive.update_selected_item_id(self.selected_item_id)
-            if primitive.primitive_type == 'group':
-                # Expand group: for each member, emit transform + sdf code under synthetic ids,
-                # then compute the group's final distance as the min() and take color of closest.
-                members = primitive.kwargs.get('members', [])
-                if not members:
-                    add_lines(f"float {op_id} = 1000.0;\n    vec3 col{op_id} = vec3(0.0);")
-                    continue
+            Returns:
+                The variable ID that represents this node's output
+            """
+            nonlocal last_emitted_id
+            
+            if node_id in emitted_ids:
+                return node_id
+            
+            node = self.get_node(node_id)
+            if not node:
+                return None
+            
+            # Emit all children first (they are operands)
+            child_ids = []
+            for child_id in node.children:
+                child_id_out = emit_node_code(child_id)
+                if child_id_out:
+                    child_ids.append(child_id_out)
+            
+            # Now emit this node
+            if node.node_type == 'primitive':
+                primitive = node.item_data
+                primitive.update_selected_item_id(self.selected_item_id)
+                
+                # Emit transform code
+                transform_code = primitive.generate_transform_code(node_id)
+                if transform_code:
+                    scene_lines.append(transform_code)
+                
+                # Emit SDF code
+                sdf_code = primitive.generate_sdf_code(node_id)
+                if sdf_code:
+                    scene_lines.append(sdf_code)
+                
+                last_emitted_id = node_id
+            
+            elif node.node_type == 'operation':
+                operation = node.item_data
 
-                # Build mapping from original member id -> synthetic id
-                member_synth_ids = []
-                synth_map = {}  # original_id -> synthetic_id
-                member_index = 0
+                # Use child IDs as operands (they're already emitted)
+                # Determine minimum operand count (1 or 2) and skip if not enough children
+                required_ops = self._get_operand_count(operation.operation_type)
+                if len(child_ids) < required_ops:
+                    # Missing operands (e.g. child was deleted) — skip emitting this operation
+                    emitted_ids.add(node_id)
+                    last_emitted_id = node_id
+                    return node_id
 
-                for mid in members:
-                    if mid not in self.id_to_index:
-                        continue
-                    mtype, midx = self.id_to_index[mid]
-                    if mtype != 'primitive':
-                        continue
-                    mem = self.primitives[midx][1]
-                    synth_id = f"{op_id}_m{member_index}"
-                    member_index += 1
-                    member_synth_ids.append(synth_id)
-                    synth_map[mid] = synth_id
-
-                    # Emit transform & sdf for the synthetic id
-                    temp_prim = SDFPrimitive(
-                        self.selected_item_id,
-                        primitive_type=mem.primitive_type,
-                        position=copy.deepcopy(mem.position),
-                        size_or_radius=copy.deepcopy(mem.size_or_radius),
-                        rotation=copy.deepcopy(mem.rotation),
-                        scale=copy.deepcopy(mem.scale),
-                        ui_name=mem.ui_name,
-                        color=copy.deepcopy(mem.color),
-                        **copy.deepcopy(mem.kwargs)
-                    )
-                    add_lines(temp_prim.generate_transform_code(synth_id))
-                    sdf_code = temp_prim.generate_sdf_code(synth_id)
-                    if sdf_code:
-                        add_lines(sdf_code)
-
-                    # Map original member id -> group's op_id so external ops referring to the member
-                    # after grouping will know to use the group's result.
-                    replacements[mid] = op_id
-
-                # Collect operations that reference only members (all string args point inside members)
-                ops_to_fold = []
-                for orig_oid, op in self.operations:
-                    # collect referenced item ids from op.args
-                    referenced = [a for a in op.args if isinstance(a, str)]
-                    if not referenced:
-                        continue
-                    # if every referenced id is a group member, we can fold this op
-                    if all((r in members) for r in referenced):
-                        ops_to_fold.append((orig_oid, op))
-
-                # Emit folded operations in the group's scope using synthetic ids
-                folded_synth_ids = []
-                op_fold_index = 0
-                for orig_oid, op in ops_to_fold:
-                    # build remapped args: if arg refers to a member or a previously folded op, map it to the synthetic id
-                    remapped_args = []
-                    for a in op.args:
-                        if isinstance(a, str):
-                            if a in synth_map:
-                                remapped_args.append(synth_map[a])
-                            else:
-                                # if the arg is another folded operation we've already handled, map it
-                                if a in synth_map:
-                                    remapped_args.append(synth_map[a])
-                                else:
-                                    remapped_args.append(a)
+                # Build op_args: start with emitted child IDs (in order), then append any literal args
+                op_args = list(child_ids)
+                for arg in operation.args:
+                    if isinstance(arg, str):
+                        # If arg matches one of the child IDs, it's already included
+                        if arg in child_ids:
+                            continue
                         else:
-                            remapped_args.append(a)
+                            op_args.append(arg)
+                    else:
+                        op_args.append(arg)
 
-                    synth_op_id = f"{op_id}_op{op_fold_index}"
-                    op_fold_index += 1
-                    # Create a transient copy of operation with remapped args
-                    op_copy = SDFOperation(op.operation_type, *remapped_args, ui_name=op.ui_name)
-                    op_copy.smooth_k = getattr(op, "smooth_k", None)
-                    op_copy.float_param = getattr(op, "float_param", None)
+                # Some operations require an extra numeric parameter (smooth k, round param, etc.).
+                # Ensure those are present; prefer stored attributes like smooth_k if available.
+                if operation.operation_type in {'sunion', 'ssub', 'sinter', 'mix'}:
+                    # These templates expect (d_a, d_b, k)
+                    if len(op_args) < 3:
+                        default_k = getattr(operation, 'smooth_k', 0.1)
+                        op_args.append(default_k)
+                elif operation.operation_type in {'round', 'onion', 'snoiseDisp'}:
+                    # These templates expect (d_a, param)
+                    if len(op_args) < 2:
+                        default_param = getattr(operation, 'param', 0.1)
+                        op_args.append(default_param)
 
-                    # Emit operation code using synthetic id
-                    code = op_copy.generate_code(synth_op_id)
-                    add_lines(code)
+                # Reconstruct operation with resolved arguments (so generate_code sees correct ids/params)
+                op_copy = SDFOperation(
+                    operation.operation_type,
+                    *op_args,
+                    ui_name=operation.ui_name
+                )
+                # Preserve smooth_k if present on the original operation object
+                if hasattr(operation, 'smooth_k'):
+                    op_copy.smooth_k = operation.smooth_k
 
-                    # Register mapping: original operation id -> group id, so outer ops referencing orig_oid are remapped to group
-                    replacements[orig_oid] = op_id
-                    # Also make this operation's synthetic id available for subsequent folded ops
-                    synth_map[orig_oid] = synth_op_id
-                    folded_synth_ids.append(synth_op_id)
-                    folded_ops.add(orig_oid)
+                # Emit operation code
+                try:
+                    op_code = op_copy.generate_code(node_id)
+                    if op_code:
+                        scene_lines.append(op_code)
+                except Exception as e:
+                    # Defensive: if generation fails, skip this node but mark it emitted so we don't loop
+                    print(f"Warning: failed to generate code for operation {node_id}: {e}")
 
-                # Build final list of candidate outputs for the group's "result"
-                final_outputs = []
-                final_outputs.extend(member_synth_ids)
-                final_outputs.extend(folded_synth_ids)
-
-                # Create min-of final outputs and pick color of closest
-                if final_outputs:
-                    first = final_outputs[0]
-                    block = f"float d_{op_id} = {first};\n    vec3 c_{op_id} = col{first};"
-                    for fname in final_outputs[1:]:
-                        block += f"\n    if ({fname} < d_{op_id}) {{ d_{op_id} = {fname}; c_{op_id} = col{fname}; }}"
-                    block += f"\n    float {op_id} = d_{op_id};\n    vec3 col{op_id} = c_{op_id};"
-                    add_lines(block)
-                else:
-                    add_lines(f"float {op_id} = 1000.0;\n    vec3 col{op_id} = vec3(0.0);")
-
-            else:
-                # normal primitive
-                add_lines(primitive.generate_transform_code(op_id))
-                add_lines(primitive.generate_sdf_code(op_id))
-
-        # operations - remap arguments that point to grouped primitives or folded ops
-        for op_id, operation in self.operations:
-            # Skip operations that were folded into a group
-            if op_id in folded_ops:
-                continue
-
-            # Build remapped args for this operation (do not mutate original operation)
-            remapped_args = []
-            for a in operation.args:
-                if isinstance(a, str) and a in replacements:
-                    remapped_args.append(replacements[a])
-                else:
-                    remapped_args.append(a)
-
-            # Create transient operation copy with remapped args
-            op_copy = SDFOperation(operation.operation_type, *remapped_args, ui_name=operation.ui_name)
-            op_copy.smooth_k = getattr(operation, "smooth_k", None)
-            op_copy.float_param = getattr(operation, "float_param", None)
-
-            code = op_copy.generate_code(op_id)
-            scene_lines.append(code)
-
+                last_emitted_id = node_id
+                emitted_ids.add(node_id)
+                return node_id
+            
+            emitted_ids.add(node_id)
+            return node_id
+        
+        # Emit all root nodes
+        for root_id in self.root_children:
+            emit_node_code(root_id)
+        
+        # Build final shader code
         if scene_lines:
             scene_code = "\n    ".join(scene_lines)
-            # Determine last id used to construct the return
-            last_id = None
-            last_col_id = None
-            if self.operations:
-                # find last operation not folded (if last op folded then fallback)
-                for op_id, _ in reversed(self.operations):
-                    if op_id in folded_ops:
-                        continue
-                    last_id = op_id
-                    break
-            if last_id is None:
-                # find last non-grouped primitive
-                for op_id, prim in reversed(self.primitives):
-                    if prim.kwargs.get('grouped', None) is None or prim.primitive_type == 'group':
-                        last_id = op_id
-                        break
-
-            if last_id is None:
-                return "return vec4(0.0, 0.0, 0.0, 1000.0);"
-
-            last_col_id = f"col{last_id}"
-            scene_code += f"\n    return vec4({last_col_id}, {last_id});"
+            
+            # Find last emitted ID for return statement
+            if last_emitted_id:
+                scene_code += f"\n    return vec4(col{last_emitted_id}, {last_emitted_id});"
+            else:
+                scene_code += "\n    return vec4(0.0, 0.0, 0.0, 1000.0);"
+            
             return scene_code
         else:
             return "return vec4(0.0, 0.0, 0.0, 1000.0);"
-
-
-    def to_dict(self):
-        """Convert the entire scene to a dictionary for JSON serialization."""
-        scene_dict = {
-            "primitives": [],
-            "operations": [],
-            "sprites": []
-        }
-
-        # Serialize primitives
-        for op_id, primitive in self.primitives:
-            prim_dict = primitive.to_dict()
-            prim_dict["op_id"] = op_id
-            scene_dict["primitives"].append(prim_dict)
-
-        # Serialize operations
-        for op_id, operation in self.operations:
-            op_dict = operation.to_dict()
-            op_dict["op_id"] = op_id
-            scene_dict["operations"].append(op_dict)
-
-        # Serialize sprites if the global sprites_array exists
-        sprs = globals().get("sprites_array", None)
-        if sprs:
-            for spr in sprs:
-                # Use the Sprite.to_dict so we have a single canonical representation
-                scene_dict["sprites"].append(spr.to_dict())
-
-        return scene_dict
-
-    def from_dict(self, scene_dict):
-        """Load a scene from a dictionary (inverse of to_dict)."""
-        # Clear current scene
-        self.primitives.clear()
-        self.operations.clear()
-        self.id_to_index.clear()
-        self.next_id = 0
-
-        # Rebuild sprites_array first so sprite_index references in primitives are valid
-        global sprites_array
-        sprites_array = []
-        for s in scene_dict.get("sprites", []):
-            # Preserve sampler name if present; otherwise create a stable default name
-            sampler_name = s.get("SprTexture", f"sprTex{len(sprites_array)}")
-            # Read optional texture path (may be None)
-            texture_path = s.get("texture_path", None)
-
-            spr = Sprite(
-                planePoint=tuple(s.get("planePoint", (0.0, 0.0, 0.0))),
-                planeNormal=tuple(s.get("planeNormal", (0.0, 0.0, 1.0))),
-                planeWidth=float(s.get("planeWidth", 1.0)),
-                planeHeight=float(s.get("planeHeight", 1.0)),
-                SprTexture=sampler_name,
-                uvSize=tuple(s.get("uvSize", (1.0, 1.0))),
-                Alpha=float(s.get("Alpha", 1.0)),
-                LOD=float(s.get("LOD", 0.0))
-            )
-            # restore optional texture path and tex size (GL texture won't be loaded here)
-            spr.texture_path = texture_path
-            tex_size = s.get("tex_size", None)
-            if tex_size:
-                try:
-                    spr.tex_size = (int(tex_size[0]), int(tex_size[1]))
-                except Exception:
-                    spr.tex_size = (0, 0)
-
-            sprites_array.append(spr)
-
-        # Load primitives
-        for prim_dict in scene_dict.get("primitives", []):
-            op_id = prim_dict["op_id"]
-
-            # Normalize kwargs and make sprite_index an int if present
-            kwargs = dict(prim_dict.get("kwargs", {}))
-            if "sprite_index" in kwargs:
-                try:
-                    # Some JSON writers may have stored this as a string; cast to int
-                    kwargs["sprite_index"] = int(kwargs["sprite_index"])
-                except Exception:
-                    # If invalid, fallback to 0 (or None if you prefer)
-                    kwargs["sprite_index"] = 0
-
-            primitive = SDFPrimitive(
-                self.selected_item_id,
-                primitive_type=prim_dict["primitive_type"],
-                position=prim_dict["position"],
-                size_or_radius=prim_dict["size_or_radius"],
-                rotation=prim_dict.get("rotation", [0.0, 0.0, 0.0]),
-                scale=prim_dict.get("scale", [1.0, 1.0, 1.0]),
-                ui_name=prim_dict.get("ui_name"),
-                color=prim_dict.get("color", [0.8, 0.6, 0.4]),
-                **kwargs
-            )
-
-            # If this primitive is a sprite, ensure the sprite_index is valid (defensive)
-            if primitive.primitive_type == "sprite":
-                sprite_idx = primitive.kwargs.get("sprite_index", None)
-                if sprite_idx is None:
-                    # attempt to guess by sampler name if available (compatibility)
-                    spr_name = prim_dict.get("kwargs", {}).get("SprTexture", None)
-                    if spr_name:
-                        # find first matching sprite sampler
-                        found_idx = None
-                        for i, s in enumerate(sprites_array):
-                            if s.SprTexture == spr_name:
-                                found_idx = i
-                                break
-                        primitive.kwargs["sprite_index"] = found_idx if found_idx is not None else 0
-                    else:
-                        primitive.kwargs["sprite_index"] = 0
-                else:
-                    # clamp to valid range
-                    if not isinstance(sprite_idx, int) or sprite_idx < 0 or sprite_idx >= len(sprites_array):
-                        # out-of-range or invalid, clamp and warn
-                        primitive.kwargs["sprite_index"] = max(0, min(len(sprites_array) - 1, int(sprite_idx) if isinstance(sprite_idx, int) else 0))
-                        print(f"Warning: sprite_index for primitive {op_id} was invalid or out-of-range; clamped to {primitive.kwargs['sprite_index']}")
-
-            self.primitives.append((op_id, primitive))
-            self.id_to_index[op_id] = ('primitive', len(self.primitives) - 1)
-
-            # Update next_id
-            try:
-                prim_num = int(op_id[1:])  # Extract number from "d0", "d1", etc.
-                self.next_id = max(self.next_id, prim_num + 1)
-            except Exception:
-                pass
-
-        # Load operations (unchanged)
-        for op_dict in scene_dict.get("operations", []):
-            op_id = op_dict["op_id"]
-
-            operation = SDFOperation(
-                op_dict["operation_type"],     # Pass as positional first
-                *op_dict["args"],              # Then unpack the rest of the positional args
-                ui_name=op_dict.get("ui_name") # Finally, keyword arguments
-            )
-
-            # Restore smooth_k if it was set
-            if op_dict.get("smooth_k") is not None:
-                operation.smooth_k = op_dict["smooth_k"]
-
-            self.operations.append((op_id, operation))
-            self.id_to_index[op_id] = ('operation', len(self.operations) - 1)
-
-            # Update next_id
-            try:
-                op_num = int(op_id[1:])
-                self.next_id = max(self.next_id, op_num + 1)
-            except Exception:
-                pass
-        
     
-    def save_to_json(self, filepath):
-        # Save the scene to a JSON file.
-        try:
-            with open(filepath, 'w') as f:
-                json.dump(self.to_dict(), f, indent=2)
-            return True, f"Scene saved to {filepath}"
-        except Exception as e:
-            return False, f"Error saving scene: {str(e)}"
-
-    def load_from_json(self, filepath):
-        # Load a scene from a JSON file.
-        try:
-            with open(filepath, 'r') as f:
-                scene_dict = json.load(f)
-            self.from_dict(scene_dict)
-            return True, f"Scene loaded from {filepath}"
-        except FileNotFoundError:
-            return False, f"File not found: {filepath}"
-        except json.JSONDecodeError:
-            return False, f"Invalid JSON file: {filepath}"
-        except Exception as e:
-            return False, f"Error loading scene: {str(e)}"
+    # =====================================================================
+    # CACHING AND PERFORMANCE
+    # =====================================================================
+    
+    def invalidate_cache(self):
+        """Invalidate shader code cache when tree changes."""
+        self._cache_valid = False
+        self._shader_cache = None
+    
+    def get_raymarch_code_cached(self) -> str:
+        """
+        Get shader code from cache if valid, otherwise regenerate.
+        
+        Returns:
+            GLSL code string
+        """
+        if self._cache_valid and self._shader_cache:
+            return self._shader_cache
+        
+        self._shader_cache = self.generate_raymarch_code()
+        self._cache_valid = True
+        return self._shader_cache
+    
+    # =====================================================================
+    # HELPER FUNCTIONS
+    # =====================================================================
+    
+    def _get_operand_count(self, operation_type: str) -> int:
+        """Get number of operands required for an operation type."""
+        single_operand_ops = {'invert', 'round', 'onion', 'snoiseDisp'}
+        return 1 if operation_type in single_operand_ops else 2
+    
+    def _ensure_op_id_unique(self, op_id: str):
+        """Remove any duplicate op_id before adding new one."""
+        if op_id in self.scene_nodes:
+            self._delete_node_no_history(op_id)
