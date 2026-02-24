@@ -9,9 +9,6 @@ class SDFPrimitive:
         else:
             self.size_or_radius = [size_or_radius]
 
-        # Ensure the list is mutable
-        if not isinstance(self.size_or_radius, list):
-            self.size_or_radius = list(self.size_or_radius)
 
         # Ensure size_or_radius has the expected length for this primitive.
         # For a scalar input we repeat the last element to fill required components
@@ -89,7 +86,8 @@ class SDFPrimitive:
             radius = self.kwargs.get('radius', 0.1)
             return f"float {op_id} = sdRoundBox(p{op_id}, vec3({self.size_or_radius[0]}, {self.size_or_radius[1]}, {self.size_or_radius[2]}), {radius});\n    vec3 col{op_id} = {color_vec};"
         elif self.primitive_type == "sphere":
-            return f"float {op_id} = sdSphere(p{op_id}, {self.size_or_radius[0]});\n    vec3 col{op_id} = {color_vec};"
+            radius = self.size_or_radius if isinstance(self.size_or_radius, list) else [self.size_or_radius]
+            return f"float {op_id} = sdSphere(p{op_id}, {radius[0]});\n    vec3 col{op_id} = {color_vec};"
         elif self.primitive_type == "torus":
             # size_or_radius[0] = major radius, size_or_radius[1] = minor radius
             return f"float {op_id} = sdTorus(p{op_id}, vec2({self.size_or_radius[0]}, {self.size_or_radius[1]}));\n    vec3 col{op_id} = {color_vec};"

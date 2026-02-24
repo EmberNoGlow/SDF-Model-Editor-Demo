@@ -232,7 +232,7 @@ class SDFSceneBuilder:
         return node_id
     
 
-    def modify_primitive_property(self, node_id: str, property_name: str, old_value, new_value):
+    def modify_primitive_property(self, node_id: str, property_name: str, new_value):
         """Compatibility method for modifying primitive properties."""
         node = self.get_node(node_id)
         if not node or node.node_type != 'primitive':

@@ -266,41 +266,12 @@ def main():
     # --- Scene Definition ---
     scene_builder = SDFSceneBuilder(glob_history, selected_item_id)
 
-    # Create a simple default scene with the new hierarchical API
-    # Add a union operation with two box primitives
-    union_id = scene_builder.add_operation_with_auto_primitives(
-        'sunion',
-        auto_primitive_type='box',
-        ui_name='Union 1'
-    )
-
-    # Get the children (auto-created boxes) and modify them
-    union_node = scene_builder.get_node(union_id)
-    if union_node and len(union_node.children) >= 2:
-        # Modify first box
-        box1_id = union_node.children[0]
-        box1_node = scene_builder.get_node(box1_id)
-        if box1_node:
-            box1_node.item_data.position = [0.0, -0.5 + 2.0, 0.0]
-            box1_node.item_data.color = [0.8, 0.2, 0.2]
-            box1_node.item_data.ui_name = "Box 1"
-        
-        # Modify second box (sphere in this case)
-        box2_id = union_node.children[1]
-        box2_node = scene_builder.get_node(box2_id)
-        if box2_node:
-            box2_node.item_data.position = [0.0, -0.75 + 2.0, 0.0]
-            box2_node.item_data.color = [0.2, 0.8, 0.2]
-            box2_node.item_data.ui_name = "Sphere 1"
-
-    # Add a standalone roundbox
-    roundbox_id = scene_builder.add_standalone_primitive(
-        'round_box',
-        position=[0.0, -2.0 + 2.0, 0.0],
-        size_or_radius=[3.0, 1.0, 3.0],
-        ui_name='Round Box 1',
-        color=[0.4, 0.4, 0.8],
-        radius=0.1
+    # --- Default Scene ---
+    scene_builder.add_standalone_primitive(
+        'box',
+        position=[0, 0, 0],
+        size_or_radius=[0.5,0.2,0.8],
+        ui_name='Cube'
     )
 
     # --- UI State ---
@@ -1569,7 +1540,7 @@ def main():
                         final_rot = prim.rotation
                         if R_drag_start_pos is not None and final_rot != R_drag_start_pos:
                             # Use scene_builder to register the change (compatibility method)
-                            scene_builder.modify_primitive_property(R_dragging_op_id, 'rotation', R_drag_start_pos, final_rot)
+                            scene_builder.modify_primitive_property(R_dragging_op_id, 'rotation', final_rot)
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
@@ -1981,8 +1952,6 @@ def main():
                     imgui.same_line()
 
                     # --- Right Panel: Content Area ---
-                    # We use a child window/group to hold the content that changes based on the selection.
-                    
                     # Calculate remaining width for content area
                     window_width = imgui.get_window_width()
                     content_width = window_width - sidebar_width - 30 # Subtract sidebar + padding/separator
@@ -2535,6 +2504,326 @@ You can also support the project by reporting an error, or by suggesting an impr
                 # Show node-specific properties
                 if node.node_type == 'primitive':
                     # Primitive properties
+
+
+
+
+                    # =======================
+                    primitive_type = node.item_data.primitive_type
+                    primitive = node.item_data
+
+ 
+                    if primitive_type == "sprite":
+                        # sprite_index is stored in primitive.kwargs at creation time
+                        sprite_idx = primitive.kwargs.get('sprite_index', None)
+                        if sprite_idx is None or sprite_idx >= len(sprites_array):
+                            imgui.text_colored("Sprite data missing or corrupted", 1.0, 0.0, 0.0, 1.0)
+                        else:
+                            spr = sprites_array[sprite_idx]
+                            imgui.text("Plane parameters:")
+                            changed, primitive.position = input_vec3("Point", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                            changed2, spr.planeNormal = input_vec3("Normal", spr.planeNormal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                            changed3, spr.planeWidth = input_float("Width", spr.planeWidth, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                            changed4, spr.planeHeight = input_float("Height", spr.planeHeight, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                            spr.planePoint = primitive.position
+                            if changed or changed2 or changed3 or changed4:
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+
+                            imgui.separator()
+                            imgui.text("Mapping:")
+                            uv2 = spr.uvSize
+                            changed_uv, uv2 = input_vec2("UV Size", uv2, 0.1, panel_elem_width_vec3)
+                            spr.uvSize[0], spr.uvSize[1] = uv2[0], uv2[1]
+                            changed_alpha, spr.Alpha = input_float("Alpha", spr.Alpha, 0.01, panel_elem_width_float)
+                            changed_lod, spr.LOD = input_float("LOD", spr.LOD, 0.1, panel_elem_width_float)
+
+                            if changed_uv or changed_alpha or changed_lod:
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+
+                            # Show texture status and "Load Texture" button
+                            if spr.texture_id:
+                                imgui.text(f"Texture loaded: {spr.tex_size[0]}x{spr.tex_size[1]}")
+                            else:
+                                imgui.text_colored("No texture loaded", 0.9, 0.3, 0.3, 1.0)
+
+                            imgui.spacing()
+                            if imgui.button("Load Texture", -1):
+                                # Use tkinter filedialog (as in other parts of the code)
+                                root = tk.Tk()
+                                root.withdraw()
+                                filetypes = [("Image files", ("*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tga")), ("All files", "*.*")]
+                                filepath = filedialog.askopenfilename(filetypes=filetypes)
+                                root.destroy()
+                                if filepath:
+                                    ok = spr.load_texture_from_file(filepath)
+                                    if ok:
+                                        # Ensure sampler name is unique and recompile so the sampler uniform is declared/located
+                                        spr.SprTexture = f"sprTex{sprite_idx}"
+                                        success, new_uniforms = recompile_shader()
+                                        if success:
+                                            uniform_locs = new_uniforms
+
+
+                    primitive.size_or_radius = list(primitive.size_or_radius) if isinstance(primitive.size_or_radius, tuple) else primitive.size_or_radius 
+                    
+                    # Size/Radius - varies by primitive type
+                    match primitive.primitive_type:    
+                        case "sphere":
+                            changed, primitive.size_or_radius = input_float(
+                                "Radius", primitive.size_or_radius, 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                        case "torus":
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Major Radius", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Minor Radius", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed = changed1 or changed2
+                        case "hex_prism":
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Hex Radius", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Height", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed = changed1 or changed2
+                        case "vertical_capsule":
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Height", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Radius", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed = changed1 or changed2
+                        case "capped_cylinder":
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Radius", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Height", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed = changed1 or changed2
+                        case "rounded_cylinder":
+                            changed1, primitive.size_or_radius[0] = input_float(
+                                "Radius A", primitive.size_or_radius[0], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, primitive.size_or_radius[1] = input_float(
+                                "Radius B", primitive.size_or_radius[1], 
+                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed = changed1 or changed2
+                        # Special parameters for specific primitives
+                        case "cone":
+                            c_sin = primitive.kwargs.get('c_sin', 0.5)
+                            c_cos = primitive.kwargs.get('c_cos', 0.866)
+                            height = primitive.kwargs.get('height', 1.0)
+                            changed1, c_sin = input_float(
+                                "Sin(Angle)", c_sin, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed2, c_cos = input_float(
+                                "Cos(Angle)", c_cos, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            changed3, height = input_float(
+                                "Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            if changed1 or changed2 or changed3:
+                                primitive.kwargs['c_sin'] = c_sin
+                                primitive.kwargs['c_cos'] = c_cos
+                                primitive.kwargs['height'] = height
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                        
+                        case "plane":
+                            normal = primitive.kwargs.get('normal', [0.0, 1.0, 0.0])
+                            h = primitive.kwargs.get('h', 0.0)
+                            changed1, normal = input_vec3("Normal", normal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
+                            changed2, h = input_float("Offset (h)", h, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                            if changed1 or changed2:
+                                # Normalize the normal vector
+                                norm_len = math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
+                                if norm_len > 0.001:
+                                    normal = [normal[0]/norm_len, normal[1]/norm_len, normal[2]/norm_len]
+                                primitive.kwargs['normal'] = normal
+                                primitive.kwargs['h'] = h
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                        
+                        case "rounded_cylinder":
+                            height = primitive.kwargs.get('height', 1.0)
+                            changed, height = input_float("Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                            if changed:
+                                primitive.kwargs['height'] = height
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                        
+                        # --- Inspector: add UI to edit pointer function selection (inside the primitive inspector branch) ---
+                        case "pointer":
+                            changed_pos, primitive.position = input_vec3(
+                                "Position", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                            )
+                            if changed_pos:
+                                scene_builder.modify_primitive_property(node.item_id, 'position', primitive.position)
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+
+                            # List of available pointer functions (must exist in sdf_library.glsl)
+                            pointer_funcs = [
+                                "pointer_identity",
+                                "pointer_symmetry_x",
+                                "pointer_symmetry_y",
+                                "pointer_symmetry_z",
+                                # add your custom pointer function names here...
+                            ]
+                            current_func = primitive.kwargs.get('func', 'pointer_identity')
+                            try:
+                                current_index = pointer_funcs.index(current_func)
+                            except ValueError:
+                                pointer_funcs.append(current_func)
+                                current_index = len(pointer_funcs)-1
+
+                            clicked, new_index = imgui.combo("Function", current_index, pointer_funcs)
+                            if clicked:
+                                new_func = pointer_funcs[new_index]
+                                primitive.kwargs['func'] = new_func
+                                # Record change in history for undo/redo
+                                scene_builder.modify_primitive_property(node.item_id, "kwargs.func", new_func)
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+
+                            imgui.separator()
+                            imgui.text("Pointer functions mutate \nthe raymarch point `p` \nfor subsequent primitives.")
+                            imgui.text_colored("Place a pointer earlier in \nthe tree to affect later objects.", 0.9, 0.8, 0.2, 1.0)
+
+                        case "sprite":
+                            pass # Skip Transforms and Color
+
+                        case "curve":
+                            imgui.spacing()
+                            
+                            # Points array editor
+                            points = primitive.kwargs.get('points', [[0, 0, 0], [1, 1, 1]])
+                            imgui.text("Curve Points:")
+                            
+                            points_to_remove = None
+                            for i, pt in enumerate(points):
+                                changed, new_pt = input_vec3(
+                                    f"Point {i}", list(pt), STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                                )
+                                if changed:
+                                    points[i] = new_pt
+                                    primitive.kwargs['points'] = points
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+                                
+                                imgui.same_line()
+                                if imgui.button(f"Remove##pt{i}", width=60):
+                                    points_to_remove = i
+                            
+                            if points_to_remove is not None and len(points) > 2:
+                                points.pop(points_to_remove)
+                                primitive.kwargs['points'] = points
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                            
+                            if imgui.button("Add Point", width=panel_elem_width_float):
+                                points.append([0.0, 0.0, 0.0])
+                                primitive.kwargs['points'] = points
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                            
+                            imgui.spacing()
+                            
+                            # Thickness parameter
+                            thickness = primitive.kwargs.get('thickness', 0.1)
+                            changed, thickness = input_float(
+                                "Thickness", thickness, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                            )
+                            if changed:
+                                primitive.kwargs['thickness'] = thickness
+                                success, new_uniforms = recompile_shader()
+                                if success:
+                                    uniform_locs = new_uniforms
+                        
+                        case _:
+                            if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer", "sprite", "curve"]:
+                                changed, primitive.size_or_radius = input_vec3(
+                                    "Size", primitive.size_or_radius, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                                )
+                        
+                    if primitive.primitive_type not in ["pointer", "sprite", "curve"]:
+                        if changed:
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+                        
+
+
+                        else:
+                            # Special parameters for specific primitives
+                            if primitive.primitive_type == "round_box":
+                                imgui.spacing()
+                                changed, primitive.kwargs['radius'] = input_float(
+                                    "Radius", primitive.kwargs.get('radius', 0.1),STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                    )
+                                if changed:
+                                    success, new_uniforms = recompile_shader()
+                                    if success:
+                                        uniform_locs = new_uniforms
+                            
+
+                        imgui.begin_group()
+
+                        imgui.spacing()
+                        imgui.separator()
+                        imgui.dummy((panel_width/4)-8, 0)
+                        imgui.same_line()
+                        imgui.text_colored("Transform", 1.0,0.7,0.5,1.0)
+                        imgui.spacing()
+            
+                        imgui.end_group()
+
+
+
+
+
+
+
+
+
+
+
+                    # ==============================================================
+
+
+
+
+
+
+
+
                     changed, item_data.position = input_vec3(
                         "Position",
                         item_data.position,
@@ -2578,7 +2867,44 @@ You can also support the project by reporting an error, or by suggesting an impr
                         success, new_uniforms = recompile_shader()
                         if success:
                             uniform_locs = new_uniforms
-                
+    
+
+
+                    # Color picker
+                    imgui.begin_group()
+
+                    imgui.spacing()
+                    imgui.separator()
+                    imgui.dummy((panel_width/3)-12, 0)
+                    imgui.same_line()
+                    imgui.text_colored("Color", 1.0,0.7,0.5,1.0)
+                    imgui.spacing()
+        
+                    imgui.end_group()
+
+                    # Color edit - imgui automatically shows a picker button
+                    color_changed, color_rgba = imgui.color_edit3("Color##color", *primitive.color)
+                    if color_changed:
+                        primitive.color = list(color_rgba[: 3])
+                        scene_builder.modify_primitive_property(node.item_id, 'color', primitive.color)
+                        success, new_uniforms = recompile_shader()
+                        if success: 
+                            uniform_locs = new_uniforms
+                    
+                    # Alternative: RGB sliders for fine control
+                    imgui.spacing()
+                    imgui.text("RGB Sliders:")
+                    r_changed, primitive.color[0] = imgui.slider_float("R##color_r", primitive.color[0], 0.0, 1.0)
+                    g_changed, primitive.color[1] = imgui.slider_float("G##color_g", primitive.color[1], 0.0, 1.0)
+                    b_changed, primitive.color[2] = imgui.slider_float("B##color_b", primitive.color[2], 0.0, 1.0)
+                    if r_changed or g_changed or b_changed:
+                        success, new_uniforms = recompile_shader()
+                        if success:
+                            uniform_locs = new_uniforms
+
+
+
+
                 elif node.node_type == 'operation':
                     # Operation properties
                     imgui.text(f"Operation Type: {item_data.operation_type}")
