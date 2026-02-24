@@ -23,8 +23,7 @@ import copy
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-from src.classes import *
-from src.app import *
+from src import *
 from src.ui import *
 from src.utils import *
 from src.render import *
