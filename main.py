@@ -10,7 +10,6 @@ import imgui.core
 import src.app.Exporter as sdfexp
 import src.app.CodeEditor as CodeEdit
 
-from imgui.integrations.glfw import GlfwRenderer
 from PIL import Image
 from typing import Dict, List, Any
 
@@ -96,36 +95,12 @@ tkinter_thread = None
 
 def main():
     # Globals
-    global start_drag, end_drag, dragging, R_dragging, selected_item_id, drag_position, drag_rot_position
+    global start_drag, end_drag, dragging, R_dragging, selected_item_id, drag_position, drag_rot_position, selection_mode
 
 
-    # Initialize GLFW
-    if not glfw.init():
-        print("---GLFW IS NOT INIT---")
-        return
-
-    # Create a windowed mode window and its OpenGL context
-    try:
-        window = glfw.create_window(SCREEN_SIZE[0], SCREEN_SIZE[1], "Viewport", None, None)
-        if not window:
-            glfw.terminate()
-            return
-
-    except Exception as e:
-        print(f"{e}")
-        glfw.terminate()
-        return
-
-
-    # Make the window's context current
-    try:
-        glfw.make_context_current(window)
-    except Exception as e:
-        print(f"{e}")
-
-    # Initialize ImGui
-    imgui.create_context()
-    impl = GlfwRenderer(window)
+    # Initialize GLFW & Imgui
+    window, impl = init_glfw_impl(SCREEN_SIZE)
+    ICONS = load_all_textures()
 
     # --- Camera State ---
     target_yaw = 0.0
@@ -279,6 +254,8 @@ def main():
     show_settings_window = False
     show_add_change_window = False
     pending_change_node_id = None
+    property_change_node_id = None
+    show_property_change_window = False
     show_editor_settings_window = False
     current_settings_tab = "Themes"  # State to track which tab is active
     show_export_vol_window = False
@@ -2323,7 +2300,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             - right-click context popup per-node to Add a child primitive or child operation
                 (only for operation nodes that still accept operands).
             """
-            nonlocal pending_change_node_id, show_add_change_window
+            nonlocal pending_change_node_id, show_add_change_window, property_change_node_id, show_property_change_window 
 
             node = scene_builder.get_node(node_id)
             if not node:
@@ -2428,6 +2405,11 @@ You can also support the project by reporting an error, or by suggesting an impr
                     if imgui.menu_item("Change Type")[0]:
                         pending_change_node_id = node_id
                         show_add_change_window = True
+                        imgui.close_current_popup()
+                    imgui.separator()
+                    if imgui.menu_item("Change Properties")[0]:
+                        property_change_node_id = node_id
+                        show_property_change_window = True
                         imgui.close_current_popup()
                 imgui.end_popup()
 
@@ -3203,8 +3185,44 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.end()
 
 
+        if show_property_change_window:
+            imgui.set_next_window_position(width // 2 - 150, height // 2 - 125)
+            imgui.set_next_window_size(300, 250)
+            is_open, show_property_change_window = imgui.begin("Change Properties", True, imgui.WINDOW_NO_COLLAPSE)
+
+            if not is_open:
+                show_property_change_window = False
+                property_change_node_id = None
 
 
+            node = scene_builder.get_node(property_change_node_id)
+            prim = node.item_data
+            sym = prim.properties.get("symmetry")
+            if sym is None:
+                sym = [False, False, False]
+                prim.update_property("symmetry", sym)
+
+            imgui.spacing()
+            imgui.text("Symmetry:")
+            imgui.same_line()
+            changed_x, sym[0] = imgui.checkbox("X", sym[0])
+            imgui.same_line()
+            changed_y, sym[1] = imgui.checkbox("Y", sym[1])
+            imgui.same_line()
+            changed_z, sym[2] = imgui.checkbox("Z", sym[2])
+            imgui.spacing()
+
+            if changed_x or changed_y or changed_z:
+                prim.update_property("symmetry", sym)
+                success, new_uniforms = recompile_shader()
+                if success:
+                    uniform_locs = new_uniforms
+
+            if imgui.button("Close", -1):
+                show_property_change_window = False
+                property_change_node_id = None
+
+            imgui.end()
 
         # Render ImGui
         imgui.render()

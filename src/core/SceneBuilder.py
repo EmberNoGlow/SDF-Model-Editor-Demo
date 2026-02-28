@@ -26,6 +26,7 @@ from .classes.scene_tree.SceneTraversal import *
 from .classes.save_load_helpers.SceneSerializer import *
 from .classes.node_tree.NodeSerialization import *
 from .classes.node_tree.NodeOperations import *
+from .classes.node_tree.NodeMod import *
 
 from .ShaderBuilder import *
 
@@ -272,7 +273,7 @@ class SDFSceneBuilder:
     # NODE MODIFICATION
     # =====================================================================
     
-    def rename_node(self, node_id: str, new_name: str) -> bool:
+    def rename_node(builder, node_id: str, new_name: str) -> bool:
         """
         Rename a node (update ui_name).
         
@@ -283,27 +284,10 @@ class SDFSceneBuilder:
         Returns:
             True if successful
         """
-        node = self.get_node(node_id)
-        if not node:
-            return False
-        
-        old_name = node.item_data.ui_name
-        node.item_data.ui_name = new_name
-        
-        # Register undo/redo
-        self.glob_history.add(
-            lambda nid, old: self.rename_node(nid, old),
-            lambda nid, new: self.rename_node(nid, new),
-            (node_id, old_name),
-            (node_id, new_name),
-            {},
-            {}
-        )
-        
-        self.invalidate_cache()
-        return True
-    
-    def move_root_node(self, node_id: str, new_index: int) -> bool:
+        return rename_node(builder, node_id, new_name)
+
+
+    def move_root_node(builder, node_id: str, new_index: int) -> bool:
         """
         Move a root-level node to a different position in root list.
         
@@ -314,296 +298,82 @@ class SDFSceneBuilder:
         Returns:
             True if successful
         """
-        if node_id not in self.root_children:
-            return False
-        
-        old_index = self.root_children.index(node_id)
-        
-        # Clamp new_index
-        new_index = max(0, min(new_index, len(self.root_children) - 1))
-        
-        if new_index == old_index:
-            return True
-        
-        # Move
-        self.root_children.pop(old_index)
-        self.root_children.insert(new_index, node_id)
-        
-        # Register undo/redo
-        self.glob_history.add(
-            self.move_root_node,
-            self.move_root_node,
-            (node_id, old_index),
-            (node_id, new_index),
-            {},
-            {}
-        )
-        
-        self.invalidate_cache()
-        return True
+        return move_root_node(builder, node_id, new_index)
     
 
-    def _apply_primitive_state(self, node_id: str, state: dict) -> bool:
+    def move_root_node(builder, node_id: str, new_index: int) -> bool:
+        """
+        Move a root-level node to a different position in root list.
+        
+        Args:
+            node_id: ID of root node to move
+            new_index: New position in root_children list
+        
+        Returns:
+            True if successful
+        """
+        return move_root_node(builder, node_id, new_index)
+
+
+    def _apply_primitive_state(builder, node_id: str, state: dict) -> bool:
         """
         Internal helper to apply a saved primitive state to a node WITHOUT registering undo.
         Used as both the undo and redo callback so reapplying doesn't add nested history.
         """
-        node = self.get_node(node_id)
-        if not node or node.node_type != 'primitive':
-            return False
-        p = node.item_data
-        p.primitive_type = state.get('primitive_type', p.primitive_type)
-        p.position = list(state.get('position', p.position))
-        p.size_or_radius = list(state.get('size_or_radius', p.size_or_radius))
-        p.rotation = list(state.get('rotation', p.rotation))
-        p.scale = list(state.get('scale', p.scale))
-        p.color = list(state.get('color', p.color))
-        p.kwargs = dict(state.get('kwargs', p.kwargs))
-        return True
+        return apply_primitive_state(builder, node_id, state)
 
-    def change_primitive_type(self, node_id: str, new_type: str, new_size_or_radius=None, **kwargs) -> bool:
+
+    def change_primitive_type(builder, node_id: str, new_type: str, new_size_or_radius=None, **kwargs) -> bool:
         """
         Change a primitive's type in-place (keeps the node_id stable).
         Registers an undo/redo entry that restores the previous state and re-applies the new state.
         """
-        node = self.get_node(node_id)
-        if not node or node.node_type != 'primitive':
-            return False
-
-        prim = node.item_data
-        # Save old state snapshot
-        old_state = prim.to_dict()
-
-        # Compute new state (apply changes to a copy)
-        new_state = old_state.copy()
-        new_state['primitive_type'] = new_type
-
-        # Normalize size_or_radius into list/appropriate form
-        if new_size_or_radius is not None:
-            new_state['size_or_radius'] = new_size_or_radius
-        else:
-            # sensible defaults for common types
-            default_map = {
-                'box': [0.5, 0.5, 0.5],
-                'round_box': [0.5, 0.5, 0.5],
-                'sphere': [0.5],
-                'torus': [0.5, 0.25],
-                'cone': [0.5],
-                'plane': [1.0],
-                'hex_prism': [0.5, 0.5],
-                'vertical_capsule': [1.0, 0.3],
-                'capped_cylinder': [0.3, 1.0],
-                'rounded_cylinder': [0.3, 0.3],
-            }
-            new_state['size_or_radius'] = default_map.get(new_type, old_state.get('size_or_radius', []))
-
-        # Update kwargs if provided
-        new_kwargs = dict(old_state.get('kwargs', {}))
-        if kwargs:
-            new_kwargs.update(kwargs)
-        new_state['kwargs'] = new_kwargs
-
-        # Immediately apply the new state (live)
-        applied = self._apply_primitive_state(node_id, new_state)
-        if not applied:
-            return False
-
-        # Register undo/redo using the internal apply helper (so undo/redo won't add additional history)
-        self.glob_history.add(
-            self._apply_primitive_state,   # undo: apply old state
-            self._apply_primitive_state,   # redo: apply new state
-            (node_id, old_state),
-            (node_id, new_state),
-            {},
-            {}
-        )
-
-        self.invalidate_cache()
-        return True
+        return change_primitive_type(builder, node_id, new_type, new_size_or_radius, **kwargs)
 
 
+    def change_primitive_type(builder, node_id: str, new_type: str, new_size_or_radius=None, **kwargs) -> bool:
+        """
+        Change a primitive's type in-place (keeps the node_id stable).
+        Registers an undo/redo entry that restores the previous state and re-applies the new state.
+        """
+        return change_primitive_type(builder, node_id, new_type, new_size_or_radius, **kwargs)
 
-    def _alloc_id(self) -> str:
+
+    def _alloc_id(builder) -> str:
         """Allocate a new unique ID like d0, d1, ... and increment next_id."""
-        op_id = f"d{self.next_id}"
-        self.next_id += 1
-        while op_id in self.scene_nodes:
-            op_id = f"d{self.next_id}"
-            self.next_id += 1
-        return op_id
+        return alloc_id(builder)
 
-    def _ensure_op_id_unique(self, op_id: str) -> str:
+
+    def _ensure_op_id_unique(builder, op_id: str) -> str:
         """
         Ensure a requested op_id is unique. If it's already present, return a fresh id.
         Do NOT delete existing nodes here.
         """
-        if op_id in self.scene_nodes:
-            return self._alloc_id()
-        return op_id
+        return ensure_op_id_unique(builder, op_id)
 
-    def _delete_subtree_no_history(self, node_id: str):
+
+    def _delete_subtree_no_history(builder, node_id: str):
         """Delete a node and all descendants without recording history (internal helper)."""
-        if node_id not in self.scene_nodes:
-            return
-        all_to_delete = [node_id] + self.get_all_children_recursive(node_id)
-        for cid in all_to_delete:
-            if cid in self.scene_nodes:
-                # remove reference from parent if present
-                parent = self.get_parent(cid)
-                if parent and cid in parent.children:
-                    parent.remove_child(cid)
-                if cid in self.root_children:
-                    try:
-                        self.root_children.remove(cid)
-                    except ValueError:
-                        pass
-                # delete maps
-                if cid in self.scene_nodes:
-                    del self.scene_nodes[cid]
-                if cid in self.id_to_node:
-                    del self.id_to_node[cid]
+        return delete_subtree_no_history(builder, node_id)
 
-    def change_node_to_operation(self, node_id: str, operation_type: str, auto_primitive_type: str = 'box') -> bool:
+    def change_node_to_operation(builder, node_id: str, operation_type: str, auto_primitive_type: str = 'box') -> bool:
         """
         Convert a primitive node into an operation node IN-PLACE (keeps node_id).
         The original primitive becomes the first operand (moved into a newly-created child).
         Additional operand primitives are created automatically.
         Registers undo/redo by saving the subtree before/after conversion.
         """
-        node = self.get_node(node_id)
-        if not node:
-            return False
+        return change_node_to_operation(builder, node_id, operation_type, auto_primitive_type)
 
-        # Save state for undo
-        old_state = self._save_node_tree_state(node_id)
-
-        # If node is already an operation, simply update its type & return
-        if node.node_type == 'operation':
-            node.item_data.operation_type = operation_type
-            self.invalidate_cache()
-            return True
-
-        # node is primitive: preserve its SDFPrimitive as first child
-        if node.node_type != 'primitive':
-            return False
-
-        old_prim = node.item_data
-
-        # Create operand ids (keep count according to operation type)
-        operand_count = self._get_operand_count(operation_type)
-        operand_ids = [self._alloc_id() for _ in range(operand_count)]
-
-        # Create new child nodes: move old primitive into operand_ids[0]
-        child_nodes = []
-
-        for i, oid in enumerate(operand_ids):
-            if i == 0:
-                # reuse the existing primitive object as child
-                prim = old_prim
-            else:
-                # create default primitives for remaining operands
-                prim = SDFPrimitive(self.selected_item_id, auto_primitive_type, [1.0 * i, 0.0, 0.0], 0.5, ui_name=f"{auto_primitive_type.title()} {i+1}")
-            prim_node = SceneNode('primitive', oid, prim, parent_id=node_id)
-            self.scene_nodes[oid] = prim_node
-            self.id_to_node[oid] = prim_node
-            child_nodes.append(oid)
-
-        # Replace the current node to be an operation
-        operation = SDFOperation(operation_type, *operand_ids, ui_name=operation_type)
-        node.node_type = 'operation'
-        node.item_data = operation
-        node.children = child_nodes
-        # ensure old primitive is no longer referenced as a root child
-        if node_id in self.root_children:
-            # node remains root; children are nested under it
-            pass
-
-        new_state = self._save_node_tree_state(node_id)
-
-        # Register undo/redo: on undo restore old_state, on redo restore new_state
-        def _do_restore(state):
-            nid = state['node_id']
-            # remove existing subtree
-            self._delete_subtree_no_history(nid)
-            self._restore_node_tree(state)
-
-        self.glob_history.add(
-            _do_restore,  # undo: restore old_state
-            _do_restore,  # redo: restore new_state (we will pass new_state as redo args)
-            (old_state,),
-            (new_state,),
-            {},
-            {}
-        )
-
-        self.invalidate_cache()
-        return True
-
-    def change_node_to_primitive(self, node_id: str, primitive_type: str = 'box', position=None, size_or_radius=None, rotation=None, scale=None, color=None, **kwargs) -> bool:
+    def change_node_to_primitive(builder, node_id: str, primitive_type: str = 'box', position=None, size_or_radius=None, rotation=None, scale=None, color=None, **kwargs) -> bool:
         """
         Convert an operation node (and its children) into a single primitive node IN-PLACE.
         The operation's subtree is deleted; the node becomes a primitive with supplied parameters.
         Undo/redo is registered by saving the old subtree and the new subtree.
         """
-        node = self.get_node(node_id)
-        if not node:
-            return False
+        return change_node_to_primitive(builder, node_id, primitive_type, position, size_or_radius, rotation, scale, color, **kwargs)
 
-        old_state = self._save_node_tree_state(node_id)
 
-        # If already primitive, update its type/params
-        if node.node_type == 'primitive':
-            prim = node.item_data
-            prim.primitive_type = primitive_type
-            if position is not None:
-                prim.position = list(position)
-            if size_or_radius is not None:
-                prim.size_or_radius = size_or_radius
-            if rotation is not None:
-                prim.rotation = rotation
-            if scale is not None:
-                prim.scale = scale
-            if color is not None:
-                prim.color = color
-            if kwargs:
-                prim.kwargs.update(kwargs)
-
-            new_state = self._save_node_tree_state(node_id)
-
-            def _do_restore(state):
-                nid = state['node_id']
-                self._delete_subtree_no_history(nid)
-                self._restore_node_tree(state)
-
-            self.glob_history.add(_do_restore, _do_restore, (old_state,), (new_state,), {}, {})
-            self.invalidate_cache()
-            return True
-
-        # node is operation: delete its children and replace with a primitive
-        # Remove children nodes
-        child_ids = list(node.children)
-        for cid in child_ids:
-            self._delete_subtree_no_history(cid)
-
-        # Replace with new primitive
-        pos = position or [0.0, 0.0, 0.0]
-        s_or_r = size_or_radius if size_or_radius is not None else (0.5 if primitive_type != 'box' else [0.5,0.5,0.5])
-        prim = SDFPrimitive(self.selected_item_id, primitive_type, pos, s_or_r, rotation or [0.0,0.0,0.0], scale or [1.0,1.0,1.0], ui_name=primitive_type, color=color or [0.8,0.6,0.4], **(kwargs or {}))
-        node.node_type = 'primitive'
-        node.item_data = prim
-        node.children = []
-
-        new_state = self._save_node_tree_state(node_id)
-
-        def _do_restore(state):
-            nid = state['node_id']
-            self._delete_subtree_no_history(nid)
-            self._restore_node_tree(state)
-
-        self.glob_history.add(_do_restore, _do_restore, (old_state,), (new_state,), {}, {})
-
-        self.invalidate_cache()
-        return True
 
     # =====================================================================
     # DELETION (CASCADE DELETE CHILDREN)

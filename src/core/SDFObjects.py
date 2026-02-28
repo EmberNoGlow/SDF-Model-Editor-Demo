@@ -31,10 +31,21 @@ class SDFPrimitive:
         self.kwargs = kwargs
         self.ui_name = ui_name or primitive_type
         self.selected_item_id = selected_item_id
+        self.properties = {}
     
     def update_selected_item_id(self, new_value):
         self.selected_item_id = new_value
+    
 
+    # Working with primitive properties - symmetry, etc.
+    def update_property(self, name : str, new_value):
+        self.properties[name] = new_value
+
+    def delete_property(self, name: str):
+        if name in self.properties:
+            self.properties.pop(name)
+
+    # Generate Code
     def generate_transform_code(self, op_id):
         """
         Generate the GLSL transform code for this primitive.
@@ -63,6 +74,17 @@ class SDFPrimitive:
 
         # For normal primitives generate the usual transform that works on a local p{op_id}
         transform_code = f"vec3 p{op_id} = p;"
+
+        # Aplly Symmetry property
+        sym = self.properties.get("symmetry") # List (x,y,z : bool)
+        if isinstance(sym, list) and len(sym) >= 3:
+            if sym[0]:
+                transform_code += f"p{op_id}.x = abs(p.x);"
+            if sym[1]:
+                transform_code += f"p{op_id}.y = abs(p.y);"
+            if sym[2]:
+                transform_code += f"p{op_id}.z = abs(p.z);"
+
         transform_code += f"\n    p{op_id} -= vec3({new_position[0]}, {new_position[1]}, {new_position[2]});"
 
         if self.rotation:
