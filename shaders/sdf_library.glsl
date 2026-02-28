@@ -189,6 +189,7 @@ float Onion( in float sdf, in float thickness )
 // Rotation functions
 mat3 rotateY(float angle)
 {
+    angle = radians(angle);
     float c = cos(angle);
     float s = sin(angle);
     return mat3(
@@ -200,6 +201,7 @@ mat3 rotateY(float angle)
 
 mat3 rotateX(float angle)
 {
+    angle = radians(angle);
     float c = cos(angle);
     float s = sin(angle);
     return mat3(
@@ -211,6 +213,7 @@ mat3 rotateX(float angle)
 
 mat3 rotateZ(float angle)
 {
+    angle = radians(angle);
     float c = cos(angle);
     float s = sin(angle);
     return mat3(
