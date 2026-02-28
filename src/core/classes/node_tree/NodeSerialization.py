@@ -114,6 +114,7 @@ def reconstruct_node(builder, node_id: str, node_data: Dict):
             color=item_data_dict.get('color'),
             **item_data_dict.get('kwargs', {})
         )
+        item_data.properties = item_data_dict.get("properties")
     else:  # operation
         item_data = SDFOperation(
             item_data_dict['operation_type'],

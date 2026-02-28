@@ -171,7 +171,8 @@ class SDFPrimitive:
             "scale": self.scale,
             "color": self.color,
             "ui_name": self.ui_name,
-            "kwargs": self.kwargs
+            "kwargs": self.kwargs,
+            "properties": self.properties
         }
 
 
