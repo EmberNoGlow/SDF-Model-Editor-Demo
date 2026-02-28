@@ -2550,12 +2550,13 @@ You can also support the project by reporting an error, or by suggesting an impr
 
 
                     primitive.size_or_radius = list(primitive.size_or_radius) if isinstance(primitive.size_or_radius, tuple) else primitive.size_or_radius 
-                    
+                    primitive.size_or_radius = [primitive.size_or_radius] if isinstance(primitive.size_or_radius, float) else primitive.size_or_radius 
+
                     # Size/Radius - varies by primitive type
                     match primitive.primitive_type:    
                         case "sphere":
-                            changed, primitive.size_or_radius = input_float(
-                                "Radius", primitive.size_or_radius, 
+                            changed, primitive.size_or_radius[0] = input_float(
+                                "Radius", primitive.size_or_radius[0], 
                                 STEP_VARIABLE_FLOAT, panel_elem_width_float
                             )
                         case "torus":
