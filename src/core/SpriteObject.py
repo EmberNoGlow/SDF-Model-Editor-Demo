@@ -121,3 +121,27 @@ class Sprite:
             self.texture_id = None
             self.tex_size = (0, 0)
             # keep texture_path (we may want to attempt reload next time)
+
+
+def bind_sprite_textures(uniforms, sprites_array):
+    """
+    Bind loaded sprite textures to texture units and upload the sampler uniform indices.
+    Assumes texture unit 0 may be used for accumulation/render targets, so start at unit 1.
+    """
+    base_unit = 1
+    for i, spr in enumerate(sprites_array):
+        loc = uniforms.get(spr.SprTexture, -1) if uniforms else -1
+        unit = base_unit + i
+        if spr.texture_id is not None and loc is not None and loc != -1:
+            glActiveTexture(GL_TEXTURE0 + unit)
+            glBindTexture(GL_TEXTURE_2D, spr.texture_id)
+            # Tell shader which texture unit to sample from
+            glUniform1i(loc, unit)
+        else:
+            # If texture not loaded, bind 0 to keep behavior stable
+            glActiveTexture(GL_TEXTURE0 + unit)
+            glBindTexture(GL_TEXTURE_2D, 0)
+            if loc != -1:
+                glUniform1i(loc, unit)
+    # restore active texture to 0
+    glActiveTexture(GL_TEXTURE0)

@@ -1,6 +1,8 @@
 from src.core.SDFObjects import SDFOperation, SDFPrimitive
 from src.core.classes.scene_tree.SceneNode import SceneNode
 
+from typing import Optional
+
 
 def rename_node(builder, node_id: str, new_name: str) -> bool:
     """
@@ -330,5 +332,95 @@ def change_node_to_primitive(builder, node_id: str, primitive_type: str = 'box',
 
     builder.glob_history.add(_do_restore, _do_restore, (old_state,), (new_state,), {}, {})
 
+    builder.invalidate_cache()
+    return True
+
+
+def reparent_node(builder, node_id: str, new_parent_id: str, child_to_replace_id: Optional[str] = None) -> bool:
+    """
+    Reparent a node to a new parent operation.
+    
+    If new_parent_id already has max children, child_to_replace_id specifies which child to delete.
+    
+    Args:
+        node_id: Node to reparent
+        new_parent_id: New parent operation node ID
+        child_to_replace_id: Child of new_parent to delete (if parent is at capacity)
+    
+    Returns:
+        True if successful
+    """
+    node = builder.get_node(node_id)
+    new_parent = builder.get_node(new_parent_id)
+    
+    if not node or not new_parent:
+        return False
+    
+    # Can't reparent to self or descendants
+    all_descendants = builder.get_all_children_recursive(node_id)
+    if new_parent_id == node_id or new_parent_id in all_descendants:
+        return False
+    
+    # New parent must be operation
+    if new_parent.node_type != 'operation':
+        return False
+    
+    # Check capacity
+    required = builder._get_operand_count(new_parent.item_data.operation_type)
+    current_children = len(new_parent.children)
+    
+    # If at capacity, must delete a child first
+    if current_children >= required:
+        if child_to_replace_id is None or child_to_replace_id not in new_parent.children:
+            return False
+        # Delete the child to make room
+        builder.delete_node(child_to_replace_id)
+    
+    # Save state for undo
+    old_parent_id = node.parent_id
+    old_state = builder._save_node_tree_state(node_id)
+    
+    # Remove from old parent
+    if old_parent_id:
+        old_parent = builder.get_node(old_parent_id)
+        if old_parent:
+            old_parent.remove_child(node_id)
+    else:
+        # Was root
+        if node_id in builder.root_children:
+            builder.root_children.remove(node_id)
+    
+    # Add to new parent
+    node.parent_id = new_parent_id
+    new_parent.add_child(node_id)
+    
+    # Update new parent's operation args
+    op = new_parent.item_data
+    if hasattr(op, 'args'):
+        try:
+            if isinstance(op.args, tuple):
+                op.args = list(op.args) + [node_id]
+            else:
+                op.args.append(node_id)
+        except Exception:
+            op.args = getattr(op, 'args', []) + [node_id]
+    else:
+        op.args = [node_id]
+    
+    # Register undo/redo
+    def undo_reparent():
+        # Restore old tree structure
+        builder._delete_subtree_no_history(node_id)
+        builder._restore_node_tree(old_state)
+    
+    builder.glob_history.add(
+        undo_reparent,
+        lambda: reparent_node(builder, node_id, new_parent_id, child_to_replace_id),
+        (),
+        (),
+        {},
+        {}
+    )
+    
     builder.invalidate_cache()
     return True

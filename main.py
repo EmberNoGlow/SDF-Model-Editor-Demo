@@ -25,7 +25,7 @@ from tkinter import filedialog, messagebox
 from src import *
 from src.ui import *
 from src.utils import *
-from src.render import *
+from src.rendering import *
 
 import src.ui.themes as ui_themes
 
@@ -173,68 +173,12 @@ def main():
     R_drag_accum = [0.0, 0.0, 0.0]    # accumulated world-space movement since drag start
 
 
-    # Helper: safely set MovePos uniform (call this wherever you were directly doing glUniform3f for MovePos)
-    def set_move_pos_uniform(shader_program, uniform_locs, pos):
-        """
-        Safely set the MovePos uniform. If the cached uniform location is missing (-1 or None),
-        query it dynamically and cache it. Only call glUniform if the location exists.
-        """
-        if uniform_locs is None or shader_program is None:
-            return
-        move_key = 'move_pos'
-        loc = uniform_locs.get(move_key, None)
-        if loc is None or loc == -1:
-            # Query the active program for the location (this is safe and will return -1 if not declared)
-            loc = glGetUniformLocation(shader_program, "MovePos")
-            uniform_locs[move_key] = loc
-        if loc != -1:
-            glUniform3f(loc, float(pos[0]), float(pos[1]), float(pos[2]))
-
-
-    def set_move_rot_uniform(shader_program, uniform_locs, rot):
-        """
-        Safely set the MoveRot uniform. If the cached uniform location is missing (-1 or None),
-        query it dynamically and cache it. Only call glUniform if the location exists.
-        """
-        if uniform_locs is None or shader_program is None:
-            return
-        move_key = 'move_rot'
-        loc = uniform_locs.get(move_key, None)
-        if loc is None or loc == -1:
-            # Query the active program for the location (this is safe and will return -1 if not declared)
-            loc = glGetUniformLocation(shader_program, "MoveRot")
-            uniform_locs[move_key] = loc
-        if loc != -1:
-            glUniform3f(loc, float(rot[0]), float(rot[1]), float(rot[2]))
-
-
-
-    def bind_sprite_textures(uniforms):
-        """
-        Bind loaded sprite textures to texture units and upload the sampler uniform indices.
-        Assumes texture unit 0 may be used for accumulation/render targets, so start at unit 1.
-        """
-        base_unit = 1
-        for i, spr in enumerate(sprites_array):
-            loc = uniforms.get(spr.SprTexture, -1) if uniforms else -1
-            unit = base_unit + i
-            if spr.texture_id is not None and loc is not None and loc != -1:
-                glActiveTexture(GL_TEXTURE0 + unit)
-                glBindTexture(GL_TEXTURE_2D, spr.texture_id)
-                # Tell shader which texture unit to sample from
-                glUniform1i(loc, unit)
-            else:
-                # If texture not loaded, bind 0 to keep behavior stable
-                glActiveTexture(GL_TEXTURE0 + unit)
-                glBindTexture(GL_TEXTURE_2D, 0)
-                if loc != -1:
-                    glUniform1i(loc, unit)
-        # restore active texture to 0
-        glActiveTexture(GL_TEXTURE0)
-
-
     # --- Delta time --- 
     delta_time = 0.0 
+
+
+    # --- Pipeline ---
+    camera = Camera()
 
 
     # --- Scene Definition ---
@@ -256,6 +200,10 @@ def main():
     pending_change_node_id = None
     property_change_node_id = None
     show_property_change_window = False
+    show_reparent_window = False
+    reparent_node_id = None
+    reparent_target_parent = None  # Selected new parent
+    reparent_child_to_replace = None  # Child to delete if parent is full
     show_editor_settings_window = False
     current_settings_tab = "Themes"  # State to track which tab is active
     show_export_vol_window = False
@@ -272,22 +220,8 @@ def main():
     last_key_compile_pressed = False  # Track if Ctrl+B was pressed
 
 
-
-
-
     # --- Defined Palette ---
-    theme = {
-        "bg_dark" : [0.12, 0.11, 0.09, 1.0],        # Very dark background
-        "panel_dark" : [0.18, 0.16, 0.13, 1.0],     # Slightly lighter panel/frame
-        "accent" : [0.608, 0.067, 0.118, 1.0],      # Primary Dark Red/Crimson (Buttons, Active Header)
-        "hover" : [0.902, 0.125, 0.125, 1.0],       # Bright Red/Scarlet (Hover/Active State)
-        "text_light" : [0.92, 0.90, 0.80, 1.0],     # Off-white text
-
-        "muted_accent" : [0.4, 0.04, 0.08, 1.0], 
-        "child_bg" : [0.20, 0.18, 0.15, 1.0],
-        "dim_background" : [0.0, 0.0, 0.0, 0.7], 
-        "border_color" : [0.25, 0.23, 0.20, 1.0]
-    }
+    theme = ui_themes.default_theme
 
 
 
@@ -303,7 +237,7 @@ def main():
     GridEnabled = True
 
     # Light
-    LightDir = [0.5, 1.0, -0.7]
+    LightDir = [0.5, 1.0, 0.7]
 
     # --- Settings ---
     resolution_scale = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
@@ -637,84 +571,7 @@ def main():
             fps_clock = current_time
 
         # --- Handle keyboard input ---
-        io = imgui.get_io()
-
-        ShortCuts = {
-            "Rename" : (glfw.KEY_F2),
-            "Add" : (glfw.KEY_A, "CTRL"), 
-            "Delete" : (glfw.KEY_DELETE),
-            "Compile" : (glfw.KEY_B, "CTRL"),
-            "Undo" : (glfw.KEY_Z, "CTRL"),
-            "Redo" : (glfw.KEY_Z, "CTRL", "SHIFT"),
-            "Redo2" : (glfw.KEY_Y, "CTRL"),
-            "Move" : (glfw.KEY_G),
-            "Rotate" : (glfw.KEY_R),
-            "X" : (glfw.KEY_X),
-            "Y" : (glfw.KEY_Y),
-            "Z" : (glfw.KEY_Z),
-            "Open" : (glfw.KEY_O, "CTRL"),
-            "Save" : (glfw.KEY_S, "CTRL"),
-            "Duplicate": (glfw.KEY_D, "CTRL"),
-        }
-
-
-        def input_handle(action : str) -> bool:
-            # Helper function to get the live state of a modifier ID
-            def get_live_modifier_state(modifier_id):
-                if modifier_id == "CTRL":
-                    return io.key_ctrl
-                if modifier_id == "SHIFT":
-                    return io.key_shift
-                return False
-            
-            keys_required = ShortCuts.get(action)
-            
-            if keys_required is None:
-                return False
-
-            # Ensure keys_required is always iterable (a tuple)
-            if not isinstance(keys_required, tuple):
-                keys_required = (keys_required,)
-
-            # --- STEP 1: Check if ALL conditions are met (Is the combination currently held?) ---
-            all_keys_down_this_frame = True
-            main_key_code = None # Store the main key code for debouncing later
-
-            for key_check in keys_required:
-                
-                if isinstance(key_check, int):
-                    # Standard key code: Must be currently down
-                    if not io.keys_down[key_check]:
-                        all_keys_down_this_frame = False
-                        break
-                    # Store this as the potential main key to check for initial press
-                    main_key_code = key_check
-                        
-                elif isinstance(key_check, str):
-                    # Modifier: Must be currently down
-                    if not get_live_modifier_state(key_check):
-                        all_keys_down_this_frame = False
-                        break
-
-            if not all_keys_down_this_frame:
-                return False # Combo is not active right now
-
-            # --- STEP 2: Debounce (Did the key press START this frame?) ---
-            
-            # Case A: Single Key (like F2)
-            if len(keys_required) == 1 and main_key_code is not None:
-                if io.keys_down[main_key_code]:
-                    return True
-            
-            # Case B: Combination Key (like Ctrl+A)
-            elif len(keys_required) > 1 and main_key_code is not None:
-                if io.keys_down[main_key_code]:
-                    return True
-                    
-            # If we reach here, the combination is held, but the trigger key wasn't *newly* pressed this frame.
-            return False
-
-
+        io = get_io()
                 
         # Check Ctrl+A for add window 
         if input_handle("Add"):
@@ -736,15 +593,24 @@ def main():
             last_key_f2_pressed = False
         
         # Check Delete key for deletion (with debouncing)
+        # Only allow deletion if node is direct child of root (depth = 1)
         if input_handle("Delete") and selected_item_id is not None:
             if not last_key_delete_pressed:
-                if scene_builder.delete_item(selected_item_id):
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-                    selected_item_id = None
-                    scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = None
+                node_to_delete = scene_builder.get_node(selected_item_id)
+                if node_to_delete:
+                    # Check depth: only delete if parent is None (direct root child)
+                    depth = scene_builder.get_node_depth(selected_item_id)
+                    if depth == 1:  # Direct child of root
+                        if scene_builder.delete_node(selected_item_id):
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+                            selected_item_id = None
+                            scene_builder.update_selected_item_id(selected_item_id)
+                            selection_mode = None
+                    else:
+                        # Cannot delete - show message (optional)
+                        pass
                 last_key_delete_pressed = True
         else:
             last_key_delete_pressed = False
@@ -783,10 +649,6 @@ def main():
         
         scaled_rendering_width = int(rendering_width * resolution_scale)
         scaled_rendering_height = int(rendering_height * resolution_scale)
-
-
-
-
 
 
 
@@ -868,13 +730,9 @@ def main():
                 target_pitch = max(MIN_PITCH, min(MAX_PITCH, target_pitch))
 
 
-        # --- Interpolate camera angles ---
-        cam_yaw += (target_yaw - cam_yaw) * (CAMERA_LERP_FACTOR*delta_time)
-        cam_pitch += (target_pitch - cam_pitch) * (CAMERA_LERP_FACTOR*delta_time)
+        # --- Interpolate camera ---
+        cam_yaw, cam_pitch, cam_pan_y, cam_pan_x = camera.update(target_yaw, target_pitch, target_pan_y, target_pan_x, CAMERA_LERP_FACTOR*delta_time)
 
-        # --- Interpolate camera Pan ---
-        cam_pan_y += (target_pan_y - cam_pan_y) * (CAMERA_LERP_FACTOR*delta_time)
-        cam_pan_x -= (target_pan_x + cam_pan_x) * (CAMERA_LERP_FACTOR*delta_time)
 
         # --- Camera vectors ---
 
@@ -1000,7 +858,7 @@ def main():
                     
                     glUniform3f(uniform_locs['LightDir'], LightDir[0], LightDir[1], LightDir[2])
 
-                bind_sprite_textures(uniform_locs)
+                bind_sprite_textures(uniform_locs, sprites_array)
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
 
@@ -1026,7 +884,7 @@ def main():
             #print(glGetUniformLocation(display_shader,"isAccumulation"))
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
-            bind_sprite_textures(uniform_locs)
+            bind_sprite_textures(uniform_locs, sprites_array)
             glBindVertexArray(display_vao)
             glDrawArrays(GL_QUADS, 0, 4)
             glBindVertexArray(0)
@@ -1063,7 +921,7 @@ def main():
             if rendering_width > 0 and rendering_height > 0:
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(vao)
-                bind_sprite_textures(uniform_locs)
+                bind_sprite_textures(uniform_locs, sprites_array)
                 glDrawArrays(GL_QUADS, 0, 4)
 
             glViewport(0, 0, width, height)
@@ -1649,7 +1507,7 @@ def main():
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
                     set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
-                bind_sprite_textures(uniform_locs)
+                bind_sprite_textures(uniform_locs, sprites_array)
 
 
                 glBindVertexArray(vao)
@@ -1691,7 +1549,7 @@ def main():
 
                     glViewport(panel_width, menu_bar_height, scaled_rendering_width, scaled_rendering_height)
                     glBindVertexArray(vao)
-                    bind_sprite_textures(uniform_locs)
+                    bind_sprite_textures(uniform_locs, sprites_array)
                     glDrawArrays(GL_QUADS, 0, 4)
                     glViewport(0, 0, width, height)
         else:
@@ -1716,7 +1574,7 @@ def main():
                 if rendering_width > 0 and rendering_height > 0:
                     glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                     glBindVertexArray(vao)
-                    bind_sprite_textures(uniform_locs)
+                    bind_sprite_textures(uniform_locs, sprites_array)
                     glDrawArrays(GL_QUADS, 0, 4)
 
                 glViewport(0, 0, width, height)
@@ -2291,16 +2149,17 @@ You can also support the project by reporting an error, or by suggesting an impr
             else:
                 truncated_name = name
             return f"{truncated_name} ({op_id})"
-        
+    
+
         def render_node_recursive(node_id, depth=0):
             """
             Recursively render a scene node and its children.
-
+            
             Adds:
             - right-click context popup per-node to Add a child primitive or child operation
                 (only for operation nodes that still accept operands).
             """
-            nonlocal pending_change_node_id, show_add_change_window, property_change_node_id, show_property_change_window 
+            nonlocal pending_change_node_id, show_add_change_window, property_change_node_id, show_property_change_window, show_reparent_window, reparent_node_id
 
             node = scene_builder.get_node(node_id)
             if not node:
@@ -2406,11 +2265,20 @@ You can also support the project by reporting an error, or by suggesting an impr
                         pending_change_node_id = node_id
                         show_add_change_window = True
                         imgui.close_current_popup()
-                    imgui.separator()
-                    if imgui.menu_item("Change Properties")[0]:
-                        property_change_node_id = node_id
-                        show_property_change_window = True
-                        imgui.close_current_popup()
+                
+                imgui.separator()
+                
+                if imgui.menu_item("Change Properties")[0]:
+                    property_change_node_id = node_id
+                    show_property_change_window = True
+                    imgui.close_current_popup()
+                
+                # NEW: Reparent option
+                if imgui.menu_item("Reparent")[0]:
+                    reparent_node_id = node_id
+                    show_reparent_window = True
+                    imgui.close_current_popup()
+                
                 imgui.end_popup()
 
             # Render children recursively
@@ -3224,6 +3092,128 @@ You can also support the project by reporting an error, or by suggesting an impr
                 property_change_node_id = None
 
             imgui.end()
+
+
+        def _render_reparent_node_list(node_id, exclude_node_id, exclude_descendants, indent=""):
+            """
+            Recursively render selectable nodes for reparent window.
+            Only show operation nodes (valid parents).
+            Returns True if a node was selected.
+            """
+            global reparent_target_parent, reparent_child_to_replace
+
+            if node_id in exclude_descendants or node_id == exclude_node_id:
+                return False
+
+            node = scene_builder.get_node(node_id)
+            if not node or node.node_type != 'operation':
+                return False
+
+            label = f"{indent}{node.item_data.ui_name} ({node_id})"
+            # NOTE: the second arg is the 'selected' boolean. We pass False for predictable behaviour.
+            clicked, _ = imgui.selectable(label, False)
+            if clicked:
+                reparent_target_parent = node_id
+                return True
+
+            result = imgui.is_item_clicked()
+
+            # Recursively render children (only operations)
+            for child_id in node.children:
+                child_node = scene_builder.get_node(child_id)
+                if child_node and child_node.node_type == 'operation':
+                    result |= _render_reparent_node_list(
+                        child_id,
+                        exclude_node_id,
+                        exclude_descendants,
+                        indent + "  "
+                    )
+
+            return result
+
+
+        # === REPARENT WINDOW ===
+        if show_reparent_window and reparent_node_id:
+            imgui.set_next_window_size(400, 500)
+            show_reparent_window, _ = imgui.begin("Reparent Node", True)
+            
+            if show_reparent_window:
+                reparent_node = scene_builder.get_node(reparent_node_id)
+                if reparent_node:
+                    imgui.text(f"Reparenting: {reparent_node.item_data.ui_name}")
+                    imgui.separator()
+                    imgui.text("Select new parent operation:")
+                    
+                    # List all operation nodes (excluding the node being reparented and its descendants)
+                    all_descendants = scene_builder.get_all_children_recursive(reparent_node_id)
+                    all_descendants.append(reparent_node_id)
+                    
+                    parent_selected = False
+                    for root_id in scene_builder.root_children:
+                        parent_selected |= _render_reparent_node_list(
+                            root_id, 
+                            reparent_node_id, 
+                            all_descendants,
+                            "  "
+                        )
+                    
+                    if parent_selected and reparent_target_parent:
+                        new_parent_node = scene_builder.get_node(reparent_target_parent)
+                        if new_parent_node and new_parent_node.node_type == 'operation':
+                            required_operands = scene_builder._get_operand_count(new_parent_node.item_data.operation_type)
+                            current_operands = len(new_parent_node.children)
+                            
+                            if current_operands >= required_operands:
+                                imgui.separator()
+                                imgui.text(f"Parent is full ({current_operands}/{required_operands} operands)")
+                                imgui.text("Select child to replace:")
+                                
+                                for i, child_id in enumerate(new_parent_node.children):
+                                    child_node = scene_builder.get_node(child_id)
+                                    if child_node:
+                                        if imgui.selectable(
+                                            f"{child_node.item_data.ui_name} ({child_id})",
+                                            reparent_child_to_replace == child_id
+                                        )[0]:
+                                            reparent_child_to_replace = child_id
+                    
+                    imgui.spacing()
+                    imgui.separator()
+                    
+                    if imgui.button("Cancel", 100, 30):
+                        show_reparent_window = False
+                        reparent_node_id = None
+                        reparent_target_parent = None
+                        reparent_child_to_replace = None
+                    
+                    imgui.same_line(150)
+                    
+                    can_reparent = reparent_target_parent is not None
+                    if reparent_target_parent:
+                        new_parent_node = scene_builder.get_node(reparent_target_parent)
+                        required_operands = scene_builder._get_operand_count(new_parent_node.item_data.operation_type)
+                        current_operands = len(new_parent_node.children)
+                        if current_operands >= required_operands and reparent_child_to_replace is None:
+                            can_reparent = False
+                    
+                    if not can_reparent:
+                        pass
+                    
+                    if imgui.button("Reparent", 100, 30):
+                        if scene_builder.reparent_node(reparent_node_id, reparent_target_parent, reparent_child_to_replace):
+                            success, new_uniforms = recompile_shader()
+                            if success:
+                                uniform_locs = new_uniforms
+                        show_reparent_window = False
+                        reparent_node_id = None
+                        reparent_target_parent = None
+                        reparent_child_to_replace = None
+                    
+                    if not can_reparent:
+                        pass
+            
+            imgui.end()
+
 
         # Render ImGui
         imgui.render()

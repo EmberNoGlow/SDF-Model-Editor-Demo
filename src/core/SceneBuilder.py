@@ -373,7 +373,14 @@ class SDFSceneBuilder:
         """
         return change_node_to_primitive(builder, node_id, primitive_type, position, size_or_radius, rotation, scale, color, **kwargs)
 
-
+    def reparent_node(self, node_id: str, new_parent_id: str, child_to_replace_id: Optional[str] = None) -> bool:
+        """
+        Reparent a node to a new parent operation.
+        
+        Returns the new operation id or None on failure.
+        """
+        from .classes.node_tree.NodeMod import reparent_node
+        return reparent_node(self, node_id, new_parent_id, child_to_replace_id)
 
     # =====================================================================
     # DELETION (CASCADE DELETE CHILDREN)

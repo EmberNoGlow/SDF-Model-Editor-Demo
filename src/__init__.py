@@ -2,7 +2,7 @@
 from .core.SDFObjects import SDFOperation, SDFPrimitive
 from .core.SceneBuilder import SDFSceneBuilder
 from .core.classes.scene_tree.SceneNode import SceneNode
-from .core.SpriteObject import Sprite
+from .core.SpriteObject import Sprite, bind_sprite_textures
 from .core.HistoryManager import History
 from .core.ShaderBuilder import *
 
@@ -20,3 +20,10 @@ from .core.classes.save_load_helpers.TextureLoader import *
 
 from .core.classes.config.UConfig import *
 from .core.helpers.ContextInit import *
+
+from .core.classes.uniform_managers.set_specific_uniforms_helper import *
+
+from .io.input import *
+
+from .rendering.fbo import *
+from .rendering.camera import *
