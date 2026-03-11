@@ -8,6 +8,11 @@ class Camera:
         self.cam_pan_x = 0.0
         self.cam_pan_y = 0.0
 
+        self.cam_orbit = (0.0,0.0,0.0)
+
+        self.move_delta_x = 0.0
+        self.move_delta_y = 0.0
+        self.move_delta_z = 0.0
 
         self.setup()
 
@@ -50,4 +55,14 @@ class Camera:
         # Re-calc
         self.setup()
 
-        return self.cam_yaw, self.cam_pitch, self.cam_pan_y, self.cam_pan_x
+        return self.cam_yaw, self.cam_pitch
+
+    def get_orbit(self):
+        return self.cam_orbit
+
+    def get_move_delta(self, mouse_delta_x, mouse_delta_y):
+        self.move_delta_x = mouse_delta_x * self.right_x + mouse_delta_y * self.up_x
+        self.move_delta_y = mouse_delta_x * self.right_y + mouse_delta_y * self.up_y
+        self.move_delta_z = mouse_delta_x * self.right_z + mouse_delta_y * self.up_z
+        
+        return  self.move_delta_x, self.move_delta_y, self.move_delta_z 

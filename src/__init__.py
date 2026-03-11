@@ -27,3 +27,5 @@ from .io.input import *
 
 from .rendering.fbo import *
 from .rendering.camera import *
+from .rendering.uniforms_helper import *
+from .rendering.OpenGL_setup.rendering_utils import *

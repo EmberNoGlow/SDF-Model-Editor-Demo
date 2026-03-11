@@ -110,8 +110,6 @@ def main():
     target_radius = 5.0
     cam_yaw = 0.0
     cam_pitch = 0.0
-    cam_pan_y = 0.0
-    cam_pan_x = 0.0
     last_x, last_y = 0.0, 0.0
     last_pan_x, last_pan_y = 0.0, 0.0  # Separate tracking for panning
     cam_radius = 5.0
@@ -324,40 +322,6 @@ def main():
             shader_compile_error = str(e)
             print(f"Shader compilation error:  {e}")
             return None, None
-    
-    def get_uniform_locations(shader_program):
-        # Get all uniform locations for the shader program.
-        uniforms = {
-            'time'                 :       glGetUniformLocation(shader_program, "time"),
-            'resolution'           :       glGetUniformLocation(shader_program, "resolution"),
-            'viewportOffset'       :       glGetUniformLocation(shader_program, "viewportOffset"),
-            'camYaw'               :       glGetUniformLocation(shader_program, "camYaw"),
-            'camPitch'             :       glGetUniformLocation(shader_program, "camPitch"),
-            'radius'               :       glGetUniformLocation(shader_program, "radius"),
-            'CamOrbit'             :       glGetUniformLocation(shader_program, "CamOrbit"),
-            'frameIndex'           :       glGetUniformLocation(shader_program, "frameIndex"),
-            'accumulationTexture'  :       glGetUniformLocation(shader_program, "accumulationTexture"),
-            'useAccumulation'      :       glGetUniformLocation(shader_program, "useAccumulation"),
-            'col_sky_top'          :       glGetUniformLocation(shader_program, "SkyColorTop"),
-            'col_sky_bottom'       :       glGetUniformLocation(shader_program, "SkyColorBottom"),
-            'grid_enabled'         :       glGetUniformLocation(shader_program, "GridEnabled"),
-            'move_pos'             :       glGetUniformLocation(shader_program, "MovePos"),
-            'move_rot'             :       glGetUniformLocation(shader_program, "MoveRot"),
-            'maxFrames'            :       glGetUniformLocation(shader_program, "MaxFrames"),
-            'LightDir'             :       glGetUniformLocation(shader_program, "LightDir")
-        }
-
-        # Register sprite sampler uniforms (dynamic)
-        # sprites_array is in outer scope; it's the list of Sprite objects used for postprocessing
-        try:
-            for spr in sprites_array:
-                # Use sampler name string as key, store location (may be -1 if unused)
-                uniforms[spr.SprTexture] = glGetUniformLocation(shader_program, spr.SprTexture)
-        except Exception:
-            # If sprites_array is not defined yet, skip (defensive)
-            pass
-
-        return uniforms
 
 
     @MonitorChanges
@@ -390,118 +354,16 @@ def main():
         glfw.terminate()
         return
 
-    # --- OpenGL Setup (Quad VAO/VBO) ---
-    vertices = [-1.0, -1.0, 0.0, 1.0, -1.0, 0.0, 1.0, 1.0, 0.0, -1.0, 1.0, 0.0]
-    vertices = (GLfloat * len(vertices))(*vertices)
-    vao = glGenVertexArrays(1)
-    glBindVertexArray(vao)
-    vbo = glGenBuffers(1)
-    glBindBuffer(GL_ARRAY_BUFFER, vbo)
-    glBufferData(GL_ARRAY_BUFFER, len(vertices) * 4, vertices, GL_STATIC_DRAW)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, None)
-    glEnableVertexAttribArray(0)
-    
+    # --- OpenGL Setup ---
+    vao, vbo, display_vao, display_vbo, display_shader = init_vao_vbo()
+
     # --- Framebuffer Setup for Resolution Scaling ---
     fbo = None
     render_texture = None
     fbo_width = 0
     fbo_height = 0
 
-    
-    try:
-        # Quad with texture coordinates for displaying the rendered texture
-        quad_vertices = [
-            # positions   # tex coords
-            -1.0, -1.0,  0.0, 0.0,
-             1.0, -1.0,  1.0, 0.0,
-             1.0,  1.0,  1.0, 1.0,
-            -1.0,  1.0,  0.0, 1.0
-        ]
-        quad_vertices = (GLfloat * len(quad_vertices))(*quad_vertices)
-        
-        display_vao = glGenVertexArrays(1)
-        glBindVertexArray(display_vao)
-        display_vbo = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, display_vbo)
-        glBufferData(GL_ARRAY_BUFFER, len(quad_vertices) * 4, quad_vertices, GL_STATIC_DRAW)
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * 4, None)  # position
-        glEnableVertexAttribArray(0)
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * 4, ctypes.c_void_p(2 * 4))  # tex coord
-        glEnableVertexAttribArray(1)
-        glBindVertexArray(0)
-    except Exception as e:
-        print(f"Warning: Could not create display shader: {e}")
-        print("Falling back to direct rendering (resolution scale may not work correctly)")
-    
-    # Simple shader for displaying texture
-    display_vertex_shader = """
-    #version 330 core
-    layout (location = 0) in vec2 aPos;
-    layout (location = 1) in vec2 aTexCoord;
-    out vec2 TexCoord;
-    void main() {
-        gl_Position = vec4(aPos, 0.0, 1.0);
-        TexCoord = aTexCoord;
-    }
-    """
-    
-    display_fragment_shader = """
-    #version 330 core
-    out vec4 FragColor;
-    in vec2 TexCoord;
-    uniform sampler2D renderTexture;
-    uniform int isAccumulation;
-
-    void main() {
-        vec4 tex = texture(renderTexture, TexCoord);
-
-        if (isAccumulation == 1) {
-            FragColor = vec4(tex.rgb, 1.0);
-        } else {
-            FragColor = vec4(tex.rgb, 1.0);
-        }
-    }
-    """
-    
-    display_shader = None
-    display_vao = None
-    display_vbo = None
-    
-    try:
-        display_shader = compileProgram(
-            compileShader(display_vertex_shader, GL_VERTEX_SHADER),
-            compileShader(display_fragment_shader, GL_FRAGMENT_SHADER)
-        )
-        
-        # Quad with texture coordinates for displaying the rendered texture
-        quad_vertices = [
-            # positions   # tex coords
-            -1.0, -1.0,  0.0, 0.0,
-             1.0, -1.0,  1.0, 0.0,
-             1.0,  1.0,  1.0, 1.0,
-            -1.0,  1.0,  0.0, 1.0
-        ]
-        quad_vertices = (GLfloat * len(quad_vertices))(*quad_vertices)
-        
-        display_vao = glGenVertexArrays(1)
-        glBindVertexArray(display_vao)
-        display_vbo = glGenBuffers(1)
-        glBindBuffer(GL_ARRAY_BUFFER, display_vbo)
-        glBufferData(GL_ARRAY_BUFFER, len(quad_vertices) * 4, quad_vertices, GL_STATIC_DRAW)
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * 4, None)  # position
-        glEnableVertexAttribArray(0)
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * 4, ctypes.c_void_p(2 * 4))  # tex coord
-        glEnableVertexAttribArray(1)
-        glBindVertexArray(0)
-    except Exception as e:
-        print(f"Warning: Could not create display shader: {e}")
-        print("Falling back to direct rendering (resolution scale may not work correctly)")
-        display_shader = None
-
-
     # --- Accumulation Buffer Setup ---
-    accumulation_fbo = None
-    accumulation_texture = None
     accumulation_width = 0
     accumulation_height = 0
     frame_count = 0
@@ -730,41 +592,14 @@ def main():
                 target_pitch = max(MIN_PITCH, min(MAX_PITCH, target_pitch))
 
 
-        # --- Interpolate camera ---
-        cam_yaw, cam_pitch, cam_pan_y, cam_pan_x = camera.update(target_yaw, target_pitch, target_pan_y, target_pan_x, CAMERA_LERP_FACTOR*delta_time)
-
-
         # --- Camera vectors ---
-
-        forward_x = math.cos(cam_pitch) * math.sin(cam_yaw)
-        forward_y = math.sin(cam_pitch)
-        forward_z = math.cos(cam_pitch) * math.cos(cam_yaw)
-
-
-        right_x = math.cos(cam_yaw)
-        right_y = 0
-        right_z = -math.sin(cam_yaw)
-
-
-        up_x = forward_y * right_z - forward_z * right_y
-        up_y = forward_z * right_x - forward_x * right_z
-        up_z = forward_x * right_y - forward_y * right_x
-
-
-        orbit_center_offset_x = cam_pan_x * right_x + cam_pan_y * up_x
-        orbit_center_offset_y = cam_pan_x * right_y + cam_pan_y * up_y
-        orbit_center_offset_z = cam_pan_x * right_z + cam_pan_y * up_z
-
-        cam_orbit = (
-            orbit_center_offset_z, # Yoow! (Correctly)
-            orbit_center_offset_y,
-            orbit_center_offset_x
-        )
+        cam_yaw, cam_pitch = camera.update(target_yaw, target_pitch, target_pan_y, target_pan_x, CAMERA_LERP_FACTOR*delta_time)
+        cam_orbit = camera.get_orbit()
 
         # -----
 
         if io.keys_down[glfw.KEY_HOME]:
-            cam_pan_x = cam_pan_y = target_pan_x = target_pan_y = 0.0
+            target_pan_x = target_pan_y = 0.0
             cam_orbit = [0.0,0.0,0.0]
 
 
@@ -1284,9 +1119,7 @@ def main():
                     clear_accumulation_fbos(accumulation_fbos, scaled_rendering_width, scaled_rendering_height)
 
                 # Transform mouse deltas into world-space
-                move_delta_x = mouse_delta_x * right_x + mouse_delta_y * up_x
-                move_delta_y = mouse_delta_x * right_y + mouse_delta_y * up_y
-                move_delta_z = mouse_delta_x * right_z + mouse_delta_y * up_z
+                move_delta_x, move_delta_y, move_delta_z = camera.get_move_delta(mouse_delta_x, mouse_delta_y)
 
                 # Axis constraints
                 if active_axis is not None:
@@ -2656,22 +2489,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         imgui.end_group()
 
 
-
-
-
-
-
-
-
-
-
                     # ==============================================================
-
-
-
-
-
-
 
 
                     changed, item_data.position = input_vec3(
