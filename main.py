@@ -76,7 +76,7 @@ tkinter_thread = None
 
 
 def main():
-    global selected_item_id, drag_position, drag_rot_position
+    global selected_item_id, drag_position, drag_rot_position, selected_items
 
     # Initialize GLFW & Imgui
     window, impl = init_glfw_impl(cn['SCREEN_SIZE'])
@@ -211,63 +211,15 @@ def main():
 
         # --- Handle keyboard input ---
         io = get_io()
-                
-        # Check Ctrl+A for add window 
-        if input_handle("Add"):
-            if not st.last_key_a_pressed:
-                # Open Add Operation dialog (keeps same code path as the menu)
-                st.show_add_change_window = True
-                st.pending_change_node_id = None
-                st.last_key_a_pressed = True
-        else:
-            st.last_key_a_pressed = False
-        
-        # Check F2 for rename (with debouncing)
-        if input_handle("Rename") and selected_item_id is not None and st.renaming_item_id is None:
-            if not st.last_key_f2_pressed:
-                st.renaming_item_id = selected_item_id
-                st.rename_text = scene_builder.get_item_name(selected_item_id)
-                st.last_key_f2_pressed = True
-        else:
-            st.last_key_f2_pressed = False
-        
-        # Check Delete key for deletion (with debouncing)
-        # Only allow deletion if node is direct child of root (depth = 1)
-        if input_handle("Delete") and selected_item_id is not None:
-            if not st.last_key_delete_pressed:
-                node_to_delete = scene_builder.get_node(selected_item_id)
-                if node_to_delete:
-                    # Check depth: only delete if parent is None (direct root child)
-                    depth = scene_builder.get_node_depth(selected_item_id)
-                    if depth == 1:  # Direct child of root
-                        if scene_builder.delete_node(selected_item_id):
-                            success, new_uniforms = recompile_shader()
-                            if success:
-                                uniform_locs = new_uniforms
-                            selected_item_id = None
-                            scene_builder.update_selected_item_id(selected_item_id)
-                            st.selection_mode = None
-                    else:
-                        # Cannot delete - show message (optional)
-                        pass
-                st.last_key_delete_pressed = True
-        else:
-            st.last_key_delete_pressed = False
-        
-        # Check Ctrl+B for compile (with debouncing)
-        if input_handle("Compile"):
-            if not st.last_key_compile_pressed:
-                success, new_uniforms = recompile_shader()
-                if success:
-                    uniform_locs = new_uniforms
-                st.last_key_compile_pressed = True
-        else:
-            st.last_key_compile_pressed = False
 
-
-        if glfw.get_key(window, glfw.KEY_F12) == glfw.PRESS:
-            take_screenshot(window)
-
+        # Return: Flag (Recompile shader), selected_item_id, selected_items
+        handle = handler(window, io, scene_builder, glob_history, selected_item_id, selected_items)
+        if handle[0]:
+            success, new_uniforms = recompile_shader()
+            if success:
+                uniform_locs = new_uniforms
+        selected_item_id = handle[1]
+        selected_items = handle[2]
 
 
         # Increment frame counter only when using cycles shader
@@ -398,145 +350,32 @@ def main():
         prev_cam_radius = st.cam_radius
         prev_cam_orbit = st.cam_orbit
 
-
-        # TODO: Unsuccessful attempt
-        #circle_points = proj_3d22d(np.array([[0.0, 0.0, 100.0]]), st.cam_yaw, st.cam_pitch)
-        #print(circle_points)
-        
-        #bg_draw_list = imgui.get_background_draw_list()
-        
-        #bg_draw_list.add_circle_filled(
-        #    circle_points[0][0]+(width//2),
-        #    circle_points[0][1]+(height//2),
-        #    25, 
-        #    imgui.get_color_u32_rgba(1, 0, 0, 1)
-        #)
-
-
-        # Clear the screen
-        glClear(GL_COLOR_BUFFER_BIT)
-        
-        
-        # --- Setup accumulation buffer if using cycles shader ---
-        use_accumulation = 0
-        accbuffer_output = False
-        accbuffer_output, \
-        scaled_rendering_width, scaled_rendering_height, \
-        accumulation_fbos, accumulation_textures, \
-        accumulation_width, accumulation_height = setup_accumulation_buffer(
-                scaled_rendering_width, scaled_rendering_height,
-                accumulation_fbos, accumulation_textures,
-                accumulation_width, accumulation_height
-            )
-
-        if st.shader_choice == 1:  # cycles.glsl
-            if accbuffer_output:
-                use_accumulation = 1
-
-        # --- RENDER TO ACCUMULATION BUFFER ---
-        if shader is not None and st.shader_choice == 1 and use_accumulation == 1:
-            write_buffer = current_accum_index
-            read_buffer = 1 - current_accum_index
-            glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[write_buffer])
-            glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
-
-            if frame_count == 0:
-                glClear(GL_COLOR_BUFFER_BIT)
-
-            if frame_count < max_frames:
-                glUseProgram(shader)
-                if uniform_locs is not None:
-                    current_time_uniform = time.time() - start_time
-                    glUniform1f(uniform_locs['time'], current_time_uniform)
-                    glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
-                    glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
-                    glUniform1f(uniform_locs['camYaw'], st.cam_yaw)
-                    glUniform1f(uniform_locs['camPitch'], st.cam_pitch)
-                    glUniform1f(uniform_locs['radius'], st.cam_radius)
-                    glUniform3f(uniform_locs['CamOrbit'], st.cam_orbit[0], st.cam_orbit[1], st.cam_orbit[2])
-                    glUniform1i(uniform_locs['frameIndex'], frame_count)
-                    glUniform1i(uniform_locs['maxFrames'], max_frames)
-                    set_move_pos_uniform(shader, uniform_locs, drag_position)
-                    set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
-
-                    # Bind accumulation texture for reading
-                    glActiveTexture(GL_TEXTURE0)
-                    glBindTexture(GL_TEXTURE_2D, accumulation_textures[read_buffer])
-                    glUniform1i(uniform_locs['accumulationTexture'], 0)
-                    glUniform1i(uniform_locs['useAccumulation'], 1)
-
-                    glUniform3f(uniform_locs['col_sky_top'], st.sky_top_color[0], st.sky_top_color[1], st.sky_top_color[2])
-                    glUniform3f(uniform_locs['col_sky_bottom'], st.sky_bottom_color[0], st.sky_bottom_color[1], st.sky_bottom_color[2])
-                    
-                    glUniform3f(uniform_locs['LightDir'], st.LightDir[0], st.LightDir[1], st.LightDir[2])
-
-                bind_sprite_textures(uniform_locs, st.sprites_array)
-                glBindVertexArray(vao)
-                glDrawArrays(GL_QUADS, 0, 4)
-
-            # Switch back to default framebuffer
-            glBindFramebuffer(GL_FRAMEBUFFER, 0)
-            glViewport(0, 0, width, height)
-
-            glActiveTexture(GL_TEXTURE0)
-            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])
-
-            # Display accumulated result
-            glUseProgram(display_shader)
-            glActiveTexture(GL_TEXTURE0)
-            glBindTexture(GL_TEXTURE_2D, accumulation_textures[write_buffer])
-            glUniform1i(glGetUniformLocation(display_shader, "renderTexture"), 0)
+        (   scaled_rendering_width,
+            scaled_rendering_height,
+            accumulation_fbos,
+            accumulation_textures,
+            accumulation_width,
+            accumulation_height,
+            current_accum_index,
+            use_accumulation
+        ) =  rendering_pass(
             
+            st, shader, display_shader, vao, display_vao, uniform_locs,
+            scaled_rendering_width, scaled_rendering_height,
+            rendering_width, rendering_height,
+            width, height,
+            panel_width, menu_bar_height,
+            frame_count, max_frames, start_time,
+            drag_position, drag_rot_position,
+            accumulation_fbos, accumulation_textures,
+            accumulation_width, accumulation_height,
+            current_accum_index,
+            setup_accumulation_buffer,
+            bind_sprite_textures,
+            set_move_pos_uniform,
+            set_move_rot_uniform
+        )
 
-            # Set isAccumulation to 1 if rendering is complete
-            if frame_count >= max_frames:
-                glUniform1i(glGetUniformLocation(display_shader, "isAccumulation"), 1)
-            else:
-                glUniform1i(glGetUniformLocation(display_shader, "isAccumulation"), 0)
-            #print(glGetUniformLocation(display_shader,"isAccumulation"))
-
-            glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
-            bind_sprite_textures(uniform_locs, st.sprites_array)
-            glBindVertexArray(display_vao)
-            glDrawArrays(GL_QUADS, 0, 4)
-            glBindVertexArray(0)
-
-            glViewport(0, 0, width, height)
-            current_accum_index = 1 - current_accum_index
-        
-        # --- RENDER DIRECTLY (if NOT using cycles or accumulation disabled) ---
-        elif shader is not None: 
-            glUseProgram(shader)
-            if uniform_locs is not None:
-                current_time_uniform = time.time() - start_time
-                glUniform1f(uniform_locs['time'], current_time_uniform)
-                glUniform2f(uniform_locs['resolution'], rendering_width, rendering_height)
-                # When rendering directly into the screen viewport we must subtract the panel/menu offset
-                glUniform2f(uniform_locs['viewportOffset'], float(panel_width), float(menu_bar_height))
-                glUniform1f(uniform_locs['camYaw'], st.cam_yaw)
-                glUniform1f(uniform_locs['camPitch'], st.cam_pitch)
-                glUniform1f(uniform_locs['radius'], st.cam_radius)
-                glUniform3f(uniform_locs['CamOrbit'], st.cam_orbit[0], st.cam_orbit[1], st.cam_orbit[2])
-                glUniform1i(uniform_locs['frameIndex'], 0)
-                glUniform1i(uniform_locs['useAccumulation'], 0)
-                set_move_pos_uniform(shader, uniform_locs, drag_position)
-                set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
-
-                glUniform3f(uniform_locs['col_sky_top'], st.sky_top_color[0], st.sky_top_color[1], st.sky_top_color[2])
-                glUniform3f(uniform_locs['col_sky_bottom'], st.sky_bottom_color[0], st.sky_bottom_color[1], st.sky_bottom_color[2])
-
-                glUniform1i(uniform_locs['grid_enabled'], st.GridEnabled)
-                glUniform3f(uniform_locs['LightDir'], st.LightDir[0], st.LightDir[1], st.LightDir[2])
-
-
-            # Check if viewport is minimized
-            if rendering_width > 0 and rendering_height > 0:
-                glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
-                glBindVertexArray(vao)
-                bind_sprite_textures(uniform_locs, st.sprites_array)
-                glDrawArrays(GL_QUADS, 0, 4)
-
-            glViewport(0, 0, width, height)
 
 
 
@@ -666,125 +505,6 @@ def main():
 
 
             imgui.end_main_menu_bar()
-        
-
-        # Check Ctrl + S/O
-        if input_handle("Open"):
-            if not st.last_key_o_pressed: 
-                success, message = load_scene_dialog(scene_builder)
-                st.save_load_message = message
-                st.save_load_message_time = time.time()
-                if success:
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-                    selected_item_id = None
-                    scene_builder.update_selected_item_id(selected_item_id)
-                    st.selection_mode = None
-                st.last_key_o_pressed = True
-        else:
-            st.last_key_o_pressed = False
-
-
-        # --- Duplicate (Ctrl+D) ---
-        if input_handle("Duplicate"):
-            if not st.last_key_d_pressed:
-                # Duplicate selected items (multi-select supported)
-                duplicated_ids = []
-                if len(selected_items) > 0:
-                    # Duplicate all selected items
-                    for sid in list(selected_items):
-                        node = scene_builder.get_node(sid)
-                        if node and node.node_type == 'primitive':
-                            prim = node.item_data
-                            # Recreate with same properties
-                            new_id = scene_builder.add_standalone_primitive(
-                                prim.primitive_type,
-                                copy.deepcopy(prim.position),
-                                copy.deepcopy(prim.size_or_radius),
-                                copy.deepcopy(prim.rotation),
-                                copy.deepcopy(prim.scale),
-                                prim.ui_name + " (copy)",
-                                copy.deepcopy(prim.color),
-                                **copy.deepcopy(prim.kwargs)
-                            )
-                            duplicated_ids.append(new_id)
-                elif selected_item_id:
-                    node = scene_builder.get_node(selected_item_id)
-                    if node and node.node_type == 'primitive':
-                        prim = node.item_data
-                        new_id = scene_builder.add_standalone_primitive(
-                            prim.primitive_type,
-                            copy.deepcopy(prim.position),
-                            copy.deepcopy(prim.size_or_radius),
-                            copy.deepcopy(prim.rotation),
-                            copy.deepcopy(prim.scale),
-                            prim.ui_name + " (copy)",
-                            copy.deepcopy(prim.color),
-                            **copy.deepcopy(prim.kwargs)
-                        )
-                        duplicated_ids.append(new_id)
-
-                # Select the most recent duplicated id if any
-                if duplicated_ids:
-                    selected_items.clear()
-                    selected_item_id = duplicated_ids[-1]
-                    scene_builder.update_selected_item_id(selected_item_id)
-                    st.selection_mode = 'node'
-                    # Recompile shader to pick up new primitives
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-
-                st.last_key_d_pressed = True
-        else:
-            st.last_key_d_pressed = False
-        
-
-
-        if input_handle("Save"):
-            if not st.last_key_s_pressed: 
-                success, message = save_scene_dialog(scene_builder, window)
-                st.save_load_message = message
-                st.save_load_message_time = time.time()
-                if success:
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-                    selected_item_id = None
-                    scene_builder.update_selected_item_id(selected_item_id)
-                    st.selection_mode = None
-                st.last_key_s_pressed = True
-        else:
-            st.last_key_s_pressed = False
-
-
-        # Check Undo/Redo keys Ctrl+Z/Y
-        if input_handle("Undo") and io.key_ctrl and not io.key_shift:
-            if not st.last_key_z_pressed: 
-                undo_success = glob_history.undo()
-                scene_builder.update_glob_history(glob_history)
-                if undo_success:
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-                st.last_key_z_pressed = True
-        else:
-            st.last_key_z_pressed = False
-
-
-        if input_handle("Redo") or input_handle("Redo2"):
-            if not st.last_key_y_pressed: 
-                undo_success = glob_history.redo()
-                scene_builder.update_glob_history(glob_history)
-                if undo_success:
-                    success, new_uniforms = recompile_shader()
-                    if success:
-                        uniform_locs = new_uniforms
-                st.last_key_y_pressed = True
-        else:
-            st.last_key_y_pressed = False
-
 
 
         # Drag on G
