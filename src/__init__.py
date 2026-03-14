@@ -5,6 +5,7 @@ from .core.classes.scene_tree.SceneNode import SceneNode
 from .core.SpriteObject import Sprite, bind_sprite_textures
 from .core.HistoryManager import History
 from .core.ShaderBuilder import *
+from .core.ShaderManager import *
 
 from .core.classes.scene_tree.NodeFinder import *
 from .core.classes.scene_tree.SceneTraversal import *

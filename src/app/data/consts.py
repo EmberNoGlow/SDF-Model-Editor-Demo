@@ -20,7 +20,7 @@ cn = {
 
     # Camera control constants
     'MOUSE_SENSITIVITY': 0.005,  # Sensitivity factor for mouse movement - affects how fast the camera rotates with mouse input
-    'PAN_SENSITIVITY': 0.1,  # Sensitivity for panning movements (e.g., dragging the view horizontally/vertically)
+    'PAN_SENSITIVITY': 0.01,  # Sensitivity for panning movements (e.g., dragging the view horizontally/vertically)
     'CAMERA_LERP_FACTOR': 7.5,  # Interpolation factor for smooth camera movement (LERP = Linear Interpolation)
     'ZOOM_SENSITIVITY': 0.5,  # Sensitivity for zooming in/out - controls how much zoom changes per input unit
     'MIN_RADIUS': 1.0,  # Minimum distance (radius) from camera to target point

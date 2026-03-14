@@ -36,6 +36,12 @@ import src.ui.themes as ui_themes
 # Load shaders
 vertex_shader, fragment_shader_template, sdf_library = load_shaders()
 
+# Create shader manager
+shader_manager = ShaderManager(
+    vertex_shader_src=vertex_shader,
+    sdf_library_src=sdf_library,
+    state=st
+)
 
 # Moved variables
 drag_position = [0,0,0] # Track calculation result
@@ -94,96 +100,38 @@ def main():
     )
 
 
-
-    def get_shader_hash():
-        """Generate a hash of the current shader code for caching."""
-        scene_code = scene_builder.generate_raymarch_code()
-        postproc_code = generate_postproc_code(st.sprites_array)
-        selected_fragment_shader = load_shader_code(st.shader_names[st.shader_choice])
-        fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
-        fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
-        fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(cn['FOV_ANGLE']))
-        fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
-        fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
-        fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", st.additional_scene_code)
-        
-        # Create hash of the complete shader code (including shader choice)
-        shader_code = f"{vertex_shader}\n{fragment_shader}\n{st.shader_names[st.shader_choice]}"
-        return hashlib.md5(shader_code.encode('utf-8')).hexdigest()
-    
-
-
-    def compile_shader():
-        """Compile the shader program from the current scene.  Uses caching."""
-
-        # Check cache first
-        shader_hash = get_shader_hash()
-        if shader_hash in st.shader_cache:
-            cached_shader, cached_uniforms = st.shader_cache[shader_hash]
-            st.shader_compile_error = None
-            return cached_shader, cached_uniforms
-        
-        # Not in cache, compile new shader
-        try:
-            scene_code = scene_builder.generate_raymarch_code()
-            # Use selected shader
-            postproc_code = generate_postproc_code(st.sprites_array)
-            selected_fragment_shader = load_shader_code(st.shader_names[st.shader_choice])
-            fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
-            fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
-            fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(cn['FOV_ANGLE']))
-            fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
-            fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
-            fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", st.additional_scene_code)
-            
-            shader_program = compileProgram(
-                compileShader(vertex_shader, GL_VERTEX_SHADER),
-                compileShader(fragment_shader, GL_FRAGMENT_SHADER)
-            )
-            
-            # Get uniform locations
-            uniforms = get_uniform_locations(shader_program)
-            
-            # Cache the compiled shader
-            st.shader_cache[shader_hash] = (shader_program, uniforms)
-            
-            st.shader_compile_error = None
-            return shader_program, uniforms
-        except Exception as e:
-            st.shader_compile_error = str(e)
-            print(f"Shader compilation error:  {e}")
-            return None, None
-
-
     @MonitorChanges
     def recompile_shader():
-        """Recompile shader and update uniform locations.  Returns (success, uniforms_dict). Uses caching."""
         nonlocal shader, uniform_locs
 
-        new_shader, new_uniforms = compile_shader()
+        new_shader, new_uniforms = shader_manager.get_or_compile(scene_builder)
+
         if new_shader is None:
             return False, None
-        
+
+        # If shader changed, delete old one (unless it was cached)
         if shader is not None and shader != new_shader:
             old_hash = None
             for cached_hash, (cached_shader, _) in st.shader_cache.items():
                 if cached_shader == shader:
                     old_hash = cached_hash
                     break
-            
+
             if old_hash is None:
                 glDeleteProgram(shader)
-        
+
         shader = new_shader
         uniform_locs = new_uniforms
         return True, new_uniforms
 
-    shader, uniform_locs = compile_shader()
+
+    shader, uniform_locs = shader_manager.get_or_compile(scene_builder)
     if shader is None:
         print("Failed to compile initial shader. Exiting.")
         impl.shutdown()
         glfw.terminate()
         return
+
 
     # --- OpenGL Setup ---
     vao, vbo, display_vao, display_vbo, display_shader = init_vao_vbo()
