@@ -70,17 +70,16 @@ tkinter_thread = None
 
 
 def main():
-    # Globals
-    global start_drag, end_drag, dragging, R_dragging, selected_item_id, drag_position, drag_rot_position, selection_mode
-
+    global selected_item_id, drag_position, drag_rot_position
 
     # Initialize GLFW & Imgui
     window, impl = init_glfw_impl(cn['SCREEN_SIZE'])
     ICONS = load_all_textures()
 
+    camera = Camera()
 
     # --- Defined Palette ---
-    theme = ui_themes.default_theme
+    st.theme = ui_themes.default_theme
 
 
     # --- Scene Definition ---
@@ -99,44 +98,43 @@ def main():
     def get_shader_hash():
         """Generate a hash of the current shader code for caching."""
         scene_code = scene_builder.generate_raymarch_code()
-        postproc_code = generate_postproc_code(sprites_array)
-        selected_fragment_shader = load_shader_code(shader_names[shader_choice])
+        postproc_code = generate_postproc_code(st.sprites_array)
+        selected_fragment_shader = load_shader_code(st.shader_names[st.shader_choice])
         fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
         fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
         fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(cn['FOV_ANGLE']))
         fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
         fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
-        fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
+        fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", st.additional_scene_code)
         
         # Create hash of the complete shader code (including shader choice)
-        shader_code = f"{vertex_shader}\n{fragment_shader}\n{shader_names[shader_choice]}"
+        shader_code = f"{vertex_shader}\n{fragment_shader}\n{st.shader_names[st.shader_choice]}"
         return hashlib.md5(shader_code.encode('utf-8')).hexdigest()
     
 
 
     def compile_shader():
         """Compile the shader program from the current scene.  Uses caching."""
-        nonlocal shader_compile_error
-        
+
         # Check cache first
         shader_hash = get_shader_hash()
-        if shader_hash in shader_cache:
-            cached_shader, cached_uniforms = shader_cache[shader_hash]
-            shader_compile_error = None
+        if shader_hash in st.shader_cache:
+            cached_shader, cached_uniforms = st.shader_cache[shader_hash]
+            st.shader_compile_error = None
             return cached_shader, cached_uniforms
         
         # Not in cache, compile new shader
         try:
             scene_code = scene_builder.generate_raymarch_code()
             # Use selected shader
-            postproc_code = generate_postproc_code(sprites_array)
-            selected_fragment_shader = load_shader_code(shader_names[shader_choice])
+            postproc_code = generate_postproc_code(st.sprites_array)
+            selected_fragment_shader = load_shader_code(st.shader_names[st.shader_choice])
             fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
             fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
             fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(cn['FOV_ANGLE']))
             fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
             fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
-            fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
+            fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", st.additional_scene_code)
             
             shader_program = compileProgram(
                 compileShader(vertex_shader, GL_VERTEX_SHADER),
@@ -147,12 +145,12 @@ def main():
             uniforms = get_uniform_locations(shader_program)
             
             # Cache the compiled shader
-            shader_cache[shader_hash] = (shader_program, uniforms)
+            st.shader_cache[shader_hash] = (shader_program, uniforms)
             
-            shader_compile_error = None
+            st.shader_compile_error = None
             return shader_program, uniforms
         except Exception as e:
-            shader_compile_error = str(e)
+            st.shader_compile_error = str(e)
             print(f"Shader compilation error:  {e}")
             return None, None
 
@@ -161,14 +159,14 @@ def main():
     def recompile_shader():
         """Recompile shader and update uniform locations.  Returns (success, uniforms_dict). Uses caching."""
         nonlocal shader, uniform_locs
-        
+
         new_shader, new_uniforms = compile_shader()
         if new_shader is None:
             return False, None
         
         if shader is not None and shader != new_shader:
             old_hash = None
-            for cached_hash, (cached_shader, _) in shader_cache.items():
+            for cached_hash, (cached_shader, _) in st.shader_cache.items():
                 if cached_shader == shader:
                     old_hash = cached_hash
                     break
@@ -207,13 +205,11 @@ def main():
 
 
     def on_window_close(window):
-        nonlocal show_exit_window
         glfw.set_window_should_close(window, False)
-        show_exit_window = True
+        st.show_exit_window = True
 
     def restart():
-        nonlocal show_restart_window
-        show_restart_window = True
+        st.show_restart_window = True
 
 
     # --- Main Loop ---
@@ -226,7 +222,7 @@ def main():
 
     # Load User Config
     # I use JSON format with data extension to avoid confusion with one extension
-    default_uconfig = {"Theme": theme, "UIScale" : 1.0}
+    default_uconfig = {"Theme": st.theme, "UIScale" : 1.0}
     try:
         UConfig = load_user_config("UserData/User.data")
     except:
@@ -236,10 +232,10 @@ def main():
         save_user_config("UserData/User.data", default_uconfig)
         UConfig = default_uconfig
     else:
-        theme = UConfig["Theme"]
-        for label, color in list(theme.items()):
+        st.theme = UConfig["Theme"]
+        for label, color in list(st.theme.items()):
                 # Update the dictionary key with the new list/tuple value
-                setattr(ui_themes, label, theme[label])
+                setattr(ui_themes, label, st.theme[label])
                 ui_themes.setup_theme()
 
     rebuild_imgui_fonts(impl, "assets/fonts/Roboto-Medium.ttf", 16.0)
@@ -247,7 +243,7 @@ def main():
     while not glfw.window_should_close(window):
         # calc Delta time 
         current_time = time.time()
-        delta_time = current_time - prev_time
+        st.delta_time = current_time - prev_time
         prev_time = current_time
 
         glfw.poll_events()
@@ -258,39 +254,39 @@ def main():
 
 
         # --- FPS calculation ---
-        fps_frames += 1
+        st.fps_frames += 1
         current_time = time.time()
-        if current_time - fps_clock >= 1.0:
-            fps_value = fps_frames
-            fps_frames = 0
-            fps_clock = current_time
+        if current_time - st.fps_clock >= 1.0:
+            st.fps_value = st.fps_frames
+            st.fps_frames = 0
+            st.fps_clock = current_time
 
         # --- Handle keyboard input ---
         io = get_io()
                 
         # Check Ctrl+A for add window 
         if input_handle("Add"):
-            if not last_key_a_pressed:
+            if not st.last_key_a_pressed:
                 # Open Add Operation dialog (keeps same code path as the menu)
-                show_add_change_window = True
-                pending_change_node_id = None
-                last_key_a_pressed = True
+                st.show_add_change_window = True
+                st.pending_change_node_id = None
+                st.last_key_a_pressed = True
         else:
-            last_key_a_pressed = False
+            st.last_key_a_pressed = False
         
         # Check F2 for rename (with debouncing)
-        if input_handle("Rename") and selected_item_id is not None and renaming_item_id is None:
-            if not last_key_f2_pressed:
-                renaming_item_id = selected_item_id
-                rename_text = scene_builder.get_item_name(selected_item_id)
-                last_key_f2_pressed = True
+        if input_handle("Rename") and selected_item_id is not None and st.renaming_item_id is None:
+            if not st.last_key_f2_pressed:
+                st.renaming_item_id = selected_item_id
+                st.rename_text = scene_builder.get_item_name(selected_item_id)
+                st.last_key_f2_pressed = True
         else:
-            last_key_f2_pressed = False
+            st.last_key_f2_pressed = False
         
         # Check Delete key for deletion (with debouncing)
         # Only allow deletion if node is direct child of root (depth = 1)
         if input_handle("Delete") and selected_item_id is not None:
-            if not last_key_delete_pressed:
+            if not st.last_key_delete_pressed:
                 node_to_delete = scene_builder.get_node(selected_item_id)
                 if node_to_delete:
                     # Check depth: only delete if parent is None (direct root child)
@@ -302,23 +298,23 @@ def main():
                                 uniform_locs = new_uniforms
                             selected_item_id = None
                             scene_builder.update_selected_item_id(selected_item_id)
-                            selection_mode = None
+                            st.selection_mode = None
                     else:
                         # Cannot delete - show message (optional)
                         pass
-                last_key_delete_pressed = True
+                st.last_key_delete_pressed = True
         else:
-            last_key_delete_pressed = False
+            st.last_key_delete_pressed = False
         
         # Check Ctrl+B for compile (with debouncing)
         if input_handle("Compile"):
-            if not last_key_compile_pressed:
+            if not st.last_key_compile_pressed:
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
-                last_key_compile_pressed = True
+                st.last_key_compile_pressed = True
         else:
-            last_key_compile_pressed = False
+            st.last_key_compile_pressed = False
 
 
         if glfw.get_key(window, glfw.KEY_F12) == glfw.PRESS:
@@ -327,7 +323,7 @@ def main():
 
 
         # Increment frame counter only when using cycles shader
-        if shader_choice == 1:   # cycles_fragment_shader.glsl
+        if st.shader_choice == 1:   # cycles_fragment_shader.glsl
             frame_count = min(frame_count + 1, max_frames)
         else: 
             frame_count = 0  # Reset accumulation when switching shaders
@@ -342,8 +338,8 @@ def main():
         panel_elem_width_float = (panel_width/2)-14
 
         
-        scaled_rendering_width = int(rendering_width * resolution_scale)
-        scaled_rendering_height = int(rendering_height * resolution_scale)
+        scaled_rendering_width = int(rendering_width * st.resolution_scale)
+        scaled_rendering_height = int(rendering_height * st.resolution_scale)
 
 
 
@@ -356,13 +352,13 @@ def main():
         rendering_height = height - menu_bar_height
         
         # Apply resolution scale
-        scaled_rendering_width = int(rendering_width * resolution_scale)
-        scaled_rendering_height = int(rendering_height * resolution_scale)
+        scaled_rendering_width = int(rendering_width * st.resolution_scale)
+        scaled_rendering_height = int(rendering_height * st.resolution_scale)
 
 
         # If we recompiled the shader, we will update the fbo
         global monitor
-        if monitor == True and shader_choice == 1:
+        if monitor == True and st.shader_choice == 1:
             monitor = False
             frame_count = 0
             clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width, scaled_rendering_height)
@@ -370,78 +366,78 @@ def main():
 
 
 
-        # Handle MMB press and release for camera control
+        # Handle MMB press and release for st.camera control
         if glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.PRESS:
             shift_pressed = (glfw.get_key(window, glfw.KEY_LEFT_SHIFT) == glfw.PRESS or 
                             glfw.get_key(window, glfw.KEY_RIGHT_SHIFT) == glfw.PRESS)
             
-            if not is_mmb_pressed:
-                is_mmb_pressed = True
-                is_shift_mmb_pressed = shift_pressed
-                last_x, last_y = glfw.get_cursor_pos(window)
+            if not st.is_mmb_pressed:
+                st.is_mmb_pressed = True
+                st.is_shift_mmb_pressed = shift_pressed
+                st.last_x, st.last_y = glfw.get_cursor_pos(window)
                 if shift_pressed:
-                    last_pan_x, last_pan_y = last_x, last_y
+                    st.last_pan_x, st.last_pan_y = st.last_x, st.last_y
         elif glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_MIDDLE) == glfw.RELEASE:
-            if is_mmb_pressed:
-                is_mmb_pressed = False
-                is_shift_mmb_pressed = False
+            if st.is_mmb_pressed:
+                st.is_mmb_pressed = False
+                st.is_shift_mmb_pressed = False
 
-        if is_mmb_pressed or dragging or R_dragging:
+        if st.is_mmb_pressed or st.dragging or st.R_dragging:
             glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_DISABLED)
         else:
             glfw.set_input_mode(window, glfw.CURSOR, glfw.CURSOR_NORMAL)
 
 
-        prev_cam_yaw = cam_yaw
-        prev_cam_pitch = cam_pitch
-        prev_cam_radius = cam_radius
-        prev_cam_orbit = cam_orbit
+        prev_cam_yaw = st.cam_yaw
+        prev_cam_pitch = st.cam_pitch
+        prev_cam_radius = st.cam_radius
+        prev_cam_orbit = st.cam_orbit
 
 
-        # Handle mouse wheel input for camera zoom
+        # Handle mouse wheel input for st.camera zoom
         if io.mouse_wheel != 0:
-            target_radius -= io.mouse_wheel * cn['ZOOM_SENSITIVITY']
-            target_radius = max(cn['MIN_RADIUS'], min(cn['MAX_RADIUS'], target_radius))
+            st.target_radius -= io.mouse_wheel * cn['ZOOM_SENSITIVITY']
+            st.target_radius = max(cn['MIN_RADIUS'], min(cn['MAX_RADIUS'], st.target_radius))
 
-        cam_radius += (target_radius - cam_radius) * (cn['CAMERA_LERP_FACTOR'] * delta_time)
+        st.cam_radius += (st.target_radius - st.cam_radius) * (cn['CAMERA_LERP_FACTOR'] * st.delta_time)
 
-        # Only update target camera angles if MMB is pressed
-        if is_mmb_pressed:
+        # Only update target st.camera angles if MMB is pressed
+        if st.is_mmb_pressed:
             current_x, current_y = glfw.get_cursor_pos(window)
-            if is_shift_mmb_pressed:
+            if st.is_shift_mmb_pressed:
                 # Panning mode: Shift + MMB
-                dx = current_x - last_pan_x
-                dy = current_y - last_pan_y
-                last_pan_x, last_pan_y = current_x, current_y
-                target_pan_x += dx * cn['PAN_SENSITIVITY']
-                target_pan_y += dy * cn['PAN_SENSITIVITY']
+                dx = current_x - st.last_pan_x
+                dy = current_y - st.last_pan_y
+                st.last_pan_x, st.last_pan_y = current_x, current_y
+                st.target_pan_x += dx * cn['PAN_SENSITIVITY']
+                st.target_pan_y += dy * cn['PAN_SENSITIVITY']
             else:
                 # Rotation mode: MMB only
-                dx = current_x - last_x
-                dy = current_y - last_y
-                last_x, last_y = current_x, current_y
-                target_yaw -= dx * cn['MOUSE_SENSITIVITY']
-                target_pitch += dy * cn['MOUSE_SENSITIVITY']
-                target_pitch = max(cn['MIN_PITCH'], min(cn['MAX_PITCH'], target_pitch))
+                dx = current_x - st.last_x
+                dy = current_y - st.last_y
+                st.last_x, st.last_y = current_x, current_y
+                st.target_yaw -= dx * cn['MOUSE_SENSITIVITY']
+                st.target_pitch += dy * cn['MOUSE_SENSITIVITY']
+                st.target_pitch = max(cn['MIN_PITCH'], min(cn['MAX_PITCH'], st.target_pitch))
 
 
-        # --- Camera vectors ---
-        cam_yaw, cam_pitch = camera.update(target_yaw, target_pitch, target_pan_y, target_pan_x, cn['CAMERA_LERP_FACTOR']*delta_time)
-        cam_orbit = camera.get_orbit()
+        # --- st.Camera vectors ---
+        st.cam_yaw, st.cam_pitch = camera.update(st.target_yaw, st.target_pitch, st.target_pan_y, st.target_pan_x, cn['CAMERA_LERP_FACTOR']*st.delta_time)
+        st.cam_orbit = camera.get_orbit()
 
         # -----
 
         if io.keys_down[glfw.KEY_HOME]:
-            target_pan_x = target_pan_y = 0.0
-            cam_orbit = [0.0,0.0,0.0]
+            st.target_pan_x = st.target_pan_y = 0.0
+            st.cam_orbit = [0.0,0.0,0.0]
 
 
 
         elip = 0.0001
-        if (abs(cam_yaw - prev_cam_yaw) > elip or 
-            abs(cam_pitch - prev_cam_pitch) > elip or
-            abs(cam_radius - prev_cam_radius) > elip or
-            any(abs(cam_orbit[i] - prev_cam_orbit[i]) > elip for i in range(3))):
+        if (abs(st.cam_yaw - prev_cam_yaw) > elip or 
+            abs(st.cam_pitch - prev_cam_pitch) > elip or
+            abs(st.cam_radius - prev_cam_radius) > elip or
+            any(abs(st.cam_orbit[i] - prev_cam_orbit[i]) > elip for i in range(3))):
 
             # Reset accumulation buffers so no stale data is read later
             frame_count = 0
@@ -449,14 +445,14 @@ def main():
             current_accum_index = 0
 
 
-        prev_cam_yaw = cam_yaw
-        prev_cam_pitch = cam_pitch
-        prev_cam_radius = cam_radius
-        prev_cam_orbit = cam_orbit
+        prev_cam_yaw = st.cam_yaw
+        prev_cam_pitch = st.cam_pitch
+        prev_cam_radius = st.cam_radius
+        prev_cam_orbit = st.cam_orbit
 
 
         # TODO: Unsuccessful attempt
-        #circle_points = proj_3d22d(np.array([[0.0, 0.0, 100.0]]), cam_yaw, cam_pitch)
+        #circle_points = proj_3d22d(np.array([[0.0, 0.0, 100.0]]), st.cam_yaw, st.cam_pitch)
         #print(circle_points)
         
         #bg_draw_list = imgui.get_background_draw_list()
@@ -485,12 +481,12 @@ def main():
                 accumulation_width, accumulation_height
             )
 
-        if shader_choice == 1:  # cycles.glsl
+        if st.shader_choice == 1:  # cycles.glsl
             if accbuffer_output:
                 use_accumulation = 1
 
         # --- RENDER TO ACCUMULATION BUFFER ---
-        if shader is not None and shader_choice == 1 and use_accumulation == 1:
+        if shader is not None and st.shader_choice == 1 and use_accumulation == 1:
             write_buffer = current_accum_index
             read_buffer = 1 - current_accum_index
             glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[write_buffer])
@@ -506,10 +502,10 @@ def main():
                     glUniform1f(uniform_locs['time'], current_time_uniform)
                     glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
                     glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
-                    glUniform1f(uniform_locs['camYaw'], cam_yaw)
-                    glUniform1f(uniform_locs['camPitch'], cam_pitch)
-                    glUniform1f(uniform_locs['radius'], cam_radius)
-                    glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                    glUniform1f(uniform_locs['camYaw'], st.cam_yaw)
+                    glUniform1f(uniform_locs['camPitch'], st.cam_pitch)
+                    glUniform1f(uniform_locs['radius'], st.cam_radius)
+                    glUniform3f(uniform_locs['CamOrbit'], st.cam_orbit[0], st.cam_orbit[1], st.cam_orbit[2])
                     glUniform1i(uniform_locs['frameIndex'], frame_count)
                     glUniform1i(uniform_locs['maxFrames'], max_frames)
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
@@ -521,12 +517,12 @@ def main():
                     glUniform1i(uniform_locs['accumulationTexture'], 0)
                     glUniform1i(uniform_locs['useAccumulation'], 1)
 
-                    glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
-                    glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+                    glUniform3f(uniform_locs['col_sky_top'], st.sky_top_color[0], st.sky_top_color[1], st.sky_top_color[2])
+                    glUniform3f(uniform_locs['col_sky_bottom'], st.sky_bottom_color[0], st.sky_bottom_color[1], st.sky_bottom_color[2])
                     
-                    glUniform3f(uniform_locs['LightDir'], LightDir[0], LightDir[1], LightDir[2])
+                    glUniform3f(uniform_locs['LightDir'], st.LightDir[0], st.LightDir[1], st.LightDir[2])
 
-                bind_sprite_textures(uniform_locs, sprites_array)
+                bind_sprite_textures(uniform_locs, st.sprites_array)
                 glBindVertexArray(vao)
                 glDrawArrays(GL_QUADS, 0, 4)
 
@@ -552,7 +548,7 @@ def main():
             #print(glGetUniformLocation(display_shader,"isAccumulation"))
 
             glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
-            bind_sprite_textures(uniform_locs, sprites_array)
+            bind_sprite_textures(uniform_locs, st.sprites_array)
             glBindVertexArray(display_vao)
             glDrawArrays(GL_QUADS, 0, 4)
             glBindVertexArray(0)
@@ -569,27 +565,27 @@ def main():
                 glUniform2f(uniform_locs['resolution'], rendering_width, rendering_height)
                 # When rendering directly into the screen viewport we must subtract the panel/menu offset
                 glUniform2f(uniform_locs['viewportOffset'], float(panel_width), float(menu_bar_height))
-                glUniform1f(uniform_locs['camYaw'], cam_yaw)
-                glUniform1f(uniform_locs['camPitch'], cam_pitch)
-                glUniform1f(uniform_locs['radius'], cam_radius)
-                glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                glUniform1f(uniform_locs['camYaw'], st.cam_yaw)
+                glUniform1f(uniform_locs['camPitch'], st.cam_pitch)
+                glUniform1f(uniform_locs['radius'], st.cam_radius)
+                glUniform3f(uniform_locs['CamOrbit'], st.cam_orbit[0], st.cam_orbit[1], st.cam_orbit[2])
                 glUniform1i(uniform_locs['frameIndex'], 0)
                 glUniform1i(uniform_locs['useAccumulation'], 0)
                 set_move_pos_uniform(shader, uniform_locs, drag_position)
                 set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
-                glUniform3f(uniform_locs['col_sky_top'], sky_top_color[0], sky_top_color[1], sky_top_color[2])
-                glUniform3f(uniform_locs['col_sky_bottom'], sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+                glUniform3f(uniform_locs['col_sky_top'], st.sky_top_color[0], st.sky_top_color[1], st.sky_top_color[2])
+                glUniform3f(uniform_locs['col_sky_bottom'], st.sky_bottom_color[0], st.sky_bottom_color[1], st.sky_bottom_color[2])
 
-                glUniform1i(uniform_locs['grid_enabled'], GridEnabled)
-                glUniform3f(uniform_locs['LightDir'], LightDir[0], LightDir[1], LightDir[2])
+                glUniform1i(uniform_locs['grid_enabled'], st.GridEnabled)
+                glUniform3f(uniform_locs['LightDir'], st.LightDir[0], st.LightDir[1], st.LightDir[2])
 
 
             # Check if viewport is minimized
             if rendering_width > 0 and rendering_height > 0:
                 glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                 glBindVertexArray(vao)
-                bind_sprite_textures(uniform_locs, sprites_array)
+                bind_sprite_textures(uniform_locs, st.sprites_array)
                 glDrawArrays(GL_QUADS, 0, 4)
 
             glViewport(0, 0, width, height)
@@ -602,21 +598,21 @@ def main():
                 if imgui.menu_item("Save Scene", "Ctrl+S")[0]:
                     # Trigger save dialog
                     success, message = save_scene_dialog(scene_builder, window)
-                    save_load_message = message
-                    save_load_message_time = time.time()
+                    st.save_load_message = message
+                    st.save_load_message_time = time.time()
         
                 if imgui.menu_item("Load Scene", "Ctrl+O")[0]:
                     # Trigger load dialog
                     success, message = load_scene_dialog(scene_builder)
-                    save_load_message = message
-                    save_load_message_time = time.time()
+                    st.save_load_message = message
+                    st.save_load_message_time = time.time()
                     if success:
                         glob_history.undo_stack.clear()
                         glob_history.redo_stack.clear() 
                         scene_builder.update_glob_history(glob_history)
                         selected_item_id = None
                         scene_builder.update_selected_item_id(selected_item_id)
-                        selection_mode = None
+                        st.selection_mode = None
                         success, new_uniforms = recompile_shader()
                         if success:
                             uniform_locs = new_uniforms
@@ -625,9 +621,9 @@ def main():
                 imgui.spacing()
                 if imgui.begin_menu("Export..."):
                     if imgui.menu_item("As Volume")[0]:
-                        show_export_vol_window = True
+                        st.show_export_vol_window = True
                     if imgui.menu_item("To OBJ")[0]:
-                        show_export_obj_window = True
+                        st.show_export_obj_window = True
                     imgui.end_menu()
 
                 imgui.spacing()
@@ -641,8 +637,8 @@ def main():
 
             if imgui.begin_menu("Edit", True):
                 if imgui.menu_item("Add Primitive/Operation", "Ctrl+A")[0]:
-                    show_add_change_window = True
-                    pending_change_node_id = None
+                    st.show_add_change_window = True
+                    st.pending_change_node_id = None
                 if imgui.menu_item("Compile Shader", "Ctrl+B")[0]:
                     success, new_uniforms = recompile_shader()
                     if success:
@@ -651,17 +647,17 @@ def main():
     
             if imgui.begin_menu("View", True):
                 if imgui.menu_item("Settings", "F10")[0]:
-                    show_settings_window = True
+                    st.show_settings_window = True
                 imgui.end_menu()
 
             if imgui.begin_menu("Editor", True):
                 if imgui.menu_item("Settings")[0]:
-                    show_editor_settings_window = True
+                    st.show_editor_settings_window = True
                 imgui.end_menu()
     
             if imgui.begin_menu("About", True):
                 if imgui.menu_item("Information")[0]:
-                    show_about_window = True
+                    st.show_about_window = True
                 imgui.end_menu()
 
 
@@ -678,7 +674,7 @@ def main():
 
             imgui.set_cursor_pos_x(start_x)
             if imgui.button("Template", button_width):
-                shader_choice = 0
+                st.shader_choice = 0
                 # Recompile with new shader
                 success, new_uniforms = recompile_shader()
                 if success:
@@ -686,7 +682,7 @@ def main():
 
             imgui.set_cursor_pos_x(start_x + button_width + spacing)
             if imgui.button("Cycles", button_width):
-                shader_choice = 1
+                st.shader_choice = 1
                 # Recompile with new shader
                 success, new_uniforms = recompile_shader()
                 if success:
@@ -716,7 +712,7 @@ def main():
                 
             if CE_app != None:
                 if CE_app.rec == True: # I don't think it's reliable, but oh well!
-                    additional_scene_code = CE_app.get_plain_text()
+                    st.additional_scene_code = CE_app.get_plain_text()
                     recompile_shader()
                     CE_app.rec = False
 
@@ -726,25 +722,25 @@ def main():
 
         # Check Ctrl + S/O
         if input_handle("Open"):
-            if not last_key_o_pressed: 
+            if not st.last_key_o_pressed: 
                 success, message = load_scene_dialog(scene_builder)
-                save_load_message = message
-                save_load_message_time = time.time()
+                st.save_load_message = message
+                st.save_load_message_time = time.time()
                 if success:
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
                     selected_item_id = None
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = None
-                last_key_o_pressed = True
+                    st.selection_mode = None
+                st.last_key_o_pressed = True
         else:
-            last_key_o_pressed = False
+            st.last_key_o_pressed = False
 
 
         # --- Duplicate (Ctrl+D) ---
         if input_handle("Duplicate"):
-            if not last_key_d_pressed:
+            if not st.last_key_d_pressed:
                 # Duplicate selected items (multi-select supported)
                 duplicated_ids = []
                 if len(selected_items) > 0:
@@ -786,60 +782,60 @@ def main():
                     selected_items.clear()
                     selected_item_id = duplicated_ids[-1]
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = 'node'
+                    st.selection_mode = 'node'
                     # Recompile shader to pick up new primitives
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
 
-                last_key_d_pressed = True
+                st.last_key_d_pressed = True
         else:
-            last_key_d_pressed = False
+            st.last_key_d_pressed = False
         
 
 
         if input_handle("Save"):
-            if not last_key_s_pressed: 
+            if not st.last_key_s_pressed: 
                 success, message = save_scene_dialog(scene_builder, window)
-                save_load_message = message
-                save_load_message_time = time.time()
+                st.save_load_message = message
+                st.save_load_message_time = time.time()
                 if success:
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
                     selected_item_id = None
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = None
-                last_key_s_pressed = True
+                    st.selection_mode = None
+                st.last_key_s_pressed = True
         else:
-            last_key_s_pressed = False
+            st.last_key_s_pressed = False
 
 
         # Check Undo/Redo keys Ctrl+Z/Y
         if input_handle("Undo") and io.key_ctrl and not io.key_shift:
-            if not last_key_z_pressed: 
+            if not st.last_key_z_pressed: 
                 undo_success = glob_history.undo()
                 scene_builder.update_glob_history(glob_history)
                 if undo_success:
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
-                last_key_z_pressed = True
+                st.last_key_z_pressed = True
         else:
-            last_key_z_pressed = False
+            st.last_key_z_pressed = False
 
 
         if input_handle("Redo") or input_handle("Redo2"):
-            if not last_key_y_pressed: 
+            if not st.last_key_y_pressed: 
                 undo_success = glob_history.redo()
                 scene_builder.update_glob_history(glob_history)
                 if undo_success:
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
-                last_key_y_pressed = True
+                st.last_key_y_pressed = True
         else:
-            last_key_y_pressed = False
+            st.last_key_y_pressed = False
 
 
 
@@ -849,99 +845,99 @@ def main():
         key_y_is_down = input_handle("Y")
         key_z_is_down = input_handle("Z")
 
-        # Toggle dragging on G press (edge detect)
-        if key_g_is_down and not last_key_g_pressed:
-            # Toggle dragging state
-            dragging = not dragging
+        # Toggle st.dragging on G press (edge detect)
+        if key_g_is_down and not st.last_key_g_pressed:
+            # Toggle st.dragging state
+            st.dragging = not st.dragging
 
-            if dragging:
-                # Start dragging: capture which item and initialize drag state
-                dragging_op_id = selected_item_id
+            if st.dragging:
+                # Start st.dragging: capture which item and initialize drag state
+                st.dragging_op_id = selected_item_id
 
-                if dragging_op_id:
-                    node = scene_builder.get_node(dragging_op_id)
+                if st.dragging_op_id:
+                    node = scene_builder.get_node(st.dragging_op_id)
                     if node and node.node_type == 'primitive':
                         prim = node.item_data
                         # Copy the primitive start position
-                        drag_start_pos = prim.position[:]
+                        st.drag_start_pos = prim.position[:]
                         # Reset accumulated movement
-                        drag_accum = [0.0, 0.0, 0.0]
+                        st.drag_accum = [0.0, 0.0, 0.0]
                         # Record starting mouse cursor
-                        drag_last_x, drag_last_y = glfw.get_cursor_pos(window)
+                        st.drag_last_x, st.drag_last_y = glfw.get_cursor_pos(window)
                     else:
                         # Not a primitive, can't drag
-                        dragging_op_id = None
-                        drag_start_pos = None
-                        drag_accum = [0.0, 0.0, 0.0]
+                        st.dragging_op_id = None
+                        st.drag_start_pos = None
+                        st.drag_accum = [0.0, 0.0, 0.0]
                 else:
-                    dragging_op_id = None
-                    drag_start_pos = None
-                    drag_accum = [0.0, 0.0, 0.0]
+                    st.dragging_op_id = None
+                    st.drag_start_pos = None
+                    st.drag_accum = [0.0, 0.0, 0.0]
 
                 # Reset axis toggles when starting a new drag
-                axis_toggled_gx = axis_toggled_gy = axis_toggled_gz = False
+                st.axis_toggled_gx = st.axis_toggled_gy = st.axis_toggled_gz = False
 
             else:
-                # Stop dragging: commit final position
-                if dragging_op_id:
-                    node = scene_builder.get_node(dragging_op_id)
+                # Stop st.dragging: commit final position
+                if st.dragging_op_id:
+                    node = scene_builder.get_node(st.dragging_op_id)
                     if node and node.node_type == 'primitive':
                         prim = node.item_data
                         final_pos = prim.position
                         # Register only if changed
-                        if drag_start_pos is not None and final_pos != drag_start_pos:
+                        if st.drag_start_pos is not None and final_pos != st.drag_start_pos:
                             # Directly update (no undo needed for now)
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
 
                 # Clear drag state
-                dragging_op_id = None
-                drag_start_pos = None
-                drag_accum = [0.0, 0.0, 0.0]
-                axis_toggled_gx = axis_toggled_gy = axis_toggled_gz = False
+                st.dragging_op_id = None
+                st.drag_start_pos = None
+                st.drag_accum = [0.0, 0.0, 0.0]
+                st.axis_toggled_gx = st.axis_toggled_gy = st.axis_toggled_gz = False
 
-        # Always update last_key_g_pressed for proper edge detection
-        last_key_g_pressed = key_g_is_down
+        # Always update st.last_key_g_pressed for proper edge detection
+        st.last_key_g_pressed = key_g_is_down
 
         # Handle axis toggles (Blender-style)
-        if dragging:
-            if key_x_is_down and not last_key_gx_pressed:
-                state = not axis_toggled_gx
-                axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = state, False, False
+        if st.dragging:
+            if key_x_is_down and not st.last_key_gx_pressed:
+                state = not st.axis_toggled_gx
+                st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = state, False, False
 
-            if key_y_is_down and not last_key_gy_pressed:
-                state = not axis_toggled_gy
-                axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = False, state, False
+            if key_y_is_down and not st.last_key_gy_pressed:
+                state = not st.axis_toggled_gy
+                st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = False, state, False
 
-            if key_z_is_down and not last_key_gz_pressed:
-                state = not axis_toggled_gz
-                axis_toggled_gx, axis_toggled_gy, axis_toggled_gz = False, False, state
+            if key_z_is_down and not st.last_key_gz_pressed:
+                state = not st.axis_toggled_gz
+                st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = False, False, state
 
         # Update the "last key" flags for X/Y/Z
-        last_key_gx_pressed = key_x_is_down
-        last_key_gy_pressed = key_y_is_down
-        last_key_gz_pressed = key_z_is_down
+        st.last_key_gx_pressed = key_x_is_down
+        st.last_key_gy_pressed = key_y_is_down
+        st.last_key_gz_pressed = key_z_is_down
 
         # Determine active axis
         active_axis = None
-        if axis_toggled_gx:
+        if st.axis_toggled_gx:
             active_axis = 0
-        elif axis_toggled_gy:
+        elif st.axis_toggled_gy:
             active_axis = 1
-        elif axis_toggled_gz:
+        elif st.axis_toggled_gz:
             active_axis = 2
 
         # Per-frame drag movement
-        if dragging and dragging_op_id:
-            node = scene_builder.get_node(dragging_op_id)
+        if st.dragging and st.dragging_op_id:
+            node = scene_builder.get_node(st.dragging_op_id)
             if node and node.node_type == 'primitive':
                 # Read current mouse and compute delta
                 current_x, current_y = glfw.get_cursor_pos(window)
-                dx = current_x - drag_last_x
-                dy = current_y - drag_last_y
+                dx = current_x - st.drag_last_x
+                dy = current_y - st.drag_last_y
                 # Store for next frame
-                drag_last_x, drag_last_y = current_x, current_y
+                st.drag_last_x, st.drag_last_y = current_x, current_y
 
                 # Convert to mouse-space movement
                 mouse_delta_x = dx * cn['DRAG_SENSITIVITY']
@@ -967,19 +963,19 @@ def main():
                         move_delta_y = 0.0
 
                 # Accumulate world movement
-                drag_accum[0] += move_delta_z
-                drag_accum[1] += move_delta_y
-                drag_accum[2] += move_delta_x
+                st.drag_accum[0] += move_delta_z
+                st.drag_accum[1] += move_delta_y
+                st.drag_accum[2] += move_delta_x
 
                 # Compute new position
                 prim = node.item_data
-                if drag_start_pos is None:
-                    drag_start_pos = prim.position.copy()
+                if st.drag_start_pos is None:
+                    st.drag_start_pos = prim.position.copy()
 
                 new_pos = [
-                    drag_start_pos[0] + drag_accum[0],
-                    drag_start_pos[1] + drag_accum[1],
-                    drag_start_pos[2] + drag_accum[2],
+                    st.drag_start_pos[0] + st.drag_accum[0],
+                    st.drag_start_pos[1] + st.drag_accum[1],
+                    st.drag_start_pos[2] + st.drag_accum[2],
                 ]
 
                 # Apply live position
@@ -987,7 +983,7 @@ def main():
                 drag_position = new_pos.copy()
 
         else:
-            # When not dragging
+            # When not st.dragging
             if selected_item_id:
                 node = scene_builder.get_node(selected_item_id)
                 if node and node.node_type == 'primitive':
@@ -1006,75 +1002,75 @@ def main():
         key_z_is_down = input_handle("Z")
 
         # Edge-detect R press to toggle rotation mode
-        if key_r_is_down and not last_key_r_pressed:
-            R_dragging = not R_dragging
+        if key_r_is_down and not st.last_key_r_pressed:
+            st.R_dragging = not st.R_dragging
 
-            if R_dragging:
+            if st.R_dragging:
                 # Start rotation: capture selected item and initialize rotation state
-                R_dragging_op_id = selected_item_id
+                st.R_dragging_op_id = selected_item_id
 
-                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_node:
-                    node = scene_builder.get_node(R_dragging_op_id)
+                if st.R_dragging_op_id and st.R_dragging_op_id in scene_builder.id_to_node:
+                    node = scene_builder.get_node(st.R_dragging_op_id)
                     if node and node.node_type == 'primitive':
                         prim = node.item_data
-                        R_drag_start_pos = prim.rotation.copy()
-                        R_drag_accum = [0.0, 0.0, 0.0]
-                        R_drag_last_x, R_drag_last_y = glfw.get_cursor_pos(window)
+                        st.R_drag_start_pos = prim.rotation.copy()
+                        st.R_drag_accum = [0.0, 0.0, 0.0]
+                        st.R_drag_last_x, st.R_drag_last_y = glfw.get_cursor_pos(window)
                     else:
-                        R_dragging_op_id = None
-                        R_drag_start_pos = None
-                        R_drag_accum = [0.0, 0.0, 0.0]
+                        st.R_dragging_op_id = None
+                        st.R_drag_start_pos = None
+                        st.R_drag_accum = [0.0, 0.0, 0.0]
                 else:
-                    R_dragging_op_id = None
-                    R_drag_start_pos = None
-                    R_drag_accum = [0.0, 0.0, 0.0]
+                    st.R_dragging_op_id = None
+                    st.R_drag_start_pos = None
+                    st.R_drag_accum = [0.0, 0.0, 0.0]
 
-                axis_toggled_rx = axis_toggled_ry = axis_toggled_rz = False
+                st.axis_toggled_rx = st.axis_toggled_ry = st.axis_toggled_rz = False
 
             else:
                 # Stop rotation: commit final rotation (register undo/redo)
-                if R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_node:
-                    node = scene_builder.get_node(R_dragging_op_id)
+                if st.R_dragging_op_id and st.R_dragging_op_id in scene_builder.id_to_node:
+                    node = scene_builder.get_node(st.R_dragging_op_id)
                     if node and node.node_type == 'primitive':
                         prim = node.item_data
                         final_rot = prim.rotation
-                        if R_drag_start_pos is not None and final_rot != R_drag_start_pos:
+                        if st.R_drag_start_pos is not None and final_rot != st.R_drag_start_pos:
                             # Use scene_builder to register the change (compatibility method)
-                            scene_builder.modify_primitive_property(R_dragging_op_id, 'rotation', final_rot)
+                            scene_builder.modify_primitive_property(st.R_dragging_op_id, 'rotation', final_rot)
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
 
-                R_dragging_op_id = None
-                R_drag_start_pos = None
-                R_drag_accum = [0.0, 0.0, 0.0]
-                axis_toggled_rx = axis_toggled_ry = axis_toggled_rz = False
+                st.R_dragging_op_id = None
+                st.R_drag_start_pos = None
+                st.R_drag_accum = [0.0, 0.0, 0.0]
+                st.axis_toggled_rx = st.axis_toggled_ry = st.axis_toggled_rz = False
 
         # Update last R state
-        last_key_r_pressed = key_r_is_down
+        st.last_key_r_pressed = key_r_is_down
 
         # Rotation axis toggles (Blender-style)
-        if R_dragging:
-            if key_x_is_down and not last_key_rx_pressed:
-                state = not axis_toggled_rx
-                axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = state, False, False
-            if key_y_is_down and not last_key_ry_pressed:
-                state = not axis_toggled_ry
-                axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = False, state, False
-            if key_z_is_down and not last_key_rz_pressed:
-                state = not axis_toggled_rz
-                axis_toggled_rx, axis_toggled_ry, axis_toggled_rz = False, False, state
+        if st.R_dragging:
+            if key_x_is_down and not st.last_key_rx_pressed:
+                state = not st.axis_toggled_rx
+                st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = state, False, False
+            if key_y_is_down and not st.last_key_ry_pressed:
+                state = not st.axis_toggled_ry
+                st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = False, state, False
+            if key_z_is_down and not st.last_key_rz_pressed:
+                state = not st.axis_toggled_rz
+                st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = False, False, state
 
-        last_key_rx_pressed = key_x_is_down
-        last_key_ry_pressed = key_y_is_down
-        last_key_rz_pressed = key_z_is_down
+        st.last_key_rx_pressed = key_x_is_down
+        st.last_key_ry_pressed = key_y_is_down
+        st.last_key_rz_pressed = key_z_is_down
 
-        # Per-frame rotation update while R_dragging is active
-        if R_dragging and R_dragging_op_id and R_dragging_op_id in scene_builder.id_to_node:
+        # Per-frame rotation update while st.R_dragging is active
+        if st.R_dragging and st.R_dragging_op_id and st.R_dragging_op_id in scene_builder.id_to_node:
             current_x, current_y = glfw.get_cursor_pos(window)
-            dx = current_x - R_drag_last_x
-            dy = current_y - R_drag_last_y
-            R_drag_last_x, R_drag_last_y = current_x, current_y
+            dx = current_x - st.R_drag_last_x
+            dy = current_y - st.R_drag_last_y
+            st.R_drag_last_x, st.R_drag_last_y = current_x, current_y
 
             R_ROT_SENSITIVITY = 0.005
 
@@ -1082,13 +1078,13 @@ def main():
             rot_delta_y = -dx * R_ROT_SENSITIVITY
             rot_delta_z = 0.0
 
-            if axis_toggled_rx:
+            if st.axis_toggled_rx:
                 rot_delta_y = 0.0
                 rot_delta_z = 0.0
-            elif axis_toggled_ry:
+            elif st.axis_toggled_ry:
                 rot_delta_x = 0.0
                 rot_delta_z = 0.0
-            elif axis_toggled_rz:
+            elif st.axis_toggled_rz:
                 rot_delta_x = 0.0
                 rot_delta_y = 0.0
                 rot_delta_z = -dx * R_ROT_SENSITIVITY
@@ -1097,19 +1093,19 @@ def main():
                 frame_count = 0
                 clear_accumulation_fbos(accumulation_fbos, scaled_rendering_width, scaled_rendering_height)
 
-            R_drag_accum[0] += rot_delta_x
-            R_drag_accum[1] += rot_delta_y
-            R_drag_accum[2] += rot_delta_z
+            st.R_drag_accum[0] += rot_delta_x
+            st.R_drag_accum[1] += rot_delta_y
+            st.R_drag_accum[2] += rot_delta_z
 
-            node = scene_builder.get_node(R_dragging_op_id)
+            node = scene_builder.get_node(st.R_dragging_op_id)
             if node and node.node_type == 'primitive':
                 prim = node.item_data
-                if R_drag_start_pos is None:
-                    R_drag_start_pos = prim.rotation.copy()
+                if st.R_drag_start_pos is None:
+                    st.R_drag_start_pos = prim.rotation.copy()
                 new_rot = [
-                    R_drag_start_pos[0] + R_drag_accum[0],
-                    R_drag_start_pos[1] + R_drag_accum[1],
-                    R_drag_start_pos[2] + R_drag_accum[2],
+                    st.R_drag_start_pos[0] + st.R_drag_accum[0],
+                    st.R_drag_start_pos[1] + st.R_drag_accum[1],
+                    st.R_drag_start_pos[2] + st.R_drag_accum[2],
                 ]
                 prim.rotation = new_rot
                 drag_rot_position = new_rot.copy()
@@ -1130,20 +1126,20 @@ def main():
 
         # Check F10 for settings
         if io.keys_down[glfw.KEY_F10]:
-            if not last_key_f10_pressed:
-                show_settings_window = True
-                last_key_f10_pressed = True
+            if not st.last_key_f10_pressed:
+                st.show_settings_window = True
+                st.last_key_f10_pressed = True
         else:
-            last_key_f10_pressed = False
+            st.last_key_f10_pressed = False
         
         # --- RENDER TO FRAMEBUFFER AT SCALED RESOLUTION ---
         # If we've already rendered & displayed the accumulation buffer above (cycles shader),
         # skip the further framebuffer / direct rendering to avoid double-draw and viewport offset.
-        if shader is not None and shader_choice == 1 and use_accumulation == 1:
+        if shader is not None and st.shader_choice == 1 and use_accumulation == 1:
             # accumulation rendering & display already handled above
             pass
 
-        elif shader is not None and display_shader is not None and resolution_scale != 1.0:
+        elif shader is not None and display_shader is not None and st.resolution_scale != 1.0:
             # Setup framebuffer
             framebuffer_output = False # ouu!
             framebuffer_output, \
@@ -1166,14 +1162,14 @@ def main():
                     glUniform1f(uniform_locs['time'], current_time_uniform)
                     glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
                     glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
-                    glUniform1f(uniform_locs['camYaw'], cam_yaw)
-                    glUniform1f(uniform_locs['camPitch'], cam_pitch)
-                    glUniform1f(uniform_locs['radius'], cam_radius)
-                    glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                    glUniform1f(uniform_locs['camYaw'], st.cam_yaw)
+                    glUniform1f(uniform_locs['camPitch'], st.cam_pitch)
+                    glUniform1f(uniform_locs['radius'], st.cam_radius)
+                    glUniform3f(uniform_locs['CamOrbit'], st.cam_orbit[0], st.cam_orbit[1], st.cam_orbit[2])
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
                     set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
-                bind_sprite_textures(uniform_locs, sprites_array)
+                bind_sprite_textures(uniform_locs, st.sprites_array)
 
 
                 glBindVertexArray(vao)
@@ -1206,16 +1202,16 @@ def main():
                         glUniform1f(uniform_locs['time'], current_time_uniform)
                         glUniform2f(uniform_locs['resolution'], scaled_rendering_width, scaled_rendering_height)
                         glUniform2f(uniform_locs['viewportOffset'], 0.0, 0.0)
-                        glUniform1f(uniform_locs['camYaw'], cam_yaw)
-                        glUniform1f(uniform_locs['camPitch'], cam_pitch)
-                        glUniform1f(uniform_locs['radius'], cam_radius)
-                        glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                        glUniform1f(uniform_locs['camYaw'], st.cam_yaw)
+                        glUniform1f(uniform_locs['camPitch'], st.cam_pitch)
+                        glUniform1f(uniform_locs['radius'], st.cam_radius)
+                        glUniform3f(uniform_locs['CamOrbit'], st.cam_orbit[0], st.cam_orbit[1], st.cam_orbit[2])
                         set_move_pos_uniform(shader, uniform_locs, drag_position)
                         set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
                     glViewport(panel_width, menu_bar_height, scaled_rendering_width, scaled_rendering_height)
                     glBindVertexArray(vao)
-                    bind_sprite_textures(uniform_locs, sprites_array)
+                    bind_sprite_textures(uniform_locs, st.sprites_array)
                     glDrawArrays(GL_QUADS, 0, 4)
                     glViewport(0, 0, width, height)
         else:
@@ -1229,10 +1225,10 @@ def main():
                     glUniform2f(uniform_locs['resolution'], rendering_width, rendering_height)
                     # Default framebuffer viewport is offset by the left panel and menu bar
                     glUniform2f(uniform_locs['viewportOffset'], float(panel_width), float(menu_bar_height))
-                    glUniform1f(uniform_locs['camYaw'], cam_yaw)
-                    glUniform1f(uniform_locs['camPitch'], cam_pitch)
-                    glUniform1f(uniform_locs['radius'], cam_radius)
-                    glUniform3f(uniform_locs['CamOrbit'], cam_orbit[0], cam_orbit[1], cam_orbit[2])
+                    glUniform1f(uniform_locs['camYaw'], st.cam_yaw)
+                    glUniform1f(uniform_locs['camPitch'], st.cam_pitch)
+                    glUniform1f(uniform_locs['radius'], st.cam_radius)
+                    glUniform3f(uniform_locs['CamOrbit'], st.cam_orbit[0], st.cam_orbit[1], st.cam_orbit[2])
                     set_move_pos_uniform(shader, uniform_locs, drag_position)
                     set_move_rot_uniform(shader, uniform_locs, drag_rot_position)
 
@@ -1240,30 +1236,30 @@ def main():
                 if rendering_width > 0 and rendering_height > 0:
                     glViewport(panel_width, menu_bar_height, rendering_width, rendering_height)
                     glBindVertexArray(vao)
-                    bind_sprite_textures(uniform_locs, sprites_array)
+                    bind_sprite_textures(uniform_locs, st.sprites_array)
                     glDrawArrays(GL_QUADS, 0, 4)
 
                 glViewport(0, 0, width, height)
         
 
         # --- SETTINGS WINDOW ---
-        if show_settings_window:
+        if st.show_settings_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
             imgui.set_next_window_size(400, 300)  # Increased height
-            is_open, show_settings_window = imgui.begin("Settings", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_settings_window = imgui.begin("Settings", True, imgui.WINDOW_NO_COLLAPSE)
             
             if not is_open:
-                show_settings_window = False
+                st.show_settings_window = False
             
             imgui.text("Rendering Settings")
             imgui.separator()
             
             # Shader Selection
             imgui.text("Fragment Shader:")
-            clicked, shader_choice = imgui.combo(
+            clicked, st.shader_choice = imgui.combo(
                 "##shader_select",
-                shader_choice,
-                [name.replace("shaders/fragment/", "") for name in shader_names]
+                st.shader_choice,
+                [name.replace("shaders/fragment/", "") for name in st.shader_names]
             )
             if clicked:
                 # Recompile with new shader
@@ -1278,9 +1274,9 @@ def main():
             # Resolution Scale
             imgui.text("Resolution Scale:")
             imgui.same_line()
-            imgui.text(f"{resolution_scale:.2f}x")
+            imgui.text(f"{st.resolution_scale:.2f}x")
             
-            changed, resolution_scale = imgui.slider_float("##resolution_scale", resolution_scale, 0.25, 2.0, "%.2f")
+            changed, st.resolution_scale = imgui.slider_float("##st.resolution_scale", st.resolution_scale, 0.25, 2.0, "%.2f")
             if changed:
                 frame_count = 0
 
@@ -1296,24 +1292,24 @@ def main():
 
             # Show Sky colors
             imgui.text("Sky Top Color:")
-            top_color_changed, top_color_rgba = imgui.color_edit3("SkyTopColor##color", sky_top_color[0], sky_top_color[1], sky_top_color[2])
+            top_color_changed, top_color_rgba = imgui.color_edit3("SkyTopColor##color", st.sky_top_color[0], st.sky_top_color[1], st.sky_top_color[2])
             if top_color_changed:
-                sky_top_color = list(top_color_rgba[:3])  # Only use RGB, ignore alpha
+                st.sky_top_color = list(top_color_rgba[:3])  # Only use RGB, ignore alpha
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
 
             imgui.text("Sky Bottom Color:")
-            bottom_color_changed, bottom_color_rgba = imgui.color_edit3("SkyBottomColor##color", sky_bottom_color[0], sky_bottom_color[1], sky_bottom_color[2])
+            bottom_color_changed, bottom_color_rgba = imgui.color_edit3("SkyBottomColor##color", st.sky_bottom_color[0], st.sky_bottom_color[1], st.sky_bottom_color[2])
             if bottom_color_changed:
-                sky_bottom_color = list(bottom_color_rgba[:3])  # Only use RGB, ignore alpha
+                st.sky_bottom_color = list(bottom_color_rgba[:3])  # Only use RGB, ignore alpha
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
 
-            if shader_choice == 0:
+            if st.shader_choice == 0:
                 imgui.text("Grid Enabled:")
-                changed, GridEnabled = imgui.checkbox("", GridEnabled)
+                changed, st.GridEnabled = imgui.checkbox("", st.GridEnabled)
                 success, new_uniforms = recompile_shader()
                 if success:
                     uniform_locs = new_uniforms
@@ -1321,7 +1317,7 @@ def main():
                 imgui.spacing()
                 imgui.separator()
 
-            elif shader_choice == 1:
+            elif st.shader_choice == 1:
                 imgui.text("Max Samples count:")
                 changed, max_frames = imgui.input_int("", max_frames)
                 max_frames = max(max_frames, 8)
@@ -1335,7 +1331,7 @@ def main():
             
 
             imgui.text("Sun:")
-            changed, LightDir = input_vec3("Sun Direction", LightDir)
+            changed, st.LightDir = input_vec3("Sun Direction", st.LightDir)
             if changed:
                 success, new_uniforms = recompile_shader()
                 if success:
@@ -1346,14 +1342,14 @@ def main():
 
 
             # Calculate scaled size for display
-            scaled_w = int(rendering_width * resolution_scale)
-            scaled_h = int(rendering_height * resolution_scale)
+            scaled_w = int(rendering_width * st.resolution_scale)
+            scaled_h = int(rendering_height * st.resolution_scale)
             imgui.text(f"Current render size: {scaled_w}x{scaled_h}")
             imgui.text(f"Base size: {rendering_width}x{rendering_height}")
             
             imgui.spacing()
             if imgui.button("Close", -1):
-                show_settings_window = False
+                st.show_settings_window = False
             
             
             imgui.end()
@@ -1364,10 +1360,9 @@ def main():
         # --- Editor Settings Window ---
         # --- Content Functions (Placeholders) ---
         def render_themes_tab():
-            nonlocal theme
             changes = []
-            for label in theme:
-                item = theme[label]
+            for label in st.theme:
+                item = st.theme[label]
                 if isinstance(item, list) and len(item) == 4:
                     changed, color_rgba = imgui.color_edit4(label, *item)
                     if changed:
@@ -1378,15 +1373,15 @@ def main():
                         changes.append((label, list(size)))
 
             for label, new_value in changes:
-                theme[label] = new_value
+                st.theme[label] = new_value
                 setattr(ui_themes, label, new_value)
             if changes:
                 ui_themes.setup_theme()
             
             imgui.spacing()
             if imgui.button("Reset Theme", -1):
-                theme = copy.deepcopy(default_uconfig["Theme"])
-                for label, item in theme.items():
+                st.theme = copy.deepcopy(default_uconfig["Theme"])
+                for label, item in st.theme.items():
                     setattr(ui_themes, label, item)
                 ui_themes.setup_theme()
 
@@ -1409,12 +1404,12 @@ def main():
                 imgui.spacing()
 
 
-        if show_editor_settings_window:
+        if st.show_editor_settings_window:
             # Set initial positioning and size for the main window container
             imgui.set_next_window_position(width // 2 - 400, height // 2 - 300)
             imgui.set_next_window_size(800, 600)
             
-            is_open, show_editor_settings_window = imgui.begin("Editor Settings", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_editor_settings_window = imgui.begin("Editor Settings", True, imgui.WINDOW_NO_COLLAPSE)
             
             if is_open:
                 # 1. Setup two columns: one narrow for navigation, one wide for content
@@ -1430,19 +1425,19 @@ def main():
                     
                     # Button 1: Themes
                     if imgui.button("Themes", width=sidebar_width):
-                        current_settings_tab = "Themes"
+                        st.current_settings_tab = "Themes"
                     
                     imgui.separator()
 
                     # Button 2: User
                     if imgui.button("User", width=sidebar_width):
-                        current_settings_tab = "User"
+                        st.current_settings_tab = "User"
                         
                     imgui.separator()
 
                     # Button 3: Shortcuts
                     if imgui.button("Shortcuts", width=sidebar_width):
-                        current_settings_tab = "Shortcuts"
+                        st.current_settings_tab = "Shortcuts"
                         
                     imgui.end_group()
                     
@@ -1459,11 +1454,11 @@ def main():
                     # Start the content rendering block
                     if imgui.begin_child("SettingsContent", content_width, 400, border=False):
                         
-                        if current_settings_tab == "Themes":
+                        if st.current_settings_tab == "Themes":
                             render_themes_tab()
-                        elif current_settings_tab == "User":
+                        elif st.current_settings_tab == "User":
                             render_user_tab()
-                        elif current_settings_tab == "Shortcuts":
+                        elif st.current_settings_tab == "Shortcuts":
                             render_shortcuts_tab()
 
                         imgui.end_child() # End SettingsContent
@@ -1471,22 +1466,22 @@ def main():
                     imgui.end_child()
                     
             if not is_open:
-                show_editor_settings_window = False
+                st.show_editor_settings_window = False
 
             imgui.end()
 
 
 
-        if show_export_vol_window:
+        if st.show_export_vol_window:
             imgui.set_next_window_position(width // 2 - 150, height // 2 - 125)
             imgui.set_next_window_size(300, 250)
-            is_open, show_export_vol_window = imgui.begin("Export as Volume", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_export_vol_window = imgui.begin("Export as Volume", True, imgui.WINDOW_NO_COLLAPSE)
 
             if not is_open:
-                show_export_vol_window = False
+                st.show_export_vol_window = False
 
             imgui.text("Grid Size:")
-            changed, grid_size = imgui.input_int("##GridSize", grid_size, 8)
+            changed, st.grid_size = imgui.input_int("##GridSize", st.grid_size, 8)
             imgui.text_colored(
                 "Note that its dimensions range \nfrom -GridSize/2 to +GridSize/2.",
                 0.56, 0.93, 0.56
@@ -1494,14 +1489,14 @@ def main():
 
             imgui.spacing()
 
-            changed, vox_quality = input_float("Vox. Quality", vox_quality, 0.25, 100)
+            changed, st.vox_quality = input_float("Vox. Quality", st.vox_quality, 0.25, 100)
 
-            changed, exp_use_color = imgui.checkbox("Use Color", exp_use_color)
+            changed, st.exp_use_color = imgui.checkbox("Use Color", st.exp_use_color)
 
             imgui.separator()
             imgui.spacing()
 
-            file_preview_size = sdfexp.calculate_sdf_file_size(grid_size, vox_quality, exp_use_color)
+            file_preview_size = sdfexp.calculate_sdf_file_size(st.grid_size, st.vox_quality, st.exp_use_color)
             if file_preview_size[1]>1:
                 imgui.text(f"File size = {file_preview_size[1]:.2f} mb")
             else:
@@ -1511,29 +1506,29 @@ def main():
             imgui.spacing()
 
             if imgui.button("Cancel", 135,30):
-                show_export_vol_window = False
+                st.show_export_vol_window = False
 
             imgui.same_line(150)
 
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
-                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, exp_use_color, window)
+                comp_bin = sdfexp.compute_sdf_3d(st.grid_size, st.vox_quality, code, st.additional_scene_code, st.exp_use_color, window)
                 save_sdfvol_dialog(sdfexp, comp_bin)
 
-                show_export_vol_window = False
+                st.show_export_vol_window = False
 
             imgui.end()
 
-        if show_export_obj_window:
+        if st.show_export_obj_window:
             imgui.set_next_window_position(width // 2 - 150, height // 2 - 130)
             imgui.set_next_window_size(300, 260)
-            is_open, show_export_obj_window = imgui.begin("Export to OBJ", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_export_obj_window = imgui.begin("Export to OBJ", True, imgui.WINDOW_NO_COLLAPSE)
 
             if not is_open:
-                show_export_obj_window = False
+                st.show_export_obj_window = False
 
             imgui.text("Grid Size:")
-            changed, grid_size = imgui.input_int("##GridSize", grid_size, 8)
+            changed, st.grid_size = imgui.input_int("##GridSize", st.grid_size, 8)
             imgui.text_colored(
                 "Note that its dimensions range \nfrom -GridSize/2 to +GridSize/2.",
                 0.56, 0.93, 0.56
@@ -1541,60 +1536,60 @@ def main():
 
             imgui.spacing()
 
-            changed, vox_quality = input_float("Voxelization Quality", vox_quality, 0.25, 100)
+            changed, st.vox_quality = input_float("Voxelization Quality", st.vox_quality, 0.25, 100)
 
             imgui.separator()
             imgui.spacing() 
 
-            changed, export_level = input_float("Level", export_level, 0.05, 100)
-            export_level = np.clip(export_level, 0.0, 1.0)
+            changed, st.export_level = input_float("Level", st.export_level, 0.05, 100)
+            st.export_level = np.clip(st.export_level, 0.0, 1.0)
 
             imgui.spacing()
 
-            changed, export_z_up = imgui.checkbox("Z up", export_z_up)
+            changed, st.export_z_up = imgui.checkbox("Z up", st.export_z_up)
 
             imgui.same_line()
 
-            changed, exp_use_color = imgui.checkbox("Use Color", exp_use_color)
+            changed, st.exp_use_color = imgui.checkbox("Use Color", st.exp_use_color)
 
 
             imgui.separator()
             imgui.spacing()
 
             if imgui.button("Cancel", 135,30):
-                show_export_obj_window = False
+                st.show_export_obj_window = False
 
             imgui.same_line(150)
 
             if imgui.button("Export", 135,30):
                 code = scene_builder.generate_raymarch_code()
-                comp_bin = sdfexp.compute_sdf_3d(grid_size, vox_quality, code, additional_scene_code, exp_use_color, window)
+                comp_bin = sdfexp.compute_sdf_3d(st.grid_size, st.vox_quality, code, st.additional_scene_code, st.exp_use_color, window)
                 dist_sdf = None
                 color_sdf = None
 
                 if isinstance(comp_bin, tuple):
-                    elvl = np.interp(export_level, [0,1], [comp_bin[0].min(), comp_bin[0].max()])
+                    elvl = np.interp(st.export_level, [0,1], [comp_bin[0].min(), comp_bin[0].max()])
                     dist_sdf, color_sdf = comp_bin
                 else:
-                    elvl = np.interp(export_level, [0,1], [comp_bin.min(), comp_bin.max()])
+                    elvl = np.interp(st.export_level, [0,1], [comp_bin.min(), comp_bin.max()])
                     dist_sdf = comp_bin
 
-                success, message = save_sdfobj_dialog(sdfexp, dist_sdf, color_sdf, export_z_up, elvl, exp_use_color)
-                export_obj_message = [success, message]
-                export_obj_message_time = time.time()
+                success, message = save_sdfobj_dialog(sdfexp, dist_sdf, color_sdf, st.export_z_up, elvl, st.exp_use_color)
+                st.export_obj_message = [success, message]
+                st.export_obj_message_time = time.time()
 
-                show_export_obj_window = False
+                st.show_export_obj_window = False
 
             imgui.end()
 
 
-        if show_about_window:
+        if st.show_about_window:
             imgui.set_next_window_position(width // 2 - 250, height // 2 - 200)
             imgui.set_next_window_size(500, 400)  # Increased height
-            is_open, show_about_window = imgui.begin("About", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_about_window = imgui.begin("About", True, imgui.WINDOW_NO_COLLAPSE)
             
             if not is_open:
-                show_about_window = False
+                st.show_about_window = False
             
             about_text = """
 MIT License
@@ -1632,7 +1627,7 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             imgui.spacing()
             if imgui.button("Close", -1):
-                show_about_window = False
+                st.show_about_window = False
 
             imgui.end()
 
@@ -1641,9 +1636,9 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.set_next_window_position(fps_x, cn['FPS_WINDOW_OFFSET'])
         imgui.set_next_window_size(cn['FPS_WINDOW_WIDTH'], cn['FPS_WINDOW_HEIGHT'])
         imgui.begin("FPS", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE | imgui.WINDOW_ALWAYS_AUTO_RESIZE | imgui.WINDOW_NO_SCROLLBAR)
-        if shader_choice == 0:
-            imgui.text_colored("FPS: " + str(fps_value), 0.0, 1.0, 0.0, 1.0)
-        elif shader_choice == 1:
+        if st.shader_choice == 0:
+            imgui.text_colored("FPS: " + str(st.fps_value), 0.0, 1.0, 0.0, 1.0)
+        elif st.shader_choice == 1:
             imgui.text_colored("Sample: " + str(frame_count), 1.0, 1.0, 0.0, 1.0)
 
         imgui.end()
@@ -1658,37 +1653,37 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.text_colored("VIEW", 0.8,0.8,1.0)
         imgui.spacing()
         if imgui.small_button("X##Ori"):
-            target_yaw = 0.0
-            target_pitch = 0.0
+            st.target_yaw = 0.0
+            st.target_pitch = 0.0
         imgui.same_line()
         if imgui.small_button("-X##Ori"):
-            target_yaw = 3.14
-            target_pitch = 0.0
+            st.target_yaw = 3.14
+            st.target_pitch = 0.0
         imgui.spacing()
         if imgui.small_button("Y##Ori"):
-            target_pitch = 1.57
+            st.target_pitch = 1.57
         imgui.same_line()
         if imgui.small_button("-Y##Ori"):
-            target_pitch = -1.57     
+            st.target_pitch = -1.57     
         imgui.spacing()
         if imgui.small_button("Z##Ori"):
-            target_yaw = 1.57
-            target_pitch = 0.0
+            st.target_yaw = 1.57
+            st.target_pitch = 0.0
         imgui.same_line()
         if imgui.small_button("-Z##Ori"):
-            target_yaw = -1.57 
-            target_pitch = 0.0    
+            st.target_yaw = -1.57 
+            st.target_pitch = 0.0    
 
         imgui.end()
         
 
-        if show_exit_window:
+        if st.show_exit_window:
             imgui.set_next_window_position(width // 2 - 150, height // 2 - 65)
             imgui.set_next_window_size(300, 130)  # Increased height
-            is_open, show_exit_window = imgui.begin("Confirm Exit", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_exit_window = imgui.begin("Confirm Exit", True, imgui.WINDOW_NO_COLLAPSE)
             
             if not is_open:
-                show_exit_window = False
+                st.show_exit_window = False
             
             imgui.spacing()
             imgui.text(f"Are you sure you want to exit?\nUnsaved data may be lost.")
@@ -1697,11 +1692,11 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.spacing()
 
             if imgui.button("Cancel", 130,30):
-                show_exit_window = False
+                st.show_exit_window = False
             imgui.same_line(0,15)
             if imgui.button("YES", 130,30):
                 # Save Data
-                config = {"Theme": theme}
+                config = {"Theme": st.theme}
                 save_user_config("UserData/User.data", config)
 
 
@@ -1709,13 +1704,13 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             imgui.end()
 
-        if show_restart_window:
+        if st.show_restart_window:
             imgui.set_next_window_position(width // 2 - 150, height // 2 - 65)
             imgui.set_next_window_size(300, 130)  # Increased height
-            is_open, show_restart_window = imgui.begin("Confirm Restart", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_restart_window = imgui.begin("Confirm Restart", True, imgui.WINDOW_NO_COLLAPSE)
             
             if not is_open:
-                show_restart_window = False
+                st.show_restart_window = False
             
             imgui.spacing()
             imgui.text(f"Are you sure you want to restart the app?\nThis may result in loss of unsaved data.")
@@ -1724,11 +1719,11 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.spacing()
 
             if imgui.button("Cancel", 130,30):
-                show_restart_window = False
+                st.show_restart_window = False
             imgui.same_line(0,15)
             if imgui.button("YES", 130,30):
                 # Save Data
-                config = {"Theme": theme}
+                config = {"Theme": st.theme}
                 save_user_config("UserData/User.data", config)
 
                 import sys
@@ -1746,59 +1741,59 @@ You can also support the project by reporting an error, or by suggesting an impr
         # Display save/load status message
         import pyperclip
 
-        if save_load_message is not None:
+        if st.save_load_message is not None:
             # Show message for 3 seconds
-            if time.time() - save_load_message_time < 3.0:
+            if time.time() - st.save_load_message_time < 3.0:
                 imgui.set_next_window_position(width // 2 - 150, 100)
                 imgui.begin("Status", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE)
 
                 # Color based on success
-                is_success = "saved" in save_load_message.lower() or "loaded" in save_load_message.lower()
+                is_success = "saved" in st.save_load_message.lower() or "loaded" in st.save_load_message.lower()
                 color = (0.0, 1.0, 0.0, 1.0) if is_success else (1.0, 0.0, 0.0, 1.0)
-                imgui.text_colored(save_load_message, *color)
+                imgui.text_colored(st.save_load_message, *color)
 
                 imgui.same_line(350, 0)
 
                 if imgui.button("copy"):
-                    pyperclip.copy(save_load_message)
+                    pyperclip.copy(st.save_load_message)
 
                 imgui.end()
             else:
-                save_load_message = None
+                st.save_load_message = None
 
 
-        if export_obj_message is not None:
+        if st.export_obj_message is not None:
             # Show message for 3 seconds
-            if time.time() - export_obj_message_time < 3.0:
+            if time.time() - st.export_obj_message_time < 3.0:
                 imgui.set_next_window_position(width // 2 - 150, 100)
                 imgui.begin("Status", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE)
 
                 # Color based on success
-                is_success = export_obj_message[0]
+                is_success = st.export_obj_message[0]
                 color = (0.0, 1.0, 0.0, 1.0) if is_success else (1.0, 0.0, 0.0, 1.0)
-                imgui.text_colored(export_obj_message[1], *color)
+                imgui.text_colored(st.export_obj_message[1], *color)
                 
                 imgui.same_line(350, 0)
 
                 if imgui.button("copy"):
-                    pyperclip.copy(save_load_message)
+                    pyperclip.copy(st.save_load_message)
                 
                 imgui.end()
             else:
-                export_obj_message[1] = None
+                st.export_obj_message[1] = None
 
 
 
         # --- Error Display (if shader compilation failed) ---
-        if shader_compile_error:
+        if st.shader_compile_error:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 50)
             imgui.set_next_window_size(400, 100)
             imgui.begin("Shader Compilation Error", True, imgui.WINDOW_ALWAYS_AUTO_RESIZE)
             imgui.text_colored("Error:", 1.0, 0.0, 0.0, 1.0)
             imgui.same_line()
-            imgui.text_wrapped(shader_compile_error)
+            imgui.text_wrapped(st.shader_compile_error)
             if imgui.button("Dismiss"):
-                shader_compile_error = None
+                st.shader_compile_error = None
             imgui.end()
         
 
@@ -1825,7 +1820,6 @@ You can also support the project by reporting an error, or by suggesting an impr
             - right-click context popup per-node to Add a child primitive or child operation
                 (only for operation nodes that still accept operands).
             """
-            nonlocal pending_change_node_id, show_add_change_window, property_change_node_id, show_property_change_window, show_reparent_window, reparent_node_id
 
             node = scene_builder.get_node(node_id)
             if not node:
@@ -1906,8 +1900,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                     selected_items.clear()
                     selected_item_id = node_id
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = 'node'
-                    renaming_item_id = None
+                    st.selection_mode = 'node'
+                    st.renaming_item_id = None
                     success, new_uniforms = recompile_shader()
                     if success:
                         uniform_locs = new_uniforms
@@ -1922,27 +1916,27 @@ You can also support the project by reporting an error, or by suggesting an impr
                 # Only offer add options for operation nodes
                 if node.node_type == 'operation':
                     if imgui.menu_item("Change Operation Type")[0]:
-                        pending_change_node_id = node_id
-                        show_add_change_window = True
+                        st.pending_change_node_id = node_id
+                        st.show_add_change_window = True
                         imgui.close_current_popup()
                 else:
                     # For primitives, offer Change Type (in-place) rather than forcing delete+create
                     if imgui.menu_item("Change Type")[0]:
-                        pending_change_node_id = node_id
-                        show_add_change_window = True
+                        st.pending_change_node_id = node_id
+                        st.show_add_change_window = True
                         imgui.close_current_popup()
                 
                 imgui.separator()
                 
                 if imgui.menu_item("Change Properties")[0]:
-                    property_change_node_id = node_id
-                    show_property_change_window = True
+                    st.property_change_node_id = node_id
+                    st.show_property_change_window = True
                     imgui.close_current_popup()
                 
                 # NEW: Reparent option
                 if imgui.menu_item("Reparent")[0]:
-                    reparent_node_id = node_id
-                    show_reparent_window = True
+                    st.reparent_node_id = node_id
+                    st.show_reparent_window = True
                     imgui.close_current_popup()
                 
                 imgui.end_popup()
@@ -1968,8 +1962,8 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.separator()
         
         if imgui.button(f"Add (Ctrl+A)", -1):
-            show_add_change_window = True
-            pending_change_node_id = None
+            st.show_add_change_window = True
+            st.pending_change_node_id = None
         
         imgui.end()  # End Scene Tree window
         
@@ -1997,22 +1991,22 @@ You can also support the project by reporting an error, or by suggesting an impr
                 
                 # Rename functionality
                 if imgui.button("Rename"):
-                    renaming_item_id = selected_item_id
-                    rename_text = item_data.ui_name
+                    st.renaming_item_id = selected_item_id
+                    st.rename_text = item_data.ui_name
                 
-                if renaming_item_id == selected_item_id:
-                    changed, rename_text = imgui.input_text("##rename", rename_text, 256)
+                if st.renaming_item_id == selected_item_id:
+                    changed, st.rename_text = imgui.input_text("##rename", st.rename_text, 256)
                     
                     if imgui.button("OK", width / 5):
-                        scene_builder.rename_node(selected_item_id, rename_text)
-                        renaming_item_id = None
+                        scene_builder.rename_node(selected_item_id, st.rename_text)
+                        st.renaming_item_id = None
                         success, new_uniforms = recompile_shader()
                         if success:
                             uniform_locs = new_uniforms
                     
                     imgui.same_line()
                     if imgui.button("Cancel", width / 5):
-                        renaming_item_id = None
+                        st.renaming_item_id = None
                 
                 imgui.separator()
                 
@@ -2031,10 +2025,10 @@ You can also support the project by reporting an error, or by suggesting an impr
                     if primitive_type == "sprite":
                         # sprite_index is stored in primitive.kwargs at creation time
                         sprite_idx = primitive.kwargs.get('sprite_index', None)
-                        if sprite_idx is None or sprite_idx >= len(sprites_array):
+                        if sprite_idx is None or sprite_idx >= len(st.sprites_array):
                             imgui.text_colored("Sprite data missing or corrupted", 1.0, 0.0, 0.0, 1.0)
                         else:
-                            spr = sprites_array[sprite_idx]
+                            spr = st.sprites_array[sprite_idx]
                             imgui.text("Plane parameters:")
                             changed, primitive.position = input_vec3("Point", primitive.position, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3)
                             changed2, spr.planeNormal = input_vec3("Normal", spr.planeNormal, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3)
@@ -2438,18 +2432,18 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.end()
         
         # --- OPERATION/PRIMITIVE SELECTION DIALOG (HIERARCHICAL) ---
-        if show_operation_selection_window:
+        if st.show_operation_selection_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 200)
             imgui.set_next_window_size(400, 400)
             
-            is_open, show_operation_selection_window = imgui.begin(
+            is_open, st.show_operation_selection_window = imgui.begin(
                 "Add Operation",
                 True,
                 imgui.WINDOW_NO_COLLAPSE
             )
             
             if not is_open:
-                show_operation_selection_window = False
+                st.show_operation_selection_window = False
             
             imgui.text("Select Operation Type:")
             imgui.separator()
@@ -2510,8 +2504,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                     # Select the new operation
                     selected_item_id = new_op_id
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = 'node'
-                    show_operation_selection_window = False
+                    st.selection_mode = 'node'
+                    st.show_operation_selection_window = False
                 
                 if imgui.is_item_hovered():
                     imgui.set_tooltip(description)
@@ -2519,18 +2513,18 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.end()
         
         # --- ADD PRIMITIVE DIALOG ---
-        if show_primitive_selection_window:
+        if st.show_primitive_selection_window:
             imgui.set_next_window_position(width // 2 - 200, height // 2 - 150)
             imgui.set_next_window_size(400, 400)
             
-            is_open, show_primitive_selection_window = imgui.begin(
+            is_open, st.show_primitive_selection_window = imgui.begin(
                 "Add Standalone Primitive",
                 True,
                 imgui.WINDOW_NO_COLLAPSE
             )
             
             if not is_open:
-                show_primitive_selection_window = False
+                st.show_primitive_selection_window = False
             
             imgui.text("Select Primitive Type:")
             imgui.text("(These are root-level, not part of an operation)")
@@ -2567,22 +2561,22 @@ You can also support the project by reporting an error, or by suggesting an impr
                     # Select new primitive
                     selected_item_id = new_prim_id
                     scene_builder.update_selected_item_id(selected_item_id)
-                    selection_mode = 'node'
-                    show_primitive_selection_window = False
+                    st.selection_mode = 'node'
+                    st.show_primitive_selection_window = False
             
 
             imgui.end()
 
 
         # Combined Add/Change Window - Two columns (left = primitives, right = operations)
-        if show_add_change_window:
+        if st.show_add_change_window:
             imgui.set_next_window_position(width // 2 - 300, height // 2 - 235)
             imgui.set_next_window_size(600, 470)
-            is_open, show_add_change_window = imgui.begin("Add / Change Type", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_add_change_window = imgui.begin("Add / Change Type", True, imgui.WINDOW_NO_COLLAPSE)
 
             if not is_open:
-                show_add_change_window = False
-                pending_change_node_id = None
+                st.show_add_change_window = False
+                st.pending_change_node_id = None
 
             # Define lists (same primitives_list and operations_list)
             primitives_list = [
@@ -2621,8 +2615,8 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             for label, prim_type, size in primitives_list:
                 if imgui.button(label, -1, 24):
-                    # If pending_change_node_id is None -> ADD, else -> CHANGE TYPE
-                    if pending_change_node_id is None:
+                    # If st.pending_change_node_id is None -> ADD, else -> CHANGE TYPE
+                    if st.pending_change_node_id is None:
                         # Add new primitive at origin with defaults
                         new_id = scene_builder.add_standalone_primitive(
                             prim_type,
@@ -2634,23 +2628,23 @@ You can also support the project by reporting an error, or by suggesting an impr
                             selected_items.clear()
                             selected_item_id = new_id
                             scene_builder.update_selected_item_id(selected_item_id)
-                            selection_mode = 'node'
+                            st.selection_mode = 'node'
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
                     else:
                         # Change the pending node to this primitive (in-place)
-                        node = scene_builder.get_node(pending_change_node_id)
+                        node = scene_builder.get_node(st.pending_change_node_id)
                         if node:
                             # If it was operation -> convert to primitive
-                            scene_builder.change_node_to_primitive(pending_change_node_id, prim_type, position=None, size_or_radius=(size if size is not None else 0.5))
+                            scene_builder.change_node_to_primitive(st.pending_change_node_id, prim_type, position=None, size_or_radius=(size if size is not None else 0.5))
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
 
                         # Clear pending state
-                        pending_change_node_id = None
-                        show_add_change_window = False
+                        st.pending_change_node_id = None
+                        st.show_add_change_window = False
                 if imgui.is_item_hovered():
                     imgui.set_tooltip(f"Add / Change to {label}")
             
@@ -2661,7 +2655,7 @@ You can also support the project by reporting an error, or by suggesting an impr
 
             for label, op_type, operand_count, description in operations_list:
                 if imgui.button(label, -1, 24):
-                    if pending_change_node_id is None:
+                    if st.pending_change_node_id is None:
                         # Add new operation (auto-create primitives)
                         new_op_id = scene_builder.add_operation_with_auto_primitives(
                             op_type,
@@ -2672,19 +2666,19 @@ You can also support the project by reporting an error, or by suggesting an impr
                             selected_items.clear()
                             selected_item_id = new_op_id
                             scene_builder.update_selected_item_id(selected_item_id)
-                            selection_mode = 'node'
+                            st.selection_mode = 'node'
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
                     else:
                         # Convert pending node to this operation type (in-place)
-                        scene_builder.change_node_to_operation(pending_change_node_id, op_type, auto_primitive_type='box')
+                        scene_builder.change_node_to_operation(st.pending_change_node_id, op_type, auto_primitive_type='box')
                         success, new_uniforms = recompile_shader()
                         if success:
                             uniform_locs = new_uniforms
 
-                        pending_change_node_id = None
-                        show_add_change_window = False
+                        st.pending_change_node_id = None
+                        st.show_add_change_window = False
 
                 if imgui.is_item_hovered():
                     imgui.set_tooltip(description)
@@ -2694,28 +2688,28 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.spacing()
             imgui.same_line(20,0)
             if imgui.button("Cancel", 265, 28):
-                show_add_change_window = False
-                pending_change_node_id = None
+                st.show_add_change_window = False
+                st.pending_change_node_id = None
 
             imgui.same_line(305,0)
             if imgui.button("Close", 265, 28):
-                show_add_change_window = False
-                pending_change_node_id = None
+                st.show_add_change_window = False
+                st.pending_change_node_id = None
 
             imgui.end()
 
 
-        if show_property_change_window:
+        if st.show_property_change_window:
             imgui.set_next_window_position(width // 2 - 150, height // 2 - 125)
             imgui.set_next_window_size(300, 250)
-            is_open, show_property_change_window = imgui.begin("Change Properties", True, imgui.WINDOW_NO_COLLAPSE)
+            is_open, st.show_property_change_window = imgui.begin("Change Properties", True, imgui.WINDOW_NO_COLLAPSE)
 
             if not is_open:
-                show_property_change_window = False
-                property_change_node_id = None
+                st.show_property_change_window = False
+                st.property_change_node_id = None
 
 
-            node = scene_builder.get_node(property_change_node_id)
+            node = scene_builder.get_node(st.property_change_node_id)
             prim = node.item_data
             sym = prim.properties.get("symmetry")
             if sym is None:
@@ -2739,8 +2733,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                     uniform_locs = new_uniforms
 
             if imgui.button("Close", -1):
-                show_property_change_window = False
-                property_change_node_id = None
+                st.show_property_change_window = False
+                st.property_change_node_id = None
 
             imgui.end()
 
@@ -2751,7 +2745,6 @@ You can also support the project by reporting an error, or by suggesting an impr
             Only show operation nodes (valid parents).
             Returns True if a node was selected.
             """
-            global reparent_target_parent, reparent_child_to_replace
 
             if node_id in exclude_descendants or node_id == exclude_node_id:
                 return False
@@ -2764,7 +2757,7 @@ You can also support the project by reporting an error, or by suggesting an impr
             # NOTE: the second arg is the 'selected' boolean. We pass False for predictable behaviour.
             clicked, _ = imgui.selectable(label, False)
             if clicked:
-                reparent_target_parent = node_id
+                st.reparent_target_parent = node_id
                 return True
 
             result = imgui.is_item_clicked()
@@ -2784,32 +2777,32 @@ You can also support the project by reporting an error, or by suggesting an impr
 
 
         # === REPARENT WINDOW ===
-        if show_reparent_window and reparent_node_id:
+        if st.show_reparent_window and st.reparent_node_id:
             imgui.set_next_window_size(400, 500)
-            show_reparent_window, _ = imgui.begin("Reparent Node", True)
+            st.show_reparent_window, _ = imgui.begin("Reparent Node", True)
             
-            if show_reparent_window:
-                reparent_node = scene_builder.get_node(reparent_node_id)
+            if st.show_reparent_window:
+                reparent_node = scene_builder.get_node(st.reparent_node_id)
                 if reparent_node:
                     imgui.text(f"Reparenting: {reparent_node.item_data.ui_name}")
                     imgui.separator()
                     imgui.text("Select new parent operation:")
                     
                     # List all operation nodes (excluding the node being reparented and its descendants)
-                    all_descendants = scene_builder.get_all_children_recursive(reparent_node_id)
-                    all_descendants.append(reparent_node_id)
+                    all_descendants = scene_builder.get_all_children_recursive(st.reparent_node_id)
+                    all_descendants.append(st.reparent_node_id)
                     
                     parent_selected = False
                     for root_id in scene_builder.root_children:
                         parent_selected |= _render_reparent_node_list(
                             root_id, 
-                            reparent_node_id, 
+                            st.reparent_node_id, 
                             all_descendants,
                             "  "
                         )
                     
-                    if parent_selected and reparent_target_parent:
-                        new_parent_node = scene_builder.get_node(reparent_target_parent)
+                    if parent_selected and st.reparent_target_parent:
+                        new_parent_node = scene_builder.get_node(st.reparent_target_parent)
                         if new_parent_node and new_parent_node.node_type == 'operation':
                             required_operands = scene_builder._get_operand_count(new_parent_node.item_data.operation_type)
                             current_operands = len(new_parent_node.children)
@@ -2824,41 +2817,41 @@ You can also support the project by reporting an error, or by suggesting an impr
                                     if child_node:
                                         if imgui.selectable(
                                             f"{child_node.item_data.ui_name} ({child_id})",
-                                            reparent_child_to_replace == child_id
+                                            st.reparent_child_to_replace == child_id
                                         )[0]:
-                                            reparent_child_to_replace = child_id
+                                            st.reparent_child_to_replace = child_id
                     
                     imgui.spacing()
                     imgui.separator()
                     
                     if imgui.button("Cancel", 100, 30):
-                        show_reparent_window = False
-                        reparent_node_id = None
-                        reparent_target_parent = None
-                        reparent_child_to_replace = None
+                        st.show_reparent_window = False
+                        st.reparent_node_id = None
+                        st.reparent_target_parent = None
+                        st.reparent_child_to_replace = None
                     
                     imgui.same_line(150)
                     
-                    can_reparent = reparent_target_parent is not None
-                    if reparent_target_parent:
-                        new_parent_node = scene_builder.get_node(reparent_target_parent)
+                    can_reparent = st.reparent_target_parent is not None
+                    if st.reparent_target_parent:
+                        new_parent_node = scene_builder.get_node(st.reparent_target_parent)
                         required_operands = scene_builder._get_operand_count(new_parent_node.item_data.operation_type)
                         current_operands = len(new_parent_node.children)
-                        if current_operands >= required_operands and reparent_child_to_replace is None:
+                        if current_operands >= required_operands and st.reparent_child_to_replace is None:
                             can_reparent = False
                     
                     if not can_reparent:
                         pass
                     
                     if imgui.button("Reparent", 100, 30):
-                        if scene_builder.reparent_node(reparent_node_id, reparent_target_parent, reparent_child_to_replace):
+                        if scene_builder.reparent_node(st.reparent_node_id, st.reparent_target_parent, st.reparent_child_to_replace):
                             success, new_uniforms = recompile_shader()
                             if success:
                                 uniform_locs = new_uniforms
-                        show_reparent_window = False
-                        reparent_node_id = None
-                        reparent_target_parent = None
-                        reparent_child_to_replace = None
+                        st.show_reparent_window = False
+                        st.reparent_node_id = None
+                        st.reparent_target_parent = None
+                        st.reparent_child_to_replace = None
                     
                     if not can_reparent:
                         pass
@@ -2889,10 +2882,10 @@ You can also support the project by reporting an error, or by suggesting an impr
 
     # Clean up
     # Delete all cached shaders
-    for cached_shader, _ in shader_cache.values():
+    for cached_shader, _ in st.shader_cache.values():
         if cached_shader is not None:
             glDeleteProgram(cached_shader)
-    shader_cache.clear()
+    st.shader_cache.clear()
     
     # Clean up framebuffer
     if fbo is not None:

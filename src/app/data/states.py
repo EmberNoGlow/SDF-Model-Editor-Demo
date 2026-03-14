@@ -22,7 +22,7 @@ class st:
     last_pan_x: float = 0.0  # Separate tracking for horizontal panning
     last_pan_y: float = 0.0  # Separate tracking for vertical panning
     cam_radius: float = 5.0  # Current camera distance from target
-    cam_orbit: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])  # Camera orbit position [x, y, z]
+    cam_orbit = [0.0, 0.0, 0.0]  # Camera orbit position [x, y, z]
 
     # --- Mouse State ---
     is_mmb_pressed: bool = False  # Middle mouse button pressed state
@@ -75,9 +75,6 @@ class st:
     # --- Timing ---
     delta_time: float = 0.0  # Time delta between frames (seconds)
 
-    # --- Pipeline ---
-    camera: Any = None  # Main camera instance (will be initialized later)
-
     # --- UI State ---
     show_operation_selection_window: bool = False
     show_primitive_selection_window: bool = False
@@ -110,23 +107,21 @@ class st:
 
     # --- Shader State ---
     shader_choice: int = 0  # 0 = template, 1 = cycles
-    shader_names: List[str] = field(
-        default_factory=lambda: [
+    shader_names = [
             "shaders/fragment/template.glsl",
             "shaders/fragment/cycles.glsl"
         ]
-    )
 
 
     # Sky shaders uniforms (cycles)
-    sky_top_color: tuple = [0.7, 0.8, 1.0]
-    sky_bottom_color: tuple = [0.1, 0.15, 0.25]
+    sky_top_color= [0.7, 0.8, 1.0]
+    sky_bottom_color= [0.1, 0.15, 0.25]
 
     # Grid (template)
     GridEnabled: bool = True
 
     # Light
-    LightDir: tuple = [0.5, 1.0, 0.7]
+    LightDir = [0.5, 1.0, 0.7]
 
     # --- Settings ---
     resolution_scale: float = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
@@ -139,7 +134,7 @@ class st:
     exp_use_color: bool = True
 
     # Sprites
-    sprites_array: List = []
+    sprites_array = []
 
 
     # --- FPS tracking ---
@@ -150,7 +145,7 @@ class st:
 
     # --- Shader compilation and error tracking ---
     shader_compile_error: Any = None
-    shader_cache: dict = {}  # Cache for compiled shaders: {hash: (shader_program, uniforms)}
+    shader_cache = {}  # Cache for compiled shaders: {hash: (shader_program, uniforms)}
 
     additional_scene_code: str = ""
     

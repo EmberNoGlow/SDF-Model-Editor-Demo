@@ -26,5 +26,7 @@ cn = {
     'MIN_RADIUS': 1.0,  # Minimum distance (radius) from camera to target point
     'MAX_RADIUS': 100.0,  # Maximum distance (radius) from camera to target point
     'MIN_PITCH': -math.radians(90),  # Minimum allowed pitch angle in radians (−90° - looking straight down)
-    'MAX_PITCH': math.radians(90)  # Maximum allowed pitch angle in radians (+90° - looking straight up)
+    'MAX_PITCH': math.radians(90),  # Maximum allowed pitch angle in radians (+90° - looking straight up)
+
+    'DRAG_SENSITIVITY': 0.01,
 }
