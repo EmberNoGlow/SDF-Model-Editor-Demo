@@ -20,7 +20,9 @@ from .core.classes.save_load_helpers.SceneSerializer import *
 from .core.classes.save_load_helpers.TextureLoader import *
 
 from .core.classes.config.UConfig import *
+
 from .core.helpers.ContextInit import *
+from .core.helpers.dragging_helper import dragging_primitive
 
 from .core.classes.uniform_managers.set_specific_uniforms_helper import *
 
@@ -31,5 +33,4 @@ from .rendering.fbo import *
 from .rendering.camera import *
 from .rendering.uniforms_helper import *
 from .rendering.OpenGL_setup.rendering_utils import *
-from .rendering.acc_buffer import *
 from .rendering.render_pass import rendering_pass

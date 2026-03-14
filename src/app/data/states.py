@@ -142,6 +142,8 @@ class st:
     fps_frames: int = 0
     fps_value: int = 0
 
+    frame_count = 0
+
 
     # --- Shader compilation and error tracking ---
     shader_compile_error: Any = None
