@@ -27,39 +27,15 @@ from src.ui import *
 from src.utils import *
 from src.rendering import *
 
+from src.app.data.consts import cn
+from src.app.data.states import st
+
 import src.ui.themes as ui_themes
 
 
 # Load shaders
 vertex_shader, fragment_shader_template, sdf_library = load_shaders()
 
-
-# --- Configuration ---
-SCREEN_SIZE = (1280, 720)
-FOV_ANGLE = math.radians(75)  # Field of View - Used for ray direction calculation
-STEP_VARIABLE_FLOAT = 0.1
-STEP_VARIABLE_ROTATION = 5.0
-
-
-# UI Constants
-PANEL_WIDTH_RATIO = 0.2  # Left and right panel width as ratio of window width
-FPS_WINDOW_OFFSET = 25  # Offset from top for FPS window
-FPS_WINDOW_WIDTH = 140
-FPS_WINDOW_HEIGHT = 30
-
-ORI_WINDOW_OFFSET = 60  # Offset from top for Orientation window
-ORI_WINDOW_WIDTH = 70
-ORI_WINDOW_HEIGHT = 110
-
-# Camera Constants
-MOUSE_SENSITIVITY = 0.005
-PAN_SENSITIVITY = 0.1
-CAMERA_LERP_FACTOR = 7.5
-ZOOM_SENSITIVITY = 0.5
-MIN_RADIUS = 1.0
-MAX_RADIUS = 100.0
-MIN_PITCH = -math.radians(90)
-MAX_PITCH = math.radians(90)
 
 # Moved variables
 drag_position = [0,0,0] # Track calculation result
@@ -99,84 +75,12 @@ def main():
 
 
     # Initialize GLFW & Imgui
-    window, impl = init_glfw_impl(SCREEN_SIZE)
+    window, impl = init_glfw_impl(cn['SCREEN_SIZE'])
     ICONS = load_all_textures()
 
-    # --- Camera State ---
-    target_yaw = 0.0
-    target_pitch = 0.0
-    target_pan_y = 0.0
-    target_pan_x = 0.0
-    target_radius = 5.0
-    cam_yaw = 0.0
-    cam_pitch = 0.0
-    last_x, last_y = 0.0, 0.0
-    last_pan_x, last_pan_y = 0.0, 0.0  # Separate tracking for panning
-    cam_radius = 5.0
-    cam_orbit = [0.0, 0.0, 0.0]
-    last_x, last_y = 0.0, 0.0
 
-    PAN_SENSITIVITY = 0.01  # Adjust this to control pan speed
-    DRAG_SENSITIVITY = 0.01 # Adjust this to control drag (primitive) speed
-
-    is_mmb_pressed = False
-    is_shift_mmb_pressed = False
-
-    # --- SaveLoad ---
-    save_load_message = None
-    save_load_message_time = None
-    export_obj_message = None
-    export_obj_message_time = None
-
-    # --- Keys ---
-    last_key_s_pressed = False
-    last_key_o_pressed = False
-    last_key_z_pressed = False
-    last_key_y_pressed = False
-    last_key_g_pressed = False
-    axis_toggled_gx = False
-    axis_toggled_gy = False
-    axis_toggled_gz = False
-    last_key_gx_pressed = False
-    last_key_gy_pressed = False
-    last_key_gz_pressed = False
-    last_key_r_pressed = False
-    # Rotation-specific axis toggles and key debounces (separate from move G-toggles)
-    axis_toggled_rx = False
-    axis_toggled_ry = False
-    axis_toggled_rz = False
-    last_key_rx_pressed = False
-    last_key_ry_pressed = False
-    last_key_rz_pressed = False
-
-    last_key_f10_pressed = False  # Add this if not present
-    
-    last_key_d_pressed = False # Duplicate key debounce
-
-    # --- Draging ---
-    dragging = False
-    dragging_op_id = None           # op_id of the item currently being dragged
-    drag_last_x = 0.0               # last mouse x while dragging (separate from camera last_x/last_y)
-    drag_last_y = 0.0
-    drag_start_pos = None           # original primitive position at drag start (copied list)
-    drag_accum = [0.0, 0.0, 0.0]    # accumulated world-space movement since drag start
-    DRAG_SENSITIVITY = 0.01         # adjust for speed; consider scaling with cam_radius for consistent feel
-    
-    # --- Rotate ---
-    R_dragging = False
-    R_dragging_op_id = None           # op_id of the item currently being dragged
-    R_drag_last_x = 0.0               # last mouse x while dragging (separate from camera last_x/last_y)
-    R_drag_last_y = 0.0
-    R_drag_start_pos = None           # original primitive position at drag start (copied list)
-    R_drag_accum = [0.0, 0.0, 0.0]    # accumulated world-space movement since drag start
-
-
-    # --- Delta time --- 
-    delta_time = 0.0 
-
-
-    # --- Pipeline ---
-    camera = Camera()
+    # --- Defined Palette ---
+    theme = ui_themes.default_theme
 
 
     # --- Scene Definition ---
@@ -190,79 +94,8 @@ def main():
         ui_name='Cube'
     )
 
-    # --- UI State ---
-    show_operation_selection_window = False
-    show_primitive_selection_window = False
-    show_settings_window = False
-    show_add_change_window = False
-    pending_change_node_id = None
-    property_change_node_id = None
-    show_property_change_window = False
-    show_reparent_window = False
-    reparent_node_id = None
-    reparent_target_parent = None  # Selected new parent
-    reparent_child_to_replace = None  # Child to delete if parent is full
-    show_editor_settings_window = False
-    current_settings_tab = "Themes"  # State to track which tab is active
-    show_export_vol_window = False
-    show_export_obj_window = False
-    show_about_window = False
-    show_exit_window = False
-    show_restart_window = False
-    selection_mode = None  # 'primitive' or 'operation'
-    renaming_item_id = None  # Item being renamed
-    rename_text = ""
-    last_key_a_pressed = False  # Track if Ctrl+A was pressed
-    last_key_f2_pressed = False  # Track if F2 was pressed
-    last_key_delete_pressed = False  # Track if Delete was pressed
-    last_key_compile_pressed = False  # Track if Ctrl+B was pressed
 
 
-    # --- Defined Palette ---
-    theme = ui_themes.default_theme
-
-
-
-    # Shader selection
-    shader_choice = 0  # 0 = template, 1 = cycles
-    shader_names = ["shaders/fragment/template.glsl", "shaders/fragment/cycles.glsl"]
-
-    # Sky shaders uniforms (cycles)
-    sky_top_color = [0.7, 0.8, 1.0]
-    sky_bottom_color = [0.1, 0.15, 0.25]
-
-    # Grid (template)
-    GridEnabled = True
-
-    # Light
-    LightDir = [0.5, 1.0, 0.7]
-
-    # --- Settings ---
-    resolution_scale = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
-
-    # Export Config
-    grid_size = 16
-    vox_quality = 1.0
-    export_z_up = True
-    export_level = 0.0
-    exp_use_color = True
-
-    # Sprites
-    sprites_array = []
-
-
-    # --- FPS tracking ---
-    fps_clock = time.time()
-    fps_frames = 0
-    fps_value = 0
-
-
-    # --- Shader compilation and error tracking ---
-    shader_compile_error = None
-    shader_cache = {}  # Cache for compiled shaders: {hash: (shader_program, uniforms)}
-
-    additional_scene_code = ""
-    
     def get_shader_hash():
         """Generate a hash of the current shader code for caching."""
         scene_code = scene_builder.generate_raymarch_code()
@@ -270,7 +103,7 @@ def main():
         selected_fragment_shader = load_shader_code(shader_names[shader_choice])
         fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
         fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
-        fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
+        fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(cn['FOV_ANGLE']))
         fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
         fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
         fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
@@ -300,7 +133,7 @@ def main():
             selected_fragment_shader = load_shader_code(shader_names[shader_choice])
             fragment_shader = selected_fragment_shader.replace("{SDF_LIBRARY}", sdf_library)
             fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
-            fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(FOV_ANGLE))
+            fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(cn['FOV_ANGLE']))
             fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code[0])
             fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", postproc_code[1])
             fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
@@ -502,7 +335,7 @@ def main():
         # Get window and rendering dimensions
         width, height = glfw.get_framebuffer_size(window)
         menu_bar_height = int(imgui.get_frame_height())
-        panel_width = int(width * PANEL_WIDTH_RATIO)
+        panel_width = int(width * cn['PANEL_WIDTH_RATIO'])
         rendering_width = width - 2 * panel_width
         rendering_height = height - menu_bar_height
         panel_elem_width_vec3 = (panel_width/4)-14
@@ -518,7 +351,7 @@ def main():
         width, height = glfw.get_framebuffer_size(window)
         # Get menu bar height (needed for calculations) - convert to int for glViewport
         menu_bar_height = int(imgui.get_frame_height())
-        panel_width = int(width * PANEL_WIDTH_RATIO)
+        panel_width = int(width * cn['PANEL_WIDTH_RATIO'])
         rendering_width = width - 2 * panel_width
         rendering_height = height - menu_bar_height
         
@@ -567,10 +400,10 @@ def main():
 
         # Handle mouse wheel input for camera zoom
         if io.mouse_wheel != 0:
-            target_radius -= io.mouse_wheel * ZOOM_SENSITIVITY
-            target_radius = max(MIN_RADIUS, min(MAX_RADIUS, target_radius))
+            target_radius -= io.mouse_wheel * cn['ZOOM_SENSITIVITY']
+            target_radius = max(cn['MIN_RADIUS'], min(cn['MAX_RADIUS'], target_radius))
 
-        cam_radius += (target_radius - cam_radius) * (CAMERA_LERP_FACTOR * delta_time)
+        cam_radius += (target_radius - cam_radius) * (cn['CAMERA_LERP_FACTOR'] * delta_time)
 
         # Only update target camera angles if MMB is pressed
         if is_mmb_pressed:
@@ -580,20 +413,20 @@ def main():
                 dx = current_x - last_pan_x
                 dy = current_y - last_pan_y
                 last_pan_x, last_pan_y = current_x, current_y
-                target_pan_x += dx * PAN_SENSITIVITY
-                target_pan_y += dy * PAN_SENSITIVITY
+                target_pan_x += dx * cn['PAN_SENSITIVITY']
+                target_pan_y += dy * cn['PAN_SENSITIVITY']
             else:
                 # Rotation mode: MMB only
                 dx = current_x - last_x
                 dy = current_y - last_y
                 last_x, last_y = current_x, current_y
-                target_yaw -= dx * MOUSE_SENSITIVITY
-                target_pitch += dy * MOUSE_SENSITIVITY
-                target_pitch = max(MIN_PITCH, min(MAX_PITCH, target_pitch))
+                target_yaw -= dx * cn['MOUSE_SENSITIVITY']
+                target_pitch += dy * cn['MOUSE_SENSITIVITY']
+                target_pitch = max(cn['MIN_PITCH'], min(cn['MAX_PITCH'], target_pitch))
 
 
         # --- Camera vectors ---
-        cam_yaw, cam_pitch = camera.update(target_yaw, target_pitch, target_pan_y, target_pan_x, CAMERA_LERP_FACTOR*delta_time)
+        cam_yaw, cam_pitch = camera.update(target_yaw, target_pitch, target_pan_y, target_pan_x, cn['CAMERA_LERP_FACTOR']*delta_time)
         cam_orbit = camera.get_orbit()
 
         # -----
@@ -1111,8 +944,8 @@ def main():
                 drag_last_x, drag_last_y = current_x, current_y
 
                 # Convert to mouse-space movement
-                mouse_delta_x = dx * DRAG_SENSITIVITY
-                mouse_delta_y = -dy * DRAG_SENSITIVITY
+                mouse_delta_x = dx * cn['DRAG_SENSITIVITY']
+                mouse_delta_y = -dy * cn['DRAG_SENSITIVITY']
 
                 if np.linalg.norm(np.array([mouse_delta_x, mouse_delta_y])) > 0.01:
                     frame_count = 0
@@ -1804,9 +1637,9 @@ You can also support the project by reporting an error, or by suggesting an impr
             imgui.end()
 
         # --- FPS OVERLAY (Top Right, above right panel) ---
-        fps_x = width - panel_width - FPS_WINDOW_WIDTH - FPS_WINDOW_OFFSET
-        imgui.set_next_window_position(fps_x, FPS_WINDOW_OFFSET)
-        imgui.set_next_window_size(FPS_WINDOW_WIDTH, FPS_WINDOW_HEIGHT)
+        fps_x = width - panel_width - cn['FPS_WINDOW_WIDTH'] - cn['FPS_WINDOW_OFFSET']
+        imgui.set_next_window_position(fps_x, cn['FPS_WINDOW_OFFSET'])
+        imgui.set_next_window_size(cn['FPS_WINDOW_WIDTH'], cn['FPS_WINDOW_HEIGHT'])
         imgui.begin("FPS", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE | imgui.WINDOW_ALWAYS_AUTO_RESIZE | imgui.WINDOW_NO_SCROLLBAR)
         if shader_choice == 0:
             imgui.text_colored("FPS: " + str(fps_value), 0.0, 1.0, 0.0, 1.0)
@@ -1816,9 +1649,9 @@ You can also support the project by reporting an error, or by suggesting an impr
         imgui.end()
 
         # Orientation Overlay
-        ori_x = width - panel_width - ORI_WINDOW_WIDTH - ORI_WINDOW_OFFSET
-        imgui.set_next_window_position(fps_x+70, ORI_WINDOW_OFFSET)
-        imgui.set_next_window_size(ORI_WINDOW_WIDTH, ORI_WINDOW_HEIGHT)
+        ori_x = width - panel_width - cn['ORI_WINDOW_WIDTH'] - cn['ORI_WINDOW_OFFSET']
+        imgui.set_next_window_position(fps_x+70, cn['ORI_WINDOW_OFFSET'])
+        imgui.set_next_window_size(cn['ORI_WINDOW_WIDTH'], cn['ORI_WINDOW_HEIGHT'])
         imgui.begin("ORI", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE | imgui.WINDOW_ALWAYS_AUTO_RESIZE | imgui.WINDOW_NO_SCROLLBAR)
         
         imgui.same_line(17,0) # At Center
@@ -2203,10 +2036,10 @@ You can also support the project by reporting an error, or by suggesting an impr
                         else:
                             spr = sprites_array[sprite_idx]
                             imgui.text("Plane parameters:")
-                            changed, primitive.position = input_vec3("Point", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                            changed2, spr.planeNormal = input_vec3("Normal", spr.planeNormal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                            changed3, spr.planeWidth = input_float("Width", spr.planeWidth, STEP_VARIABLE_FLOAT, panel_elem_width_float)
-                            changed4, spr.planeHeight = input_float("Height", spr.planeHeight, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                            changed, primitive.position = input_vec3("Point", primitive.position, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3)
+                            changed2, spr.planeNormal = input_vec3("Normal", spr.planeNormal, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3)
+                            changed3, spr.planeWidth = input_float("Width", spr.planeWidth, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float)
+                            changed4, spr.planeHeight = input_float("Height", spr.planeHeight, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float)
                             spr.planePoint = primitive.position
                             if changed or changed2 or changed3 or changed4:
                                 success, new_uniforms = recompile_shader()
@@ -2258,56 +2091,56 @@ You can also support the project by reporting an error, or by suggesting an impr
                         case "sphere":
                             changed, primitive.size_or_radius[0] = input_float(
                                 "Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                         case "torus":
                             changed1, primitive.size_or_radius[0] = input_float(
                                 "Major Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed2, primitive.size_or_radius[1] = input_float(
                                 "Minor Radius", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed = changed1 or changed2
                         case "hex_prism":
                             changed1, primitive.size_or_radius[0] = input_float(
                                 "Hex Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed2, primitive.size_or_radius[1] = input_float(
                                 "Height", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed = changed1 or changed2
                         case "vertical_capsule":
                             changed1, primitive.size_or_radius[0] = input_float(
                                 "Height", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed2, primitive.size_or_radius[1] = input_float(
                                 "Radius", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed = changed1 or changed2
                         case "capped_cylinder":
                             changed1, primitive.size_or_radius[0] = input_float(
                                 "Radius", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed2, primitive.size_or_radius[1] = input_float(
                                 "Height", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed = changed1 or changed2
                         case "rounded_cylinder":
                             changed1, primitive.size_or_radius[0] = input_float(
                                 "Radius A", primitive.size_or_radius[0], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed2, primitive.size_or_radius[1] = input_float(
                                 "Radius B", primitive.size_or_radius[1], 
-                                STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed = changed1 or changed2
                         # Special parameters for specific primitives
@@ -2316,13 +2149,13 @@ You can also support the project by reporting an error, or by suggesting an impr
                             c_cos = primitive.kwargs.get('c_cos', 0.866)
                             height = primitive.kwargs.get('height', 1.0)
                             changed1, c_sin = input_float(
-                                "Sin(Angle)", c_sin, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                "Sin(Angle)", c_sin, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed2, c_cos = input_float(
-                                "Cos(Angle)", c_cos, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                "Cos(Angle)", c_cos, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             changed3, height = input_float(
-                                "Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                "Height", height, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             if changed1 or changed2 or changed3:
                                 primitive.kwargs['c_sin'] = c_sin
@@ -2335,8 +2168,8 @@ You can also support the project by reporting an error, or by suggesting an impr
                         case "plane":
                             normal = primitive.kwargs.get('normal', [0.0, 1.0, 0.0])
                             h = primitive.kwargs.get('h', 0.0)
-                            changed1, normal = input_vec3("Normal", normal, STEP_VARIABLE_FLOAT, panel_elem_width_vec3)
-                            changed2, h = input_float("Offset (h)", h, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                            changed1, normal = input_vec3("Normal", normal, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3)
+                            changed2, h = input_float("Offset (h)", h, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float)
                             if changed1 or changed2:
                                 # Normalize the normal vector
                                 norm_len = math.sqrt(normal[0]**2 + normal[1]**2 + normal[2]**2)
@@ -2350,7 +2183,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         
                         case "rounded_cylinder":
                             height = primitive.kwargs.get('height', 1.0)
-                            changed, height = input_float("Height", height, STEP_VARIABLE_FLOAT, panel_elem_width_float)
+                            changed, height = input_float("Height", height, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float)
                             if changed:
                                 primitive.kwargs['height'] = height
                                 success, new_uniforms = recompile_shader()
@@ -2360,7 +2193,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         # --- Inspector: add UI to edit pointer function selection (inside the primitive inspector branch) ---
                         case "pointer":
                             changed_pos, primitive.position = input_vec3(
-                                "Position", primitive.position, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                                "Position", primitive.position, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3
                             )
                             if changed_pos:
                                 scene_builder.modify_primitive_property(node.item_id, 'position', primitive.position)
@@ -2410,7 +2243,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                             points_to_remove = None
                             for i, pt in enumerate(points):
                                 changed, new_pt = input_vec3(
-                                    f"Point {i}", list(pt), STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                                    f"Point {i}", list(pt), cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3
                                 )
                                 if changed:
                                     points[i] = new_pt
@@ -2442,7 +2275,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                             # Thickness parameter
                             thickness = primitive.kwargs.get('thickness', 0.1)
                             changed, thickness = input_float(
-                                "Thickness", thickness, STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                "Thickness", thickness, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                             )
                             if changed:
                                 primitive.kwargs['thickness'] = thickness
@@ -2453,7 +2286,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                         case _:
                             if primitive.primitive_type not in ["cone", "plane", "rounded_cylinder", "pointer", "sprite", "curve"]:
                                 changed, primitive.size_or_radius = input_vec3(
-                                    "Size", primitive.size_or_radius, STEP_VARIABLE_FLOAT, panel_elem_width_vec3
+                                    "Size", primitive.size_or_radius, cn['STEP_VARIABLE_FLOAT'], panel_elem_width_vec3
                                 )
                         
                     if primitive.primitive_type not in ["pointer", "sprite", "curve"]:
@@ -2469,7 +2302,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                             if primitive.primitive_type == "round_box":
                                 imgui.spacing()
                                 changed, primitive.kwargs['radius'] = input_float(
-                                    "Radius", primitive.kwargs.get('radius', 0.1),STEP_VARIABLE_FLOAT, panel_elem_width_float
+                                    "Radius", primitive.kwargs.get('radius', 0.1),cn['STEP_VARIABLE_FLOAT'], panel_elem_width_float
                                     )
                                 if changed:
                                     success, new_uniforms = recompile_shader()
@@ -2495,7 +2328,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                     changed, item_data.position = input_vec3(
                         "Position",
                         item_data.position,
-                        STEP_VARIABLE_FLOAT,
+                        cn['STEP_VARIABLE_FLOAT'],
                         panel_elem_width_vec3
                     )
                     if changed:
@@ -2506,7 +2339,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                     changed, item_data.rotation = input_vec3(
                         "Rotation",
                         item_data.rotation,
-                        STEP_VARIABLE_FLOAT,
+                        cn['STEP_VARIABLE_FLOAT'],
                         panel_elem_width_vec3
                     )
                     if changed:
@@ -2517,7 +2350,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                     changed, item_data.scale = input_vec3(
                         "Scale",
                         item_data.scale,
-                        STEP_VARIABLE_FLOAT,
+                        cn['STEP_VARIABLE_FLOAT'],
                         panel_elem_width_vec3
                     )
                     if changed:
@@ -2528,7 +2361,7 @@ You can also support the project by reporting an error, or by suggesting an impr
                     changed, item_data.color = input_vec3(
                         "Color",
                         item_data.color,
-                        STEP_VARIABLE_FLOAT,
+                        cn['STEP_VARIABLE_FLOAT'],
                         panel_elem_width_vec3
                     )
                     if changed:
