@@ -7,6 +7,7 @@ from ..utils.postproc_code import generate_postproc_code
 from ..core.classes.save_load_helpers.ShaderLoader import load_shader_code
 from ..app.data.consts import cn
 
+
 class ShaderManager:
     def __init__(self, vertex_shader_src: str, sdf_library_src: str, state):
         """
@@ -18,24 +19,32 @@ class ShaderManager:
         self.sdf_library_src = sdf_library_src
         self.st = state  # st
 
-
     # --- Internal helpers ---
-
 
     def _build_fragment_shader(self, scene_builder) -> str:
         """Build final fragment shader source from templates + scene + postproc."""
         scene_code = scene_builder.generate_raymarch_code()
-        postproc_code, additional_uniforms = generate_postproc_code(self.st.sprites_array)
+        postproc_code, additional_uniforms = generate_postproc_code(
+            self.st.sprites_array
+        )
 
-        selected_fragment_shader = load_shader_code(self.st.shader_names[self.st.shader_choice])
+        selected_fragment_shader = load_shader_code(
+            self.st.shader_names[self.st.shader_choice]
+        )
 
         fragment_shader = selected_fragment_shader
         fragment_shader = fragment_shader.replace("{SDF_LIBRARY}", self.sdf_library_src)
         fragment_shader = fragment_shader.replace("{SCENE_CODE}", scene_code)
-        fragment_shader = fragment_shader.replace("{FOV_ANGLE_VAL}", str(cn['FOV_ANGLE']))
+        fragment_shader = fragment_shader.replace(
+            "{FOV_ANGLE_VAL}", str(cn["FOV_ANGLE"])
+        )
         fragment_shader = fragment_shader.replace("{POSTPROC}", postproc_code)
-        fragment_shader = fragment_shader.replace("{ADDITIONAL_UNIFORMS}", additional_uniforms)
-        fragment_shader = fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", self.st.additional_scene_code)
+        fragment_shader = fragment_shader.replace(
+            "{ADDITIONAL_UNIFORMS}", additional_uniforms
+        )
+        fragment_shader = fragment_shader.replace(
+            "{ADDITIONAL_SCENE_CODE}", self.st.additional_scene_code
+        )
 
         return fragment_shader
 
@@ -48,7 +57,7 @@ class ShaderManager:
         """Compile and link a GL program, return (program, uniform_locations_dict)."""
         program = compileProgram(
             compileShader(vertex_src, GL_VERTEX_SHADER),
-            compileShader(fragment_src, GL_FRAGMENT_SHADER)
+            compileShader(fragment_src, GL_FRAGMENT_SHADER),
         )
         uniforms = get_uniform_locations(program)
         return program, uniforms
@@ -75,8 +84,7 @@ class ShaderManager:
         # Cache miss → compile
         try:
             shader_program, uniforms = self._compile_program(
-                self.vertex_shader_src,
-                fragment_shader_src
+                self.vertex_shader_src, fragment_shader_src
             )
             # Store in cache
             self.st.shader_cache[shader_hash] = (shader_program, uniforms)

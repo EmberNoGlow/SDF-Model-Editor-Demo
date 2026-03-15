@@ -6,6 +6,7 @@ from ...rendering.fbo import clear_accumulation_fbos
 import glfw
 import numpy as np
 
+
 def rotate_privitive(window, scene_builder):
     ret_recompile_shader = False
 
@@ -24,7 +25,7 @@ def rotate_privitive(window, scene_builder):
 
             if st.R_dragging_op_id and st.R_dragging_op_id in scene_builder.id_to_node:
                 node = scene_builder.get_node(st.R_dragging_op_id)
-                if node and node.node_type == 'primitive':
+                if node and node.node_type == "primitive":
                     prim = node.item_data
                     st.R_drag_start_pos = prim.rotation.copy()
                     st.R_drag_accum = [0.0, 0.0, 0.0]
@@ -44,12 +45,17 @@ def rotate_privitive(window, scene_builder):
             # Stop rotation: commit final rotation (register undo/redo)
             if st.R_dragging_op_id and st.R_dragging_op_id in scene_builder.id_to_node:
                 node = scene_builder.get_node(st.R_dragging_op_id)
-                if node and node.node_type == 'primitive':
+                if node and node.node_type == "primitive":
                     prim = node.item_data
                     final_rot = prim.rotation
-                    if st.R_drag_start_pos is not None and final_rot != st.R_drag_start_pos:
+                    if (
+                        st.R_drag_start_pos is not None
+                        and final_rot != st.R_drag_start_pos
+                    ):
                         # Use scene_builder to register the change (compatibility method)
-                        scene_builder.modify_primitive_property(st.R_dragging_op_id, 'rotation', final_rot)
+                        scene_builder.modify_primitive_property(
+                            st.R_dragging_op_id, "rotation", final_rot
+                        )
                         ret_recompile_shader |= True
 
             st.R_dragging_op_id = None
@@ -64,27 +70,43 @@ def rotate_privitive(window, scene_builder):
     if st.R_dragging:
         if key_x_is_down and not st.last_key_rx_pressed:
             state = not st.axis_toggled_rx
-            st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = state, False, False
+            st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = (
+                state,
+                False,
+                False,
+            )
         if key_y_is_down and not st.last_key_ry_pressed:
             state = not st.axis_toggled_ry
-            st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = False, state, False
+            st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = (
+                False,
+                state,
+                False,
+            )
         if key_z_is_down and not st.last_key_rz_pressed:
             state = not st.axis_toggled_rz
-            st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = False, False, state
+            st.axis_toggled_rx, st.axis_toggled_ry, st.axis_toggled_rz = (
+                False,
+                False,
+                state,
+            )
 
     st.last_key_rx_pressed = key_x_is_down
     st.last_key_ry_pressed = key_y_is_down
     st.last_key_rz_pressed = key_z_is_down
 
     # Per-frame rotation update while st.R_dragging is active
-    if st.R_dragging and st.R_dragging_op_id and st.R_dragging_op_id in scene_builder.id_to_node:
+    if (
+        st.R_dragging
+        and st.R_dragging_op_id
+        and st.R_dragging_op_id in scene_builder.id_to_node
+    ):
         current_x, current_y = glfw.get_cursor_pos(window)
         dx = current_x - st.R_drag_last_x
         dy = current_y - st.R_drag_last_y
         st.R_drag_last_x, st.R_drag_last_y = current_x, current_y
 
-        rot_delta_x = -dy * cn['R_ROT_SENSITIVITY']
-        rot_delta_y = -dx * cn['R_ROT_SENSITIVITY']
+        rot_delta_x = -dy * cn["R_ROT_SENSITIVITY"]
+        rot_delta_y = -dx * cn["R_ROT_SENSITIVITY"]
         rot_delta_z = 0.0
 
         if st.axis_toggled_rx:
@@ -96,7 +118,7 @@ def rotate_privitive(window, scene_builder):
         elif st.axis_toggled_rz:
             rot_delta_x = 0.0
             rot_delta_y = 0.0
-            rot_delta_z = -dx * cn['R_ROT_SENSITIVITY']
+            rot_delta_z = -dx * cn["R_ROT_SENSITIVITY"]
 
         if abs(rot_delta_x) + abs(rot_delta_y) + abs(rot_delta_z) > 1e-5:
             st.frame_count = 0
@@ -107,7 +129,7 @@ def rotate_privitive(window, scene_builder):
         st.R_drag_accum[2] += rot_delta_z
 
         node = scene_builder.get_node(st.R_dragging_op_id)
-        if node and node.node_type == 'primitive':
+        if node and node.node_type == "primitive":
             prim = node.item_data
             if st.R_drag_start_pos is None:
                 st.R_drag_start_pos = prim.rotation.copy()
@@ -123,10 +145,10 @@ def rotate_privitive(window, scene_builder):
         # keep shader MoveRot aligned with selection (or zero)
         if st.selected_item_id and st.selected_item_id in scene_builder.id_to_node:
             node = scene_builder.get_node(st.selected_item_id)
-            if node and node.node_type == 'primitive':
+            if node and node.node_type == "primitive":
                 prim = node.item_data
                 st.drag_rot_position = prim.rotation
         else:
             st.drag_rot_position = [0.0, 0.0, 0.0]
-    
+
     return ret_recompile_shader

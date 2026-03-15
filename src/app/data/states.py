@@ -2,27 +2,26 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Any
 import time
 
+
 @dataclass
 class st:
     """
     Container for application state variables that change during runtime.
     Groups variables by functional areas with detailed comments.
     """
-    start_time = 0.0
-    prev_time  = 0.0
 
+    start_time = 0.0
+    prev_time = 0.0
 
     selected_item_id = None
-    
-    # Moved variables
-    drag_position = [0,0,0]
-    drag_rot_position = [0,0,0]
 
-    
+    # Moved variables
+    drag_position = [0, 0, 0]
+    drag_rot_position = [0, 0, 0]
+
     # Multi-selection support (CTRL+click to toggle)
     selected_items = set()
     selected_item_id = None
-
 
     # --- Accumulation Buffer Setup ---
     accumulation_width = 0
@@ -90,16 +89,24 @@ class st:
     dragging_op_id: Optional[Any] = None  # op_id of the item currently being dragged
     drag_last_x: float = 0.0  # Last mouse X position during dragging
     drag_last_y: float = 0.0  # Last mouse Y position during dragging
-    drag_start_pos: Optional[List[float]] = None  # Original primitive position at drag start
-    drag_accum: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])  # Accumulated world-space movement since drag start
+    drag_start_pos: Optional[List[float]] = (
+        None  # Original primitive position at drag start
+    )
+    drag_accum: List[float] = field(
+        default_factory=lambda: [0.0, 0.0, 0.0]
+    )  # Accumulated world-space movement since drag start
 
     # --- Rotation Dragging State ---
     R_dragging: bool = False  # Whether rotation dragging is active
     R_dragging_op_id: Optional[Any] = None  # op_id of item being rotated
     R_drag_last_x: float = 0.0  # Last mouse X during rotation drag
     R_drag_last_y: float = 0.0  # Last mouse Y during rotation drag
-    R_drag_start_pos: Optional[List[float]] = None  # Original position at rotation drag start
-    R_drag_accum: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])  # Accumulated rotation movement
+    R_drag_start_pos: Optional[List[float]] = (
+        None  # Original position at rotation drag start
+    )
+    R_drag_accum: List[float] = field(
+        default_factory=lambda: [0.0, 0.0, 0.0]
+    )  # Accumulated rotation movement
 
     # --- Timing ---
     delta_time: float = 0.0  # Time delta between frames (seconds)
@@ -136,15 +143,11 @@ class st:
 
     # --- Shader State ---
     shader_choice: int = 0  # 0 = template, 1 = cycles
-    shader_names = [
-            "shaders/fragment/template.glsl",
-            "shaders/fragment/cycles.glsl"
-        ]
-
+    shader_names = ["shaders/fragment/template.glsl", "shaders/fragment/cycles.glsl"]
 
     # Sky shaders uniforms (cycles)
-    sky_top_color= [0.7, 0.8, 1.0]
-    sky_bottom_color= [0.1, 0.15, 0.25]
+    sky_top_color = [0.7, 0.8, 1.0]
+    sky_bottom_color = [0.1, 0.15, 0.25]
 
     # Grid (template)
     GridEnabled: bool = True
@@ -153,7 +156,9 @@ class st:
     LightDir = [0.5, 1.0, 0.7]
 
     # --- Settings ---
-    resolution_scale: float = 1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
+    resolution_scale: float = (
+        1.0  # 1.0 = normal, 2.0 = oversampling, <1.0 = low res for performance
+    )
 
     # Export Config
     grid_size: int = 16
@@ -165,14 +170,12 @@ class st:
     # Sprites
     sprites_array = []
 
-
     # --- FPS tracking ---
     fps_clock: float = time.time()
     fps_frames: int = 0
     fps_value: int = 0
 
     frame_count = 0
-
 
     # --- Shader compilation and error tracking ---
     shader_compile_error: Any = None
@@ -221,4 +224,3 @@ class st:
     # Code editor
     CE_app = None
     tkinter_thread = None
-    

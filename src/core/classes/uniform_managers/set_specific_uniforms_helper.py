@@ -8,7 +8,7 @@ def set_move_pos_uniform(shader_program, uniform_locs, pos):
     """
     if uniform_locs is None or shader_program is None:
         return
-    move_key = 'move_pos'
+    move_key = "move_pos"
     loc = uniform_locs.get(move_key, None)
     if loc is None or loc == -1:
         # Query the active program for the location (this is safe and will return -1 if not declared)
@@ -25,7 +25,7 @@ def set_move_rot_uniform(shader_program, uniform_locs, rot):
     """
     if uniform_locs is None or shader_program is None:
         return
-    move_key = 'move_rot'
+    move_key = "move_rot"
     loc = uniform_locs.get(move_key, None)
     if loc is None or loc == -1:
         # Query the active program for the location (this is safe and will return -1 if not declared)

@@ -68,40 +68,39 @@ void main() {
 }
 """
 
+
 def initialize_headless_context(width, height):
     """Initialize an OpenGL context using GLFW that is NOT visible."""
-    
+
     # 1. Initialize GLFW (If the main script hasn't done so, this is necessary)
     if not glfw.init():
         raise RuntimeError("GLFW initialization failed.")
-        
+
     # 2. Set context hints for headless operation
     # Crucial: This prevents GLFW from trying to show a window on screen.
     glfw.window_hint(glfw.VISIBLE, False)
-    
+
     # Request an OpenGL version compatible with your shaders (330 core)
     glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
     glfw.window_hint(glfw.CONTEXT_VERSION_MINOR, 3)
     glfw.window_hint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-    
+
     # 3. Create Window (This creates the context bound to this window handle)
     window = glfw.create_window(width, height, "Headless SDF Renderer", None, None)
     if not window:
         glfw.terminate()
         raise RuntimeError("GLFW window/context creation failed.")
-    
+
     # 4. Bind the context to the current thread (Crucial step)
     glfw.make_context_current(window)
-    
+
     # --- VAO/VBO Setup (Full-screen quad) ---
-    
+
     # Full-screen quad vertices
-    vertices = np.array([
-        -1.0, -1.0, 0.0,
-         1.0, -1.0, 0.0,
-        -1.0,  1.0, 0.0,
-         1.0,  1.0, 0.0
-    ], dtype=np.float32)
+    vertices = np.array(
+        [-1.0, -1.0, 0.0, 1.0, -1.0, 0.0, -1.0, 1.0, 0.0, 1.0, 1.0, 0.0],
+        dtype=np.float32,
+    )
 
     VBO = glGenBuffers(1)
     glBindBuffer(GL_ARRAY_BUFFER, VBO)
@@ -114,45 +113,52 @@ def initialize_headless_context(width, height):
 
     return VAO, VBO, window
 
+
 def cleanup_context(VAO, shader, VBO, window):
     """Safely clean up resources and destroy the temporary GLFW context."""
-    
+
     # Ensure all commands are executed before tearing down
     glFinish()
-    
+
     # Delete OpenGL Resources
     glDeleteVertexArrays(1, [VAO])
     glDeleteProgram(shader)
     glDeleteBuffers(1, [VBO])
-    
+
     # Destroy the context window
     glfw.destroy_window(window)
-    
+
 
 def compute_sdf_3d(
-    grid_size=32, quality = 1.0,
+    grid_size=32,
+    quality=1.0,
     scene_code="return vec4(vec3(0.0), 100.0);",
     additional_scene_code="",
-    use_color: bool = False, main_window_handle=None,
-    sdf_library_path="shaders/sdf_library.glsl" 
+    use_color: bool = False,
+    main_window_handle=None,
+    sdf_library_path="shaders/sdf_library.glsl",
 ):
     # Load sdf library as before...
     try:
-        with open(sdf_library_path, 'r') as f:
+        with open(sdf_library_path, "r") as f:
             sdf_library_code = f.read()
     except FileNotFoundError:
         print(f"Warning: Could not find {sdf_library_path}. Using dummy content.")
         sdf_library_code = "// Dummy SDF Library Content"
 
     # Inject scene code into the template
-    final_fragment_shader = fragment_shader_template.replace("{SDF_LIBRARY}", sdf_library_code)
+    final_fragment_shader = fragment_shader_template.replace(
+        "{SDF_LIBRARY}", sdf_library_code
+    )
     final_fragment_shader = final_fragment_shader.replace("{SCENE_CODE}", scene_code)
-    final_fragment_shader = final_fragment_shader.replace("{ADDITIONAL_SCENE_CODE}", additional_scene_code)
+    final_fragment_shader = final_fragment_shader.replace(
+        "{ADDITIONAL_SCENE_CODE}", additional_scene_code
+    )
 
     # World bounds setup
     hgs_base = grid_size // 2
     world_min = (-hgs_base, -hgs_base, -hgs_base)
-    world_max = ( hgs_base,  hgs_base,  hgs_base)
+    world_max = (hgs_base, hgs_base, hgs_base)
 
     render_dim = int(grid_size * quality)
     final_grid_size = render_dim
@@ -166,7 +172,7 @@ def compute_sdf_3d(
         # Compile shaders
         shader = compileProgram(
             compileShader(vertex_shader, GL_VERTEX_SHADER),
-            compileShader(final_fragment_shader, GL_FRAGMENT_SHADER)
+            compileShader(final_fragment_shader, GL_FRAGMENT_SHADER),
         )
         glUseProgram(shader)
 
@@ -181,10 +187,14 @@ def compute_sdf_3d(
         glUniform2f(viewport_size_loc, float(render_dim), float(render_dim))
         glUniform1i(use_color_loc, int(use_color))
 
-        distance_array = np.zeros((final_grid_size, final_grid_size, final_grid_size), dtype=np.float32)
+        distance_array = np.zeros(
+            (final_grid_size, final_grid_size, final_grid_size), dtype=np.float32
+        )
         color_volume = None
         if use_color:
-            color_volume = np.zeros((final_grid_size, final_grid_size, final_grid_size, 3), dtype=np.float32)
+            color_volume = np.zeros(
+                (final_grid_size, final_grid_size, final_grid_size, 3), dtype=np.float32
+            )
 
         z_coord_loc = glGetUniformLocation(shader, "zCoord")
 
@@ -194,18 +204,40 @@ def compute_sdf_3d(
             glBindTexture(GL_TEXTURE_2D, texture)
             if use_color:
                 # RGBA float texture: rgb=color, a=distance
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, render_dim, render_dim, 0, GL_RGBA, GL_FLOAT, None)
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_RGBA32F,
+                    render_dim,
+                    render_dim,
+                    0,
+                    GL_RGBA,
+                    GL_FLOAT,
+                    None,
+                )
             else:
                 # Keep single-channel path compatible with previous behavior by still using RGBA32F
                 # but we will read only the red channel (grayscale)
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, render_dim, render_dim, 0, GL_RGBA, GL_FLOAT, None)
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_RGBA32F,
+                    render_dim,
+                    render_dim,
+                    0,
+                    GL_RGBA,
+                    GL_FLOAT,
+                    None,
+                )
 
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
 
             fbo = glGenFramebuffers(1)
             glBindFramebuffer(GL_FRAMEBUFFER, fbo)
-            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0)
+            glFramebufferTexture2D(
+                GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0
+            )
 
             if glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE:
                 raise RuntimeError("FBO is not complete!")
@@ -222,7 +254,9 @@ def compute_sdf_3d(
 
             # Read RGBA float pixels
             raw = glReadPixels(0, 0, render_dim, render_dim, GL_RGBA, GL_FLOAT)
-            slice_rgba = np.frombuffer(raw, dtype=np.float32).reshape((render_dim, render_dim, 4))
+            slice_rgba = np.frombuffer(raw, dtype=np.float32).reshape(
+                (render_dim, render_dim, 4)
+            )
 
             # Extract distance (alpha channel) and store
             distance_slice = slice_rgba[:, :, 3]  # alpha stores distance in our shader
@@ -255,33 +289,33 @@ def compute_sdf_3d(
         return distance_array
 
 
-
 def save_3d_texture(array, filename="sdf_texture.bin"):
     """Save 3D numpy array as a binary file."""
     # Ensure directory exists
-    os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
+    os.makedirs(os.path.dirname(filename) or ".", exist_ok=True)
 
     # If array is turple(dist, color)
     if isinstance(array, tuple):
-        distance_array, color_volume = array # unpack
+        distance_array, color_volume = array  # unpack
 
-        # Add distance as 4th channel 
-        distance_expanded = distance_array[..., None] # (N, N, N, 1)
-        rgba_volume = np.concatenate([color_volume, distance_expanded], axis=3) # (N, N, N, 4)
+        # Add distance as 4th channel
+        distance_expanded = distance_array[..., None]  # (N, N, N, 1)
+        rgba_volume = np.concatenate(
+            [color_volume, distance_expanded], axis=3
+        )  # (N, N, N, 4)
 
         # Ensure directory exists
-        os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
-        with open(filename, 'wb') as f:
+        os.makedirs(os.path.dirname(filename) or ".", exist_ok=True)
+        with open(filename, "wb") as f:
             f.write(rgba_volume.astype(np.float32).tobytes())
 
         print(f"Saved 3D texture to {filename}")
         print(f"Size: {rgba_volume.nbytes / 1024:.2f} KB")
 
         return
-        
 
     # Save as raw binary data
-    with open(filename, 'wb') as f:
+    with open(filename, "wb") as f:
         f.write(array.tobytes())
 
     print(f"Saved 3D texture to {filename}")
@@ -289,9 +323,9 @@ def save_3d_texture(array, filename="sdf_texture.bin"):
     print(f"Size: {array.nbytes / 1024:.2f} KB")
 
 
-
 import os
 from typing import List, Tuple, Optional
+
 
 def save_obj_with_mtl(
     obj_path: str,
@@ -299,7 +333,7 @@ def save_obj_with_mtl(
     faces: List[Tuple[int, int, int]],
     face_colors: Optional[List[Tuple[float, float, float]]] = None,
     vertex_colors: Optional[List[Tuple[float, float, float]]] = None,
-    write_vertex_color_extension: bool = False
+    write_vertex_color_extension: bool = False,
 ) -> Tuple[bool, str]:
     """
     Save an OBJ file with an accompanying MTL file to preserve colors.
@@ -318,12 +352,12 @@ def save_obj_with_mtl(
     Returns (success: bool, message: str)
     """
     try:
-        if not obj_path.lower().endswith('.obj'):
+        if not obj_path.lower().endswith(".obj"):
             return False, "obj_path must end with .obj"
 
-        base_dir = os.path.dirname(obj_path) or '.'
+        base_dir = os.path.dirname(obj_path) or "."
         base_name = os.path.splitext(os.path.basename(obj_path))[0]
-        mtl_name = base_name + '.mtl'
+        mtl_name = base_name + ".mtl"
         mtl_path = os.path.join(base_dir, mtl_name)
 
         # Normalize color helper
@@ -358,7 +392,11 @@ def save_obj_with_mtl(
                 c0 = normalize_color(vertex_colors[f[0]])
                 c1 = normalize_color(vertex_colors[f[1]])
                 c2 = normalize_color(vertex_colors[f[2]])
-                avg = ((c0[0]+c1[0]+c2[0]) / 3.0, (c0[1]+c1[1]+c2[1]) / 3.0, (c0[2]+c1[2]+c2[2]) / 3.0)
+                avg = (
+                    (c0[0] + c1[0] + c2[0]) / 3.0,
+                    (c0[1] + c1[1] + c2[1]) / 3.0,
+                    (c0[2] + c1[2] + c2[2]) / 3.0,
+                )
                 face_colors.append(avg)
             for coln in face_colors:
                 if coln not in color_to_mat:
@@ -368,7 +406,7 @@ def save_obj_with_mtl(
 
         # Write MTL file (if we have materials)
         if mat_list:
-            with open(mtl_path, 'w', encoding='utf-8') as mtl_f:
+            with open(mtl_path, "w", encoding="utf-8") as mtl_f:
                 for mat_name, (r, g, b) in mat_list:
                     mtl_f.write(f"newmtl {mat_name}\n")
                     mtl_f.write(f"Kd {r:.6f} {g:.6f} {b:.6f}\n")
@@ -377,7 +415,7 @@ def save_obj_with_mtl(
                     mtl_f.write("d 1.0\n\n")
 
         # Write OBJ file
-        with open(obj_path, 'w', encoding='utf-8') as obj_f:
+        with open(obj_path, "w", encoding="utf-8") as obj_f:
             if mat_list:
                 obj_f.write(f"mtllib {mtl_name}\n")
 
@@ -386,7 +424,9 @@ def save_obj_with_mtl(
                 # Normalize vertex colors
                 for v, vc in zip(verts, vertex_colors):
                     r, g, b = normalize_color(vc)
-                    obj_f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f} {r:.6f} {g:.6f} {b:.6f}\n")
+                    obj_f.write(
+                        f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f} {r:.6f} {g:.6f} {b:.6f}\n"
+                    )
             else:
                 for v in verts:
                     obj_f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
@@ -410,11 +450,13 @@ def save_obj_with_mtl(
                 for f in faces:
                     obj_f.write(f"f {f[0]+1} {f[1]+1} {f[2]+1}\n")
 
-        return True, f"Wrote OBJ: {obj_path} and MTL: {mtl_path if mat_list else '(no mtl)'}"
+        return (
+            True,
+            f"Wrote OBJ: {obj_path} and MTL: {mtl_path if mat_list else '(no mtl)'}",
+        )
 
     except Exception as e:
         return False, f"Error writing OBJ/MTL: {e}"
-
 
 
 def _trilinear_sample(volume: np.ndarray, points: np.ndarray) -> np.ndarray:
@@ -508,20 +550,24 @@ def export_to_obj(
     """
     try:
         if sdf_array.dtype != np.float32:
-            print(f"Warning: Input array is not float32. Converting from {sdf_array.dtype}.")
+            print(
+                f"Warning: Input array is not float32. Converting from {sdf_array.dtype}."
+            )
             sdf_array = sdf_array.astype(np.float32)
 
         grid_size = sdf_array.shape[0]
-        print(f"Starting marching cubes extraction on array shape: {sdf_array.shape} at level {level}...")
+        print(
+            f"Starting marching cubes extraction on array shape: {sdf_array.shape} at level {level}..."
+        )
 
         # Extract vertices and faces using marching cubes
         vertices, faces, normals, values = measure.marching_cubes(
-            sdf_array,
-            level=level,
-            spacing=(1.0, 1.0, 1.0)
+            sdf_array, level=level, spacing=(1.0, 1.0, 1.0)
         )
 
-        print(f"Marching cubes generated {len(vertices)} vertices and {len(faces)} faces.")
+        print(
+            f"Marching cubes generated {len(vertices)} vertices and {len(faces)} faces."
+        )
 
     except ValueError as e:
         print(f"Error during marching cubes execution: {e}")
@@ -560,7 +606,7 @@ def export_to_obj(
         vertices += offset_array
 
     # --- Write to OBJ File (base) ---
-    os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
+    os.makedirs(os.path.dirname(filename) or ".", exist_ok=True)
 
     # If use_color is requested, prepare colors before writing OBJ and call save_obj_with_mtl
     face_colors = None
@@ -572,7 +618,9 @@ def export_to_obj(
             vol = color_volume
             # Validate shape
             if vol.shape[0:3] != sdf_array.shape:
-                print("Warning: color_volume shape does not match sdf_array shape. Ignoring color_volume.")
+                print(
+                    "Warning: color_volume shape does not match sdf_array shape. Ignoring color_volume."
+                )
                 vol = None
         else:
             vol = None
@@ -607,7 +655,9 @@ def export_to_obj(
         sampled_rgb = np.clip(sampled_rgb, 0.0, 1.0)
 
         # Save per-vertex colors (in same order as vertices)
-        vertex_colors = [tuple(map(float, sampled_rgb[i])) for i in range(sampled_rgb.shape[0])]
+        vertex_colors = [
+            tuple(map(float, sampled_rgb[i])) for i in range(sampled_rgb.shape[0])
+        ]
 
         # Compute per-face colors by averaging the three vertex colors for each face
         face_colors = []
@@ -615,7 +665,11 @@ def export_to_obj(
             c0 = sampled_rgb[f[0]]
             c1 = sampled_rgb[f[1]]
             c2 = sampled_rgb[f[2]]
-            avg = ((c0[0] + c1[0] + c2[0]) / 3.0, (c0[1] + c1[1] + c2[1]) / 3.0, (c0[2] + c1[2] + c2[2]) / 3.0)
+            avg = (
+                (c0[0] + c1[0] + c2[0]) / 3.0,
+                (c0[1] + c1[1] + c2[1]) / 3.0,
+                (c0[2] + c1[2] + c2[2]) / 3.0,
+            )
             face_colors.append(avg)
 
         # Now call save_obj_with_mtl to write OBJ + MTL grouped by color
@@ -626,7 +680,7 @@ def export_to_obj(
                 faces=[(int(f[0]), int(f[1]), int(f[2])) for f in faces],
                 face_colors=face_colors,
                 vertex_colors=vertex_colors,
-                write_vertex_color_extension=False
+                write_vertex_color_extension=False,
             )
             if ok:
                 print(f"Successfully exported mesh with colors to {filename}")
@@ -638,7 +692,7 @@ def export_to_obj(
             print(f"Exception while writing OBJ+MTL: {e}. Falling back to plain OBJ.")
 
     # --- Plain OBJ writer (no colors or fallback) ---
-    with open(filename, 'w', encoding='utf-8') as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write("# OBJ file generated from SDF marching cubes\n")
 
         # Write Vertices (v)
@@ -658,13 +712,10 @@ def export_to_obj(
     return True, f"File saved successfully!"
 
 
-
-
-
 # Helper function for previewing the size of the resulting bin file
 def calculate_sdf_file_size(grid_size=32, quality=1.0, use_color=False):
     final_grid_size = int(grid_size * quality)
-    total_voxels = final_grid_size ** 3
+    total_voxels = final_grid_size**3
 
     # 1 float32 per voxel (distance) or 4 float32 per voxel (RGBA)
     channels = 4 if use_color else 1

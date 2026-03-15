@@ -2,16 +2,23 @@ from OpenGL.GL import *
 from OpenGL.GL.shaders import compileProgram, compileShader
 from PIL import Image
 
+
 class Sprite:
     """
     A structure to hold the parameters defining a sprite,
     including its projection plane and texture information.
     """
-    def __init__(self,
-        planePoint, planeNormal,
-        planeWidth: float, planeHeight: float,
-        SprTexture=None, uvSize=(1.0, 1.0),
-        Alpha: float = 1.0, LOD: float = 0.0
+
+    def __init__(
+        self,
+        planePoint,
+        planeNormal,
+        planeWidth: float,
+        planeHeight: float,
+        SprTexture=None,
+        uvSize=(1.0, 1.0),
+        Alpha: float = 1.0,
+        LOD: float = 0.0,
     ):
         # Store the data as instance attributes
         self.planePoint = list(planePoint)
@@ -50,7 +57,7 @@ class Sprite:
             "Alpha": float(self.Alpha),
             "LOD": float(self.LOD),
             "texture_path": self.texture_path if self.texture_path else None,
-            "tex_size": [int(self.tex_size[0]), int(self.tex_size[1])]
+            "tex_size": [int(self.tex_size[0]), int(self.tex_size[1])],
         }
 
     def generate_spr_code(self):
@@ -88,9 +95,13 @@ class Sprite:
             glBindTexture(GL_TEXTURE_2D, tex)
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
             # Upload
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img_data)
+            glTexImage2D(
+                GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, img_data
+            )
             glGenerateMipmap(GL_TEXTURE_2D)
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
+            glTexParameteri(
+                GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR
+            )
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)

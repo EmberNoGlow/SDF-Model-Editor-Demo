@@ -7,7 +7,7 @@ def save_scene_dialog(scene_builder, parent_window=None):
     try:
         root = tk.Tk()
         root.withdraw()  # Hide the root window
-        
+
         filepath = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
@@ -16,7 +16,7 @@ def save_scene_dialog(scene_builder, parent_window=None):
 
         if not filepath:
             return False, "Save cancelled"
-        
+
         success, message = scene_builder.save_to_file(filepath)
         if not success:
             return False, f"Failed to save: {message}"
@@ -59,16 +59,16 @@ def save_sdfvol_dialog(sdfexp, data, parent_window=None):
     try:
         root = tk.Tk()
         root.withdraw()  # Hide the root window
-        
+
         filepath = filedialog.asksaveasfilename(
             defaultextension=".bin",
             filetypes=[("binary files", "*.bin"), ("All files", "*.*")],
             initialfile="scene.bin",
         )
-        
+
         if not filepath:
             return False, "Save cancelled"
-        
+
         sdfexp.save_3d_texture(data, filepath)
         return True
     except Exception as e:
@@ -78,23 +78,32 @@ def save_sdfvol_dialog(sdfexp, data, parent_window=None):
         root.destroy()
 
 
-def save_sdfobj_dialog(sdfexp, dist_sdf, color_sdf, export_z_up, export_level, exp_use_color, parent_window=None):
+def save_sdfobj_dialog(
+    sdfexp,
+    dist_sdf,
+    color_sdf,
+    export_z_up,
+    export_level,
+    exp_use_color,
+    parent_window=None,
+):
     # Open a save dialog and save the scene to JSON.
     try:
         root = tk.Tk()
         root.withdraw()  # Hide the root window
-        
+
         filepath = filedialog.asksaveasfilename(
             defaultextension=".obj",
             filetypes=[("wavefront obj", "*.obj"), ("All files", "*.*")],
             initialfile="scene.obj",
         )
-        
-        
+
         if not filepath:
             return False, "Filepath is not valid"
-        
-        success, message = sdfexp.export_to_obj(dist_sdf, color_sdf, filepath, export_z_up, export_level, exp_use_color)
+
+        success, message = sdfexp.export_to_obj(
+            dist_sdf, color_sdf, filepath, export_z_up, export_level, exp_use_color
+        )
         return success, message
 
     except Exception as e:
@@ -110,6 +119,7 @@ import numpy as np
 from OpenGL.GL import glReadBuffer, glReadPixels, GL_FRONT, GL_RGB, GL_UNSIGNED_BYTE
 from PIL import Image
 
+
 def take_screenshot(window):
     # Get window dimensions
     width, height = glfw.get_framebuffer_size(window)
@@ -123,21 +133,21 @@ def take_screenshot(window):
 
     root = tk.Tk()
     root.withdraw()  # Hide the root window
-    
+
     filepath = filedialog.asksaveasfilename(
         defaultextension=".png",
         filetypes=[
             ("PNG Images", "*.png"),
             ("JPEG Images", "*.jpg;*.jpeg"),
             ("BMP Images", "*.bmp"),
-            ("All Files", "*.*")
+            ("All Files", "*.*"),
         ],
-        initialfile="Screenshot.jpg"
+        initialfile="Screenshot.jpg",
     )
 
     root.destroy()
 
     # Save using Pillow
     if filepath:
-        img = Image.fromarray(image, 'RGB')
+        img = Image.fromarray(image, "RGB")
         img.save(filepath)

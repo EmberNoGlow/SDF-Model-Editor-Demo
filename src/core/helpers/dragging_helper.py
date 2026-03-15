@@ -6,6 +6,7 @@ from ...rendering.fbo import clear_accumulation_fbos
 import glfw
 import numpy as np
 
+
 def dragging_primitive(window, scene_builder, camera):
     ret_recompile_shader: bool = False
 
@@ -26,7 +27,7 @@ def dragging_primitive(window, scene_builder, camera):
 
             if st.dragging_op_id:
                 node = scene_builder.get_node(st.dragging_op_id)
-                if node and node.node_type == 'primitive':
+                if node and node.node_type == "primitive":
                     prim = node.item_data
                     # Copy the primitive start position
                     st.drag_start_pos = prim.position[:]
@@ -51,7 +52,7 @@ def dragging_primitive(window, scene_builder, camera):
             # Stop st.dragging: commit final position
             if st.dragging_op_id:
                 node = scene_builder.get_node(st.dragging_op_id)
-                if node and node.node_type == 'primitive':
+                if node and node.node_type == "primitive":
                     prim = node.item_data
                     final_pos = prim.position
                     # Register only if changed
@@ -72,15 +73,27 @@ def dragging_primitive(window, scene_builder, camera):
     if st.dragging:
         if key_x_is_down and not st.last_key_gx_pressed:
             state = not st.axis_toggled_gx
-            st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = state, False, False
+            st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = (
+                state,
+                False,
+                False,
+            )
 
         if key_y_is_down and not st.last_key_gy_pressed:
             state = not st.axis_toggled_gy
-            st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = False, state, False
+            st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = (
+                False,
+                state,
+                False,
+            )
 
         if key_z_is_down and not st.last_key_gz_pressed:
             state = not st.axis_toggled_gz
-            st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = False, False, state
+            st.axis_toggled_gx, st.axis_toggled_gy, st.axis_toggled_gz = (
+                False,
+                False,
+                state,
+            )
 
     # Update the "last key" flags for X/Y/Z
     st.last_key_gx_pressed = key_x_is_down
@@ -99,7 +112,7 @@ def dragging_primitive(window, scene_builder, camera):
     # Per-frame drag movement
     if st.dragging and st.dragging_op_id:
         node = scene_builder.get_node(st.dragging_op_id)
-        if node and node.node_type == 'primitive':
+        if node and node.node_type == "primitive":
             # Read current mouse and compute delta
             current_x, current_y = glfw.get_cursor_pos(window)
             dx = current_x - st.drag_last_x
@@ -108,15 +121,17 @@ def dragging_primitive(window, scene_builder, camera):
             st.drag_last_x, st.drag_last_y = current_x, current_y
 
             # Convert to mouse-space movement
-            mouse_delta_x = dx * cn['DRAG_SENSITIVITY']
-            mouse_delta_y = -dy * cn['DRAG_SENSITIVITY']
+            mouse_delta_x = dx * cn["DRAG_SENSITIVITY"]
+            mouse_delta_y = -dy * cn["DRAG_SENSITIVITY"]
 
             if np.linalg.norm(np.array([mouse_delta_x, mouse_delta_y])) > 0.01:
                 st.frame_count = 0
                 clear_accumulation_fbos()
 
             # Transform mouse deltas into world-space
-            move_delta_x, move_delta_y, move_delta_z = camera.get_move_delta(mouse_delta_x, mouse_delta_y)
+            move_delta_x, move_delta_y, move_delta_z = camera.get_move_delta(
+                mouse_delta_x, mouse_delta_y
+            )
 
             # Axis constraints
             if active_axis is not None:
@@ -154,10 +169,10 @@ def dragging_primitive(window, scene_builder, camera):
         # When not st.dragging
         if st.selected_item_id:
             node = scene_builder.get_node(st.selected_item_id)
-            if node and node.node_type == 'primitive':
+            if node and node.node_type == "primitive":
                 prim = node.item_data
                 st.drag_position = prim.position
         else:
             st.drag_position = [0.0, 0.0, 0.0]
-    
+
     return ret_recompile_shader

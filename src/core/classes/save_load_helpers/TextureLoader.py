@@ -4,6 +4,7 @@ import numpy as np
 from OpenGL.GL import *
 import os
 
+
 # Assume load_texture_from_image is defined as before (it's functional)
 def load_texture_from_image(image_path):
     """Loads an image into an OpenGL texture and returns its ID, width, and height."""
@@ -15,19 +16,28 @@ def load_texture_from_image(image_path):
         # Create OpenGL texture
         texture_id = glGenTextures(1)
         glBindTexture(GL_TEXTURE_2D, texture_id)
-        
+
         # Set wrapping/filtering
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        
+
         # Upload data
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
-                   GL_RGBA, GL_UNSIGNED_BYTE, image_data)
-        
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            GL_RGBA,
+            width,
+            height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            image_data,
+        )
+
         return texture_id, width, height
-    
+
     except FileNotFoundError:
         print(f"Error: Texture file not found at {image_path}")
         return None, 0, 0
@@ -42,15 +52,15 @@ def load_all_textures():
     and returns a dictionary mapping the unique ImageName to (texture_id, width, height).
     """
     # Use a list of paths that you want to load
-    paths_to_load = [] # Add path to icons (in png format)
-    
+    paths_to_load = []  # Add path to icons (in png format)
+
     loaded_textures = {}
-    filename_counts = {} # To track duplicates
+    filename_counts = {}  # To track duplicates
 
     for path in paths_to_load:
         # 1. Extract filename (ImageName) securely using os.path
-        base_filename = os.path.basename(path).replace(".png", "") # Remove Extension
-        
+        base_filename = os.path.basename(path).replace(".png", "")  # Remove Extension
+
         # 2. Handle potential filename collisions
         if base_filename in filename_counts:
             filename_counts[base_filename] += 1
@@ -59,7 +69,7 @@ def load_all_textures():
         else:
             filename_counts[base_filename] = 0
             name_key = base_filename
-            
+
         # 3. Load the texture (more secure by wrapping the load call)
         texture_info = load_texture_from_image(path)
         texture_id, width, height = texture_info

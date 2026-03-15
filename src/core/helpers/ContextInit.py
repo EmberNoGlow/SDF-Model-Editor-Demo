@@ -1,8 +1,8 @@
-
 import imgui
 import glfw
 
 from imgui.integrations.glfw import GlfwRenderer
+
 
 def init_glfw_impl(SCREEN_SIZE):
     # Initialize GLFW
@@ -12,7 +12,9 @@ def init_glfw_impl(SCREEN_SIZE):
 
     # Create a windowed mode window and its OpenGL context
     try:
-        window = glfw.create_window(SCREEN_SIZE[0], SCREEN_SIZE[1], "Viewport", None, None)
+        window = glfw.create_window(
+            SCREEN_SIZE[0], SCREEN_SIZE[1], "Viewport", None, None
+        )
         if not window:
             glfw.terminate()
             return
@@ -21,7 +23,6 @@ def init_glfw_impl(SCREEN_SIZE):
         print(f"{e}")
         glfw.terminate()
         return
-
 
     # Make the window's context current
     try:
@@ -32,5 +33,5 @@ def init_glfw_impl(SCREEN_SIZE):
     # Initialize ImGui
     imgui.create_context()
     impl = GlfwRenderer(window)
-    
+
     return window, impl

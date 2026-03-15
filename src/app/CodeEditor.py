@@ -9,7 +9,7 @@ class GLSLEditor(tk.Tk):
         self._processing_event = False
         self.title("GLSL Editor")
         # Set initial geometry and minimum size
-        self.geometry("1000x600") 
+        self.geometry("1000x600")
         self.minsize(650, 400)
 
         # --- Theme ---
@@ -30,9 +30,9 @@ class GLSLEditor(tk.Tk):
             "sidebar_bg": "#1e1e1e",
             "icon_color": "#cccccc",
         }
-        
-        self.sidebar_width = 300 # Initial width of the sidebar
-        self.sidebar_open = False # State of the sideba
+
+        self.sidebar_width = 300  # Initial width of the sidebar
+        self.sidebar_open = False  # State of the sideba
         self.rec = False
 
         self._build_ui()
@@ -78,11 +78,10 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         self.text.insert("1.0", demo_code)
         self.highlight_syntax()
         self.update_line_numbers()
-        
+
         # Initialize the read-only panel
         self._setup_readonly_panel()
         self.hide_readonly_panel()
-
 
     # -------------------- UI SETUP --------------------
 
@@ -90,15 +89,19 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         # Main container set to grid layout
         self.main_container = tk.Frame(self, bg=self.colors["bg"])
         self.main_container.pack(fill="both", expand=True)
-        
+
         # Grid configuration for the main content area (Editor + Sidebar)
-        self.main_container.grid_rowconfigure(1, weight=1) # Editor row expands vertically
-        self.main_container.grid_columnconfigure(1, weight=1) # Editor column expands horizontally
+        self.main_container.grid_rowconfigure(
+            1, weight=1
+        )  # Editor row expands vertically
+        self.main_container.grid_columnconfigure(
+            1, weight=1
+        )  # Editor column expands horizontally
 
         # 1. Top Bar (to hold the icon and title)
         top_bar = tk.Frame(self.main_container, bg=self.colors["line_bg"])
         top_bar.grid(row=0, column=0, columnspan=4, sticky="ew")
-        
+
         # Icon Button (Upper Left Corner)
         self.preview_button = tk.Button(
             top_bar,
@@ -110,7 +113,7 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
             command=self.toggle_readonly_panel,
             font=("Segoe UI", 12, "bold"),
             borderwidth=0,
-            width=12
+            width=12,
         )
         self.preview_button.pack(side="right", padx=15, pady=2)
 
@@ -125,7 +128,6 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         )
         title_label.pack(side="left", padx=10)
 
-
         # Recompile Button
         self.recompile_button = tk.Button(
             top_bar,
@@ -137,13 +139,12 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
             command=self.recompile_signal,
             font=("Segoe UI", 12, "bold"),
             borderwidth=0,
-            width=12
+            width=12,
         )
         self.recompile_button.pack(side="left", padx=5, pady=2)
 
-
         # --- Code Editor Components (Grid Layout) ---
-        
+
         # Line numbers panel (Column 0)
         self.line_numbers = tk.Text(
             self.main_container,
@@ -158,7 +159,7 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         )
         self.line_numbers.grid(row=1, column=0, sticky="ns")
 
-        # Scrollbars setup 
+        # Scrollbars setup
         self.v_scroll = tk.Scrollbar(self.main_container, orient="vertical")
         self.v_scroll.grid(row=1, column=2, sticky="ns")
 
@@ -186,24 +187,35 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
             xscrollcommand=self.h_scroll.set,
         )
         self.text.grid(row=1, column=1, sticky="nsew")
-        
+
         self.v_scroll.config(command=self._on_vscroll)
         self.h_scroll.config(command=self.text.xview)
-        
+
         # 3. Read-Only Panel Container (Column 3, dynamically managed)
-        self.readonly_frame = tk.Frame(self.main_container, bg=self.colors["sidebar_bg"], bd=1, relief="flat")
-        self.readonly_frame.grid_rowconfigure(0, weight=1) # Inner frame content expands vertically
-        self.readonly_frame.grid_columnconfigure(1, weight=1) # Inner text widget expands horizontally
+        self.readonly_frame = tk.Frame(
+            self.main_container, bg=self.colors["sidebar_bg"], bd=1, relief="flat"
+        )
+        self.readonly_frame.grid_rowconfigure(
+            0, weight=1
+        )  # Inner frame content expands vertically
+        self.readonly_frame.grid_columnconfigure(
+            1, weight=1
+        )  # Inner text widget expands horizontally
 
         # Resize Handle (Placed inside the readonly_frame, but positioned by its own grid location)
-        self.resize_handle = tk.Frame(self.readonly_frame, width=5, bg=self.colors["line_bg"], cursor="sb_h_double_arrow")
+        self.resize_handle = tk.Frame(
+            self.readonly_frame,
+            width=5,
+            bg=self.colors["line_bg"],
+            cursor="sb_h_double_arrow",
+        )
         self.resize_handle.grid(row=0, column=0, sticky="ns")
         self.resize_handle.bind("<B1-Motion>", self._resize_panel)
         self.resize_handle.bind("<ButtonPress-1>", self._start_resize)
 
     def _setup_readonly_panel(self):
         """Sets up the readonly text widget inside the sidebar frame."""
-        
+
         # Read-Only Text Widget (Column 1 of the readonly_frame)
         self.readonly_text = tk.Text(
             self.readonly_frame,
@@ -215,19 +227,18 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
             pady=8,
             border=0,
             font=self.text_font,
-            state="disabled" # Crucial: makes it non-editable
+            state="disabled",  # Crucial: makes it non-editable
         )
         self.readonly_text.grid(row=0, column=1, sticky="nsew")
-        
+
         # Apply syntax highlighting configuration to the readonly widget
         for tag in ("keyword", "type", "builtin", "number", "string", "comment"):
             self.readonly_text.tag_configure(tag, foreground=self.colors[tag])
 
     # -------------------- SIDEBAR TOGGLE & RESIZE LOGIC --------------------
-    
+
     def recompile_signal(self):
         self.rec = True
-
 
     def toggle_readonly_panel(self):
         """Shows or hides the right panel."""
@@ -235,38 +246,42 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
             self.hide_readonly_panel()
         else:
             self.show_readonly_panel()
-            
+
     def show_readonly_panel(self):
         """Displays the panel on the right and sets up grid weights."""
         self.sidebar_open = True
-        
+
         # 1. Place the sidebar frame in the grid (column 3)
         self.readonly_frame.grid(row=1, column=3, rowspan=2, sticky="ns")
-        
+
         # 2. Configure the column width for the sidebar
         self.readonly_frame.config(width=self.sidebar_width)
-        self.readonly_frame.grid_propagate(False) 
-        
+        self.readonly_frame.grid_propagate(False)
+
         # 3. Configure the grid column structure of the main container
-        self.main_container.grid_columnconfigure(3, minsize=self.sidebar_width, weight=0)
-        
+        self.main_container.grid_columnconfigure(
+            3, minsize=self.sidebar_width, weight=0
+        )
+
         # 4. Update content and redraw
         self.update_readonly_content()
-        self.preview_button.config(text="⇶ close preview", fg="#A9A9A9") # Change icon to close indicator
+        self.preview_button.config(
+            text="⇶ close preview", fg="#A9A9A9"
+        )  # Change icon to close indicator
 
     def hide_readonly_panel(self):
         """Hides the panel and allows the editor to take full space."""
         self.sidebar_open = False
-        
+
         # 1. Remove the sidebar frame from the grid
         self.readonly_frame.grid_forget()
-        
+
         # 2. Reset the column configuration to collapse column 3
         self.main_container.grid_columnconfigure(3, weight=0, minsize=0)
 
         # 3. Update icon
         self.preview_button.config(text="☷ preview code", fg=self.colors["icon_color"])
-        
+
     def update_readonly_content(self):
         """Copies content and reapplies highlighting to the read-only widget."""
         if not self.sidebar_open:
@@ -274,11 +289,11 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
 
         code = self.text.get("1.0", "end-1c")
         code = self.format_glsl_code(code)
-        
+
         self.readonly_text.config(state="normal")
         self.readonly_text.delete("1.0", "end")
         self.readonly_text.insert("1.0", code)
-        
+
         # Re-apply highlighting
         for tag in ("keyword", "type", "builtin", "number", "string", "comment"):
             pattern = self.syntax_patterns[tag]
@@ -289,34 +304,34 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
                 self.readonly_text.tag_add(tag, start_index, end_index)
 
         self.readonly_text.config(state="disabled")
-        
+
     # --- Resizing Logic ---
-    
+
     def _start_resize(self, event):
         """Begins the resize operation."""
         self._resize_start_x = event.x_root
         self._initial_width = self.sidebar_width
-        
+
     def _resize_panel(self, event):
         """Handles the mouse motion while dragging the handle."""
         delta_x = event.x_root - self._resize_start_x
-        
+
         new_width = self._initial_width - delta_x
-        
+
         MIN_WIDTH = 300
         MAX_WIDTH = self.winfo_width() // 2
-        
+
         if MIN_WIDTH < new_width < MAX_WIDTH:
             self.sidebar_width = new_width
-            
+
             # Update the frame width configuration directly
             self.readonly_frame.config(width=self.sidebar_width)
-            
+
             # Update content to reflect new wrapping
             self.update_readonly_content()
 
     # -------------------- EVENT BINDINGS & UPDATES --------------------
-    
+
     def _bind_events(self):
         # Content changes
         self.text.bind("<KeyRelease>", self._on_key_release)
@@ -346,28 +361,27 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         # Layout monitoring
         self.text.bind("<Configure>", self._on_editor_resize)
 
-
     def _on_key_release(self, event=None):
         if self._processing_event:
             return
         self._processing_event = True
-        
+
         self.update_line_numbers()
         self.highlight_syntax()
         if self.sidebar_open:
             self.update_readonly_content()
-        
+
         self._processing_event = False
 
     def _on_cursor_move(self, event=None):
         if self._processing_event:
             return
         self._processing_event = True
-        
+
         self.update_line_numbers()
-        
+
         self._processing_event = False
-        
+
     def _on_editor_resize(self, event):
         # This helps ensure grid layouts manage space correctly when the window is resized
         self.update_line_numbers()
@@ -409,68 +423,152 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
     def _setup_syntax(self):
         # GLSL keyword/type/builtin sets
         glsl_keywords = [
-            "attribute", "const", "uniform", "varying", "layout",
-            "centroid", "flat", "smooth", "noperspective",
-            "break", "continue", "do", "for", "while",
-            "switch", "case", "default", "if", "else",
-            "in", "out", "inout", "invariant",
-            "discard", "return",
-            "lowp", "mediump", "highp", "precision",
-            "struct"
+            "attribute",
+            "const",
+            "uniform",
+            "varying",
+            "layout",
+            "centroid",
+            "flat",
+            "smooth",
+            "noperspective",
+            "break",
+            "continue",
+            "do",
+            "for",
+            "while",
+            "switch",
+            "case",
+            "default",
+            "if",
+            "else",
+            "in",
+            "out",
+            "inout",
+            "invariant",
+            "discard",
+            "return",
+            "lowp",
+            "mediump",
+            "highp",
+            "precision",
+            "struct",
         ]
 
         glsl_types = [
-            "void", "bool", "int", "uint", "float", "double",
-            "vec2", "vec3", "vec4",
-            "bvec2", "bvec3", "bvec4",
-            "ivec2", "ivec3", "ivec4",
-            "uvec2", "uvec3", "uvec4",
-            "mat2", "mat3", "mat4",
-            "sampler1D", "sampler2D", "sampler3D",
-            "samplerCube", "sampler2DShadow",
+            "void",
+            "bool",
+            "int",
+            "uint",
+            "float",
+            "double",
+            "vec2",
+            "vec3",
+            "vec4",
+            "bvec2",
+            "bvec3",
+            "bvec4",
+            "ivec2",
+            "ivec3",
+            "ivec4",
+            "uvec2",
+            "uvec3",
+            "uvec4",
+            "mat2",
+            "mat3",
+            "mat4",
+            "sampler1D",
+            "sampler2D",
+            "sampler3D",
+            "samplerCube",
+            "sampler2DShadow",
             "samplerCubeShadow",
-            "sampler2DArray", "sampler2DArrayShadow",
-            "isampler2D", "usampler2D"
+            "sampler2DArray",
+            "sampler2DArrayShadow",
+            "isampler2D",
+            "usampler2D",
         ]
 
         glsl_builtins = [
-            "radians", "degrees", "sin", "cos", "tan",
-            "asin", "acos", "atan", "pow", "exp", "log",
-            "exp2", "log2", "sqrt", "inversesqrt",
-            "abs", "sign", "floor", "ceil", "fract", "mod",
-            "min", "max", "clamp", "mix", "step", "smoothstep",
-            "length", "distance", "dot", "cross", "normalize",
-            "faceforward", "reflect", "refract",
+            "radians",
+            "degrees",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "pow",
+            "exp",
+            "log",
+            "exp2",
+            "log2",
+            "sqrt",
+            "inversesqrt",
+            "abs",
+            "sign",
+            "floor",
+            "ceil",
+            "fract",
+            "mod",
+            "min",
+            "max",
+            "clamp",
+            "mix",
+            "step",
+            "smoothstep",
+            "length",
+            "distance",
+            "dot",
+            "cross",
+            "normalize",
+            "faceforward",
+            "reflect",
+            "refract",
             "matrixCompMult",
-            "lessThan", "lessThanEqual",
-            "greaterThan", "greaterThanEqual",
-            "equal", "notEqual", "any", "all", "not",
-            "texture", "texture2D", "textureCube", 
-            "rgb", "rgba", "r", "g", "b", "a", 
-            "xyz", "xyzw", "xy", "xz", "x", "y", "z", "w"
+            "lessThan",
+            "lessThanEqual",
+            "greaterThan",
+            "greaterThanEqual",
+            "equal",
+            "notEqual",
+            "any",
+            "all",
+            "not",
+            "texture",
+            "texture2D",
+            "textureCube",
+            "rgb",
+            "rgba",
+            "r",
+            "g",
+            "b",
+            "a",
+            "xyz",
+            "xyzw",
+            "xy",
+            "xz",
+            "x",
+            "y",
+            "z",
+            "w",
         ]
 
         # Compile regex patterns
         self.syntax_patterns = {
             "keyword": re.compile(
-                r"\b(?:"
-                + "|".join(re.escape(k) for k in glsl_keywords)
-                + r")\b"
+                r"\b(?:" + "|".join(re.escape(k) for k in glsl_keywords) + r")\b"
             ),
             "type": re.compile(
-                r"\b(?:"
-                + "|".join(re.escape(t) for t in glsl_types)
-                + r")\b"
+                r"\b(?:" + "|".join(re.escape(t) for t in glsl_types) + r")\b"
             ),
             "builtin": re.compile(
-                r"\b(?:"
-                + "|".join(re.escape(b) for b in glsl_builtins)
-                + r")\b"
+                r"\b(?:" + "|".join(re.escape(b) for b in glsl_builtins) + r")\b"
             ),
             "number": re.compile(r"\b\d+(\.\d+)?\b"),
             "string": re.compile(
-                r'"([^"\\]|\\.)*"|'   # double-quoted
-                r"'([^'\\]|\\.)*'"    # single-quoted
+                r'"([^"\\]|\\.)*"|'  # double-quoted
+                r"'([^'\\]|\\.)*'"  # single-quoted
             ),
             "comment": re.compile(r"//.*|/\*[\s\S]*?\*/"),
         }
@@ -498,7 +596,6 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
                 start_index = f"1.0+{start}c"
                 end_index = f"1.0+{end}c"
                 text.tag_add(tag, start_index, end_index)
-    
 
     def format_glsl_code(self, code: str) -> str:
         """
@@ -556,7 +653,7 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         INDENT_SPACE = "    "  # 4 spaces
 
         # Normalize tabs to spaces
-        code_normalized = code.replace('\t', INDENT_SPACE)
+        code_normalized = code.replace("\t", INDENT_SPACE)
 
         # Apply indentation (only to non-empty lines)
         indented_lines = []
@@ -576,18 +673,12 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         )
 
         # --- 3. Add suffix ---
-        suffix = (
-            "\n    // --- End Custom Scene Code ---"
-            "\n    return sceneRes;\n"
-            "}"
-        )
+        suffix = "\n    // --- End Custom Scene Code ---" "\n    return sceneRes;\n" "}"
 
         # Combine all parts
         formatted_code = prefix + indented_code + suffix
 
         return formatted_code
-
-
 
     # -------------------- EDITING HANDLERS (Auto-pair, Tab, Enter) --------------------
 
@@ -625,7 +716,7 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         return "break"
 
     # -------------------- CLIPBOARD OPERATIONS --------------------
-    
+
     def get_plain_text(self):
         return self.text.get("1.0", "end-1c")
 
@@ -661,5 +752,5 @@ sceneRes.rgb = mixColorSmooth(sceneRes.rgb, box_and_sph_col, sceneRes.w, box_and
         return "break"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     GLSLEditor().mainloop()
