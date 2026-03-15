@@ -8,6 +8,35 @@ class st:
     Container for application state variables that change during runtime.
     Groups variables by functional areas with detailed comments.
     """
+    start_time = 0.0
+    prev_time  = 0.0
+
+
+    selected_item_id = None
+    
+    # Moved variables
+    drag_position = [0,0,0]
+    drag_rot_position = [0,0,0]
+
+    
+    # Multi-selection support (CTRL+click to toggle)
+    selected_items = set()
+    selected_item_id = None
+
+
+    # --- Accumulation Buffer Setup ---
+    accumulation_width = 0
+    accumulation_height = 0
+    max_frames = 128
+    accumulation_textures = [None, None]  # Double buffer
+    accumulation_fbos = [None, None]
+    current_accum_index = 0  # Which one to write to
+
+    scaled_rendering_width = 0
+    scaled_rendering_height = 0
+
+    scaled_rendering_width = 0.0
+    scaled_rendering_height = 0.0
 
     # --- Camera State ---
     target_yaw: float = 0.0  # Target yaw angle (horizontal rotation) in radians

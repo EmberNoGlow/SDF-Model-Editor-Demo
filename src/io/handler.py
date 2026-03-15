@@ -170,5 +170,15 @@ def handler(window, io, scene_builder, glob_history, selected_item_id, selected_
     else:
         st.last_key_y_pressed = False
 
+
+    # Check F10 for settings
+    if io.keys_down[glfw.KEY_F10]:
+        if not st.last_key_f10_pressed:
+            st.show_settings_window = True
+            st.last_key_f10_pressed = True
+    else:
+        st.last_key_f10_pressed = False
+
+
     # In this frame we must recompile the shader
     return ret_recompile_shader, selected_item_id, selected_items

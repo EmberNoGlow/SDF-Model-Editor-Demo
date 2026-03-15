@@ -6,7 +6,7 @@ from ...rendering.fbo import clear_accumulation_fbos
 import glfw
 import numpy as np
 
-def dragging_primitive(window, scene_builder, camera, selected_item_id, accumulation_fbos, scaled_rendering_width, scaled_rendering_height):
+def dragging_primitive(window, scene_builder, camera):
     ret_recompile_shader: bool = False
 
     # Drag on G
@@ -22,7 +22,7 @@ def dragging_primitive(window, scene_builder, camera, selected_item_id, accumula
 
         if st.dragging:
             # Start st.dragging: capture which item and initialize drag state
-            st.dragging_op_id = selected_item_id
+            st.dragging_op_id = st.selected_item_id
 
             if st.dragging_op_id:
                 node = scene_builder.get_node(st.dragging_op_id)
@@ -113,7 +113,7 @@ def dragging_primitive(window, scene_builder, camera, selected_item_id, accumula
 
             if np.linalg.norm(np.array([mouse_delta_x, mouse_delta_y])) > 0.01:
                 st.frame_count = 0
-                clear_accumulation_fbos(accumulation_fbos, scaled_rendering_width, scaled_rendering_height)
+                clear_accumulation_fbos()
 
             # Transform mouse deltas into world-space
             move_delta_x, move_delta_y, move_delta_z = camera.get_move_delta(mouse_delta_x, mouse_delta_y)
@@ -148,16 +148,16 @@ def dragging_primitive(window, scene_builder, camera, selected_item_id, accumula
 
             # Apply live position
             prim.position = new_pos
-            drag_position = new_pos.copy()
+            st.drag_position = new_pos.copy()
 
     else:
         # When not st.dragging
-        if selected_item_id:
-            node = scene_builder.get_node(selected_item_id)
+        if st.selected_item_id:
+            node = scene_builder.get_node(st.selected_item_id)
             if node and node.node_type == 'primitive':
                 prim = node.item_data
-                drag_position = prim.position
+                st.drag_position = prim.position
         else:
-            drag_position = [0.0, 0.0, 0.0]
+            st.drag_position = [0.0, 0.0, 0.0]
     
-    return ret_recompile_shader, drag_position
+    return ret_recompile_shader

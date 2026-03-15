@@ -1,14 +1,16 @@
 from OpenGL.GL import *
 
-def clear_accumulation_fbos(accumulation_fbos,scaled_rendering_width,scaled_rendering_height):
+from ..app.data.states import st
+
+def clear_accumulation_fbos():
     # Reset accumulation buffers so no stale data is read later
-    if accumulation_fbos[0] is not None and accumulation_fbos[1] is not None:
+    if st.accumulation_fbos[0] is not None and st.accumulation_fbos[1] is not None:
         # store current viewport to restore later if you need; here we assume you will set proper viewport when drawing
-        glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[0])
-        glViewport(0, 0, scaled_rendering_width, scaled_rendering_height)
+        glBindFramebuffer(GL_FRAMEBUFFER, st.accumulation_fbos[0])
+        glViewport(0, 0, st.scaled_rendering_width, st.scaled_rendering_height)
         glClearColor(0.0, 0.0, 0.0, 0.0)
         glClear(GL_COLOR_BUFFER_BIT)
-        glBindFramebuffer(GL_FRAMEBUFFER, accumulation_fbos[1])
+        glBindFramebuffer(GL_FRAMEBUFFER, st.accumulation_fbos[1])
         glClearColor(0.0, 0.0, 0.0, 0.0)
         glClear(GL_COLOR_BUFFER_BIT)
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -50,29 +52,29 @@ def setup_framebuffer(width, height, fbo, render_texture, fbo_width, fbo_height)
 
 
 
-def setup_accumulation_buffer(width, height, accumulation_fbos, accumulation_textures, accumulation_width, accumulation_height):
+def setup_accumulation_buffer(width, height):
     """Create or update accumulation buffers (double-buffered) for temporal filtering."""
 
     # If already set up for this size and both buffers exist, nothing to do.
-    if (accumulation_width == width and accumulation_height == height and
-            accumulation_fbos[0] is not None and accumulation_fbos[1] is not None and
-            accumulation_textures[0] is not None and accumulation_textures[1] is not None):
-        return True, width, height, accumulation_fbos, accumulation_textures, accumulation_width, accumulation_height
-
+    if (st.accumulation_width == width and st.accumulation_height == height and
+            st.accumulation_fbos[0] is not None and st.accumulation_fbos[1] is not None and
+            st.accumulation_textures[0] is not None and st.accumulation_textures[1] is not None):
+        return True, width, height
+    
     # Delete old buffers/textures if they exist
     for i in range(2):
-        if accumulation_fbos[i] is not None:
+        if st.accumulation_fbos[i] is not None:
             try:
-                glDeleteFramebuffers(1, [accumulation_fbos[i]])
+                glDeleteFramebuffers(1, [st.accumulation_fbos[i]])
             except Exception:
                 pass
-            accumulation_fbos[i] = None
-        if accumulation_textures[i] is not None:
+            st.accumulation_fbos[i] = None
+        if st.accumulation_textures[i] is not None:
             try:
-                glDeleteTextures(1, [accumulation_textures[i]])
+                glDeleteTextures(1, [st.accumulation_textures[i]])
             except Exception:
                 pass
-            accumulation_textures[i] = None
+            st.accumulation_textures[i] = None
 
     # Create two FBO/texture pairs
     for i in range(2):
@@ -98,26 +100,26 @@ def setup_accumulation_buffer(width, height, accumulation_fbos, accumulation_tex
             # Clean up what we created so far
             glBindFramebuffer(GL_FRAMEBUFFER, 0)
             for j in range(2):
-                if accumulation_fbos[j] is not None:
+                if st.accumulation_fbos[j] is not None:
                     try:
-                        glDeleteFramebuffers(1, [accumulation_fbos[j]])
+                        glDeleteFramebuffers(1, [st.accumulation_fbos[j]])
                     except Exception:
                         pass
-                    accumulation_fbos[j] = None
-                if accumulation_textures[j] is not None:
+                    st.accumulation_fbos[j] = None
+                if st.accumulation_textures[j] is not None:
                     try:
-                        glDeleteTextures(1, [accumulation_textures[j]])
+                        glDeleteTextures(1, [st.accumulation_textures[j]])
                     except Exception:
                         pass
-                    accumulation_textures[j] = None
-            return False, width, height, accumulation_fbos, accumulation_textures, accumulation_width, accumulation_height
+                    st.accumulation_textures[j] = None
+            return False, width, height
 
         # Store handles
-        accumulation_fbos[i] = fbo_i
-        accumulation_textures[i] = tex_i
+        st.accumulation_fbos[i] = fbo_i
+        st.accumulation_textures[i] = tex_i
 
     # Update size bookkeeping and unbind framebuffer
-    accumulation_width = width
-    accumulation_height = height
+    st.accumulation_width = width
+    st.accumulation_height = height
     glBindFramebuffer(GL_FRAMEBUFFER, 0)
-    return True, width, height, accumulation_fbos, accumulation_textures, accumulation_width, accumulation_height
+    return True, width, height

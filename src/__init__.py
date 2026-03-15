@@ -23,6 +23,7 @@ from .core.classes.config.UConfig import *
 
 from .core.helpers.ContextInit import *
 from .core.helpers.dragging_helper import dragging_primitive
+from .core.helpers.rotation_helper import rotate_privitive
 
 from .core.classes.uniform_managers.set_specific_uniforms_helper import *
 

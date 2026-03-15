@@ -6,7 +6,8 @@ cn = {
     'SCREEN_SIZE': (1280, 720),  # Width and height in pixels
     'FOV_ANGLE': math.radians(75),  # Field of View angle in radians - used for ray direction calculation in rendering
     'STEP_VARIABLE_FLOAT': 0.1,  # Step size for floating movement (e.g., forward/backward motion)
-    'STEP_VARIABLE_ROTATION': 5.0,  # Rotation step in degrees - used when rotating the view or object
+    'STEP_VARIABLE_ANGLE': 5.0,  # Rotation step in degrees - used when rotating the view or object
+
 
     # UI (User Interface) constants
     'PANEL_WIDTH_RATIO': 0.2,  # Ratio of left/right panel width relative to total window width (e.g., 20 % of screen width)
@@ -29,4 +30,5 @@ cn = {
     'MAX_PITCH': math.radians(90),  # Maximum allowed pitch angle in radians (+90° - looking straight up)
 
     'DRAG_SENSITIVITY': 0.01,
+    'R_ROT_SENSITIVITY': 0.1
 }
