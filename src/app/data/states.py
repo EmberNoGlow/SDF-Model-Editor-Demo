@@ -179,4 +179,46 @@ class st:
     shader_cache = {}  # Cache for compiled shaders: {hash: (shader_program, uniforms)}
 
     additional_scene_code: str = ""
+
+    # Window & rendering
+    window = None
+    vao = None
+    display_vao = None
+    display_vbo = None
+    fbo = None
+    render_texture = None
+    fbo_width = 0
+    fbo_height = 0
+
+    # Scene
+    scene_builder = None
+
+    # Shader & rendering
+    shader = None
+    uniform_locs = None
+    monitor_shader_changes = False
+
+    # Timing
+    prev_time = 0.0
+    start_time = 0.0
+    delta_time = 0.0
+    fps_clock = 0.0
+    fps_frames = 0
+    fps_value = 0
+
+    # Camera
+    prev_cam_yaw = 0.0
+    prev_cam_pitch = 0.0
+    prev_cam_radius = 0.0
+    prev_cam_orbit = [0.0, 0.0, 0.0]
+
+    # UI State
+    current_settings_tab = "Themes"
+    default_uconfig = {}
+    rename_text = ""
+    renaming_item_id = None
+
+    # Code editor
+    CE_app = None
+    tkinter_thread = None
     
