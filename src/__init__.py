@@ -1,3 +1,12 @@
+import glfw
+from OpenGL.GL import *
+from OpenGL.GL.shaders import compileProgram, compileShader
+import math
+import time
+import imgui
+
+
+
 # Local Packages
 from .core.SDFObjects import SDFOperation, SDFPrimitive
 from .core.SceneBuilder import SDFSceneBuilder
@@ -21,7 +30,7 @@ from .core.classes.save_load_helpers.TextureLoader import *
 
 from .core.classes.config.UConfig import *
 
-from .core.helpers.ContextInit import *
+from .core.helpers.context_init import *
 from .core.helpers.dragging_helper import dragging_primitive
 from .core.helpers.rotation_helper import rotate_privitive
 
@@ -35,3 +44,7 @@ from .rendering.camera import *
 from .rendering.uniforms_helper import *
 from .rendering.OpenGL_setup.rendering_utils import *
 from .rendering.render_pass import rendering_pass
+
+
+from .ui import themes as ui_themes
+

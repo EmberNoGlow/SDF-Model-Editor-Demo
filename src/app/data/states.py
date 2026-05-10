@@ -9,6 +9,7 @@ class st:
     Container for application state variables that change during runtime.
     Groups variables by functional areas with detailed comments.
     """
+    glob_history = None
 
     start_time = 0.0
     prev_time = 0.0
