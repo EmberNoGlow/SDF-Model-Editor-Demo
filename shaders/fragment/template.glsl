@@ -292,7 +292,7 @@ vec3 Sprite(
     if( plane.intersects ){
         if(plane.t < SceneDepth){
             vec2 uv = 1.0-plane.uv*uvSize;
-            vec4 spr_col = texture2DLod(SprTexture, uv, LOD);
+            vec4 spr_col = texture2D(SprTexture, uv, LOD);
             col = mix(col, spr_col.rgb, spr_col.a*Alpha);
         }
     }
